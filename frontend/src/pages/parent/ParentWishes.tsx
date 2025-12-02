@@ -4,8 +4,46 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Plus, Trash2, Check, CheckCircle2, Circle, Settings2, Edit2, X } from 'lucide-react';
+import { Plus, Trash2, Check, CheckCircle2, Circle, Settings2, Edit2, X, Sparkles } from 'lucide-react';
 import api from '../../services/api';
+
+// 商品模板
+const SHOP_TEMPLATES = [
+  { title: '看电视30分钟', icon: '📺', cost: 30, stock: 99 },
+  { title: '看电视1小时', icon: '📺', cost: 50, stock: 99 },
+  { title: '小零食', icon: '🍬', cost: 5, stock: 10 },
+  { title: '冰淇淋', icon: '🍦', cost: 15, stock: 20 },
+  { title: '棒棒糖', icon: '🍭', cost: 3, stock: 30 },
+  { title: '饼干', icon: '🍪', cost: 8, stock: 20 },
+  { title: '蛋糕', icon: '🎂', cost: 40, stock: 5 },
+  { title: '玩手机30分钟', icon: '📱', cost: 25, stock: 99 },
+  { title: '玩游戏1小时', icon: '🎮', cost: 60, stock: 99 },
+  { title: '去公园玩', icon: '🏞️', cost: 30, stock: 10 },
+  { title: '买小玩具', icon: '🧸', cost: 50, stock: 5 },
+  { title: '新书一本', icon: '📚', cost: 80, stock: 10 },
+  { title: '画画工具', icon: '🎨', cost: 40, stock: 5 },
+  { title: '贴纸一套', icon: '🏷️', cost: 10, stock: 20 },
+  { title: '选择晚餐', icon: '🍕', cost: 20, stock: 99 },
+];
+
+// 抽奖奖池模板
+const LOTTERY_TEMPLATES = [
+  { title: '100金币', icon: '💰', weight: 5 },      // 稀有 ~3%
+  { title: '1元零花钱', icon: '💵', weight: 8 },   // 稀有 ~5%
+  { title: '免做家务卡', icon: '🎫', weight: 15 }, // 较少 ~9%
+  { title: '神秘糖果', icon: '🍬', weight: 25 },   // 常见 ~15%
+  { title: '10金币', icon: '🪙', weight: 30 },     // 常见 ~18%
+  { title: '贴纸一张', icon: '🏷️', weight: 25 },   // 常见 ~15%
+  { title: '再抽一次', icon: '🔄', weight: 20 },   // 较少 ~12%
+  { title: '谢谢参与', icon: '😎', weight: 40 },    // 最常见 ~24%
+  { title: '小零食', icon: '🍭', weight: 30 },
+  { title: '看电视30分钟', icon: '📺', weight: 20 },
+  { title: '玩手机30分钟', icon: '📱', weight: 15 },
+  { title: '5金币', icon: '🪙', weight: 35 },
+  { title: '神秘礼物', icon: '🎁', weight: 10 },
+  { title: '惊喜糖果', icon: '🍪', weight: 28 },
+  { title: '再来一次机会', icon: '✨', weight: 18 },
+];
 
 // 预设图标库
 const SHOP_ICONS = [
@@ -69,6 +107,8 @@ export default function ParentWishes() {
   const [wishes, setWishes] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
   
   // Tabs: shop | savings | lottery
   const [viewType, setViewType] = useState<'shop'|'savings'|'lottery'>('shop');
@@ -129,6 +169,39 @@ export default function ParentWishes() {
     setShowAdd(false); 
     resetForm();
     fetchWishes();
+  };
+
+  // 切换模板选择
+  const toggleTemplate = (index: number) => {
+    setSelectedTemplates(prev => 
+      prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+    );
+  };
+
+  // 批量添加选中的模板
+  const handleAddTemplates = async () => {
+    if (selectedTemplates.length === 0) return alert('请至少选择一个模板');
+    
+    try {
+      const templates = viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES;
+      for (const index of selectedTemplates) {
+        const template = templates[index];
+        await api.post('/parent/wishes', {
+          type: viewType,
+          title: template.title,
+          icon: template.icon,
+          cost: viewType === 'shop' ? template.cost : 0,
+          stock: viewType === 'shop' ? template.stock : -1,
+          weight: viewType === 'lottery' ? template.weight : 10
+        });
+      }
+      alert(`成功添加 ${selectedTemplates.length} 个${viewType === 'shop' ? '商品' : '奖品'}！`);
+      setShowTemplates(false);
+      setSelectedTemplates([]);
+      fetchWishes();
+    } catch (e) {
+      alert('添加失败');
+    }
   };
   
   // 打开编辑权重弹窗
@@ -223,7 +296,13 @@ export default function ParentWishes() {
           ].map(tab => (
               <button 
                 key={tab.id}
-                onClick={() => { setViewType(tab.id as any); setShowAdd(false); resetForm(); }}
+                onClick={() => { 
+                  setViewType(tab.id as any); 
+                  setShowAdd(false); 
+                  setShowTemplates(false);
+                  setSelectedTemplates([]);
+                  resetForm(); 
+                }}
                 className={`flex-1 py-3 text-sm font-bold transition-colors ${viewType === tab.id ? 'text-pink-600 border-b-2 border-pink-600 bg-pink-50/50' : 'text-gray-500'}`}
               >
                   {tab.label}
@@ -324,8 +403,22 @@ export default function ParentWishes() {
       )}
 
       <div className="p-4 space-y-3 overflow-y-auto flex-1">
+        {/* 快捷模板入口 - 商品和抽奖 */}
+        {(viewType === 'shop' || viewType === 'lottery') && filteredList.length > 0 && !showTemplates && (
+          <button 
+            onClick={() => setShowTemplates(true)}
+            className={`w-full p-3 border rounded-xl flex items-center justify-center gap-2 font-medium text-sm hover:opacity-90 transition-all mb-2 ${
+              viewType === 'shop' 
+                ? 'bg-gradient-to-r from-pink-50 to-rose-50 border-pink-100 text-pink-600 hover:from-pink-100 hover:to-rose-100'
+                : 'bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-100 text-purple-600 hover:from-purple-100 hover:to-indigo-100'
+            }`}
+          >
+            <Sparkles size={16}/> 从模板快速添加更多{viewType === 'shop' ? '商品' : '奖品'}
+          </button>
+        )}
+
         {/* 抽奖奖池特殊操作栏 */}
-        {viewType === 'lottery' && lotteryItems.length > 0 && (
+        {viewType === 'lottery' && lotteryItems.length > 0 && !showTemplates && (
           <div className={`p-3 rounded-xl ${lotteryEditMode ? 'bg-purple-100 border-2 border-purple-400' : 'bg-purple-50'}`}>
             <div className="flex items-center justify-between">
               <div className="text-sm">
@@ -373,14 +466,99 @@ export default function ParentWishes() {
           </div>
         )}
 
-        {filteredList.length === 0 && !showAdd && (
+        {/* 模板选择界面 */}
+        {showTemplates && (viewType === 'shop' || viewType === 'lottery') && (
+          <div className="animate-in fade-in">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Sparkles className={viewType === 'shop' ? 'text-pink-500' : 'text-purple-500'} size={20}/>
+                选择{viewType === 'shop' ? '商品' : '奖品'}模板
+              </h3>
+              <span className="text-sm text-gray-500">已选 {selectedTemplates.length} 个</span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2">
+              {(viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES).map((template, index) => {
+                const isSelected = selectedTemplates.includes(index);
+                return (
+                  <button
+                    key={index}
+                    onClick={() => toggleTemplate(index)}
+                    className={`p-3 rounded-xl text-left transition-all border-2 ${
+                      isSelected 
+                        ? (viewType === 'shop' ? 'border-pink-500 bg-pink-50' : 'border-purple-500 bg-purple-50')
+                        : 'border-gray-100 bg-white hover:border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <span className="text-xl">{template.icon}</span>
+                      {isSelected && <Check size={16} className={viewType === 'shop' ? 'text-pink-500' : 'text-purple-500'}/>}
+                    </div>
+                    <div className="font-bold text-sm mt-1 text-gray-800">{template.title}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">
+                      {viewType === 'shop' ? (
+                        <>💰 {template.cost} 金币 · 库存 {template.stock}</>
+                      ) : (
+                        <>权重: {template.weight}</>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className="flex gap-2 sticky bottom-0 bg-gray-50 py-3 -mx-4 px-4 border-t mt-4">
+              <Button onClick={() => { setShowTemplates(false); setSelectedTemplates([]); }} variant="ghost" className="flex-1">
+                取消
+              </Button>
+              <Button 
+                onClick={handleAddTemplates} 
+                className={`flex-1 border-none ${
+                  viewType === 'shop' 
+                    ? 'bg-gradient-to-r from-pink-500 to-rose-500' 
+                    : 'bg-gradient-to-r from-purple-500 to-indigo-500'
+                }`}
+                disabled={selectedTemplates.length === 0}
+              >
+                添加 {selectedTemplates.length} 个{viewType === 'shop' ? '商品' : '奖品'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 空状态 - 显示模板入口 */}
+        {filteredList.length === 0 && !showAdd && !showTemplates && (
             <div className="text-center py-8">
                 <div className="text-5xl mb-3">
                     {viewType === 'shop' && '🛒'}
                     {viewType === 'savings' && '🎯'}
                     {viewType === 'lottery' && '🎰'}
                 </div>
-                <div className="text-gray-400">暂无数据，点击右上角 + 添加</div>
+                <div className="text-gray-500 mb-4">还没有{viewType === 'shop' ? '商品' : viewType === 'lottery' ? '奖品' : '储蓄目标'}哦</div>
+                {(viewType === 'shop' || viewType === 'lottery') && (
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => setShowTemplates(true)}
+                      className="bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 mx-auto hover:opacity-90 transition-all"
+                    >
+                      <Sparkles size={18}/> 从模板快速添加
+                    </button>
+                    <button 
+                      onClick={() => setShowAdd(true)}
+                      className="text-pink-600 font-medium text-sm"
+                    >
+                      或手动创建
+                    </button>
+                  </div>
+                )}
+                {viewType === 'savings' && (
+                  <button 
+                    onClick={() => setShowAdd(true)}
+                    className="text-blue-600 font-medium text-sm"
+                  >
+                    点击创建储蓄目标
+                  </button>
+                )}
             </div>
         )}
         {filteredList.map(w => (
