@@ -1,0 +1,78 @@
+# 星辰动力系统 (Stellar Drive System) - 开发规则
+
+## 核心协议：RIPER-5模式
+
+### 模式声明要求
+- 必须在每个响应开头声明模式：[MODE: RESEARCH/INNOVATE/PLAN/EXECUTE/REVIEW]
+- 默认模式：RESEARCH（除非明确指示）
+- 模式转换需要明确信号：ENTER [MODE] MODE
+
+### 模式操作规范
+- RESEARCH: 仅信息收集，禁止建议和实施
+- INNOVATE: 仅讨论方案，禁止规划和实施
+- PLAN: 仅创建详细计划，禁止实施
+- EXECUTE: 100%遵循计划，禁止偏离
+- REVIEW: 验证实施与计划的符合度
+
+## 项目技术栈
+- 后端：Node.js + Express + TypeScript
+- 前端：原生 HTML + CSS + JavaScript (无框架)
+- 数据库：SQLite (via sqlite/sqlite3)
+- 架构：前后端分离 (Frontend: /frontend, Backend: /backend)
+- 部署：本地运行 (Backend: Port 3001, Frontend: File/Server)
+
+## 代码质量标准
+
+### 禁止事项
+- ❌ 冗余代码和注释
+- ❌ 无用的测试脚本
+- ❌ 未使用的导入和依赖
+- ❌ 过度的日志输出
+- ❌ 占位符代码（TODO注释除外）
+- ❌ 空函数或未实现的功能
+
+### 必须事项
+- ✅ 完整的错误处理
+- ✅ 清晰的函数命名（中文或英文均可）
+- ✅ 必要的注释（仅解释复杂逻辑）
+- ✅ 数据库操作的异常处理 (使用 async/await)
+- ✅ API响应的统一格式
+
+## 文件组织规范
+
+### 项目结构
+```
+stellar_system/
+├── backend/               # 后端服务
+│   ├── src/
+│   │   ├── server.ts      # 主应用入口
+│   │   └── database.ts    # 数据库连接与初始化
+│   ├── package.json
+│   └── tsconfig.json
+├── frontend/              # 前端静态资源
+│   ├── index.html         # 单页入口
+│   └── static/
+│       ├── css/
+│       └── js/
+├── CHANGELOG.md           # 变更日志
+└── .cursorrules           # 本文件
+```
+
+### 命名规范
+- TypeScript文件：camelCase (如 `server.ts`, `database.ts`)
+- HTML文件：kebab-case（如 `task-card.html`）
+- JavaScript函数：camelCase（如 `startTask()`）
+- 数据库表：snake_case（如 `task_entries`）
+- API端点：kebab-case（如 `/api/tasks/start`）
+
+## 前端开发规范
+- 使用原生JavaScript，不使用框架
+- 异步操作使用async/await
+- 错误处理必须有用户提示
+- 避免全局变量污染（使用命名空间）
+
+## 后端开发规范
+- 使用 Express 路由处理请求
+- 所有的数据库交互必须通过 `database.ts` 提供的接口
+- 严格的类型定义 (TypeScript)
+- 安全中间件 (Helmet, CORS, Auth) 必须启用

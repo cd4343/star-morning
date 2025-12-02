@@ -1,0 +1,505 @@
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
+import { initializeDatabase, getDb } from './database';
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const JWT_SECRET = 'your-super-secret-key-change-it';
+
+app.use(cors());
+app.use(helmet());
+app.use(express.json());
+
+interface AuthRequest extends Request { user?: { id: string; familyId: string; role: 'parent' | 'child'; }; }
+
+// --- MIDDLEWARE ---
+const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ message: '未授权' });
+  try { 
+    const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET) as any;
+    // 验证用户是否真实存在于数据库
+    const user = await getDb().get('SELECT id, role, familyId FROM users WHERE id = ?', decoded.id);
+    if (!user) return res.status(401).json({ message: '用户不存在，请重新登录' });
+    req.user = { ...decoded, ...user }; 
+    next(); 
+  } catch { return res.status(401).json({ message: '无效Token' }); }
+};
+
+const checkAchievements = async (childId: string, db: any) => {
+  const child = await db.get('SELECT * FROM users WHERE id = ?', childId);
+  if (!child) return;
+  const defs = await db.all(`SELECT * FROM achievement_defs WHERE familyId = ? AND conditionType != 'manual'`, child.familyId);
+  const taskCount = (await db.get('SELECT COUNT(*) as count FROM task_entries WHERE childId = ? AND status = "approved"', childId)).count;
+  for (const def of defs) {
+      let unlocked = false;
+      if (def.conditionType === 'task_count' && taskCount >= def.conditionValue) unlocked = true;
+      if (def.conditionType === 'coin_count' && child.coins >= def.conditionValue) unlocked = true;
+      if (unlocked) {
+          const existing = await db.get('SELECT id FROM user_achievements WHERE childId = ? AND achievementId = ?', childId, def.id);
+          if (!existing) await db.run('INSERT INTO user_achievements (id, childId, achievementId, unlockedAt) VALUES (?, ?, ?, ?)', randomUUID(), childId, def.id, new Date().toISOString());
+      }
+  }
+};
+
+const seedFamilyData = async (familyId: string, db: any) => {
+    // 新家庭只预设成就定义，任务、商品、抽奖奖品等都需要家长手动添加
+    // 预设成就 (10个) - 这些是系统默认成就，家长可以后续添加更多
+    const achievements = [
+        { title: '初来乍到', desc: '完成第1个任务', icon: '🌱', type: 'task_count', value: 1 },
+        { title: '小小勤劳者', desc: '完成10个任务', icon: '🐝', type: 'task_count', value: 10 },
+        { title: '任务达人', desc: '完成50个任务', icon: '🏆', type: 'task_count', value: 50 },
+        { title: '任务大师', desc: '完成100个任务', icon: '👑', type: 'task_count', value: 100 },
+        { title: '小小存钱罐', desc: '累计获得100金币', icon: '🐷', type: 'coin_count', value: 100 },
+        { title: '财富小能手', desc: '累计获得500金币', icon: '💰', type: 'coin_count', value: 500 },
+        { title: '金币大亨', desc: '累计获得1000金币', icon: '🏦', type: 'coin_count', value: 1000 },
+        { title: '学习之星', desc: '在学习上表现出色', icon: '⭐', type: 'manual', value: 0 },
+        { title: '劳动小蜜蜂', desc: '热爱劳动的好孩子', icon: '🧹', type: 'manual', value: 0 },
+        { title: '运动健将', desc: '坚持运动锻炼身体', icon: '🏃', type: 'manual', value: 0 },
+    ];
+    for (const ach of achievements) {
+        await db.run(`INSERT INTO achievement_defs (id, familyId, title, description, icon, conditionType, conditionValue) VALUES (?, ?, ?, ?, ?, ?, ?)`, 
+            randomUUID(), familyId, ach.title, ach.desc, ach.icon, ach.type, ach.value);
+    }
+};
+
+// --- ROUTES ---
+
+// Auth
+app.post('/api/auth/login', async (req, res) => { 
+    const db = getDb(); 
+    const user = await db.get('SELECT * FROM users WHERE email = ?', req.body.phone); 
+    if (!user || !(await bcrypt.compare(req.body.password, user.password))) return res.status(400).json({ message: '账号或密码错误' }); 
+    res.json({ token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET), user: { id: user.id, name: user.name, role: user.role, familyId: user.familyId } }); 
+});
+
+app.post('/api/auth/register', async (req, res) => { 
+    const id=randomUUID(); 
+    await getDb().run(`INSERT INTO users (id, familyId, email, password, name, role) VALUES (?, 'TEMP', ?, ?, '家长', 'parent')`, id, req.body.email, await bcrypt.hash(req.body.password, 10)); 
+    res.json({token: jwt.sign({id,role:'parent',familyId:'TEMP'}, JWT_SECRET)}); 
+});
+
+app.post('/api/auth/create-family', protect, async (req: any, res) => { 
+    const request = req as AuthRequest;
+    const fid = randomUUID(); 
+    const { familyName, name, parentName, parentRole, childName, childGender, childBirthdate } = request.body;
+    const actualFamilyName = familyName || name || '我的家庭'; // 兼容不同参数名
+
+    await getDb().run('BEGIN'); 
+    await getDb().run('INSERT INTO families (id, name) VALUES (?, ?)', fid, actualFamilyName); 
+    
+    // Update Parent with role/gender
+    await getDb().run('UPDATE users SET familyId = ?, name = ?, gender = ? WHERE id = ?', fid, parentName || '家长', parentRole || 'dad', request.user!.id); 
+    
+    // Create Child only if childName is provided
+    if (childName && childName.trim()) {
+        await getDb().run(
+            `INSERT INTO users (id, familyId, name, role, gender, birthdate, coins, xp, level, maxXp) VALUES (?, ?, ?, 'child', ?, ?, 0, 0, 1, 100)`, 
+            randomUUID(), fid, childName, childGender || 'boy', childBirthdate || null
+        ); 
+    }
+    
+    await seedFamilyData(fid, getDb()); 
+    await getDb().run('COMMIT'); 
+    
+    res.json({message:'ok', token: jwt.sign({id:request.user!.id, role:'parent', familyId:fid}, JWT_SECRET)}); 
+});
+
+app.get('/api/auth/members', protect, async (req: any, res) => { 
+    const request = req as AuthRequest;
+    res.json(await getDb().all('SELECT id, name, role, avatar, pin, birthdate, gender FROM users WHERE familyId = ?', request.user!.familyId)); 
+});
+
+app.post('/api/auth/switch-user', protect, async (req, res) => { 
+    const u = await getDb().get('SELECT * FROM users WHERE id = ?', req.body.targetUserId); 
+    if (!u) return res.status(404).json({ message: '用户不存在' });
+    // 只有家长设置了 PIN 且 PIN 不匹配时才拒绝
+    if (u.role === 'parent' && u.pin && req.body.pin !== u.pin) {
+        return res.status(403).json({ message: 'PIN错误' }); 
+    }
+    res.json({token:jwt.sign({id:u.id, role:u.role, familyId:u.familyId}, JWT_SECRET), user:u}); 
+});
+
+// Child switch to parent via PIN
+// 如果家长没有设置PIN，使用默认PIN "1234"
+app.post('/api/child/switch-to-parent', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const { pin } = request.body;
+    const db = getDb();
+    const parent = await db.get("SELECT * FROM users WHERE familyId = ? AND role = 'parent' LIMIT 1", request.user!.familyId);
+    
+    if (!parent) return res.status(404).json({ message: '未找到家长账号' });
+    
+    // 使用家长设置的PIN，如果没有设置则使用默认PIN "1234"
+    const effectivePin = parent.pin || '1234';
+    const isDefaultPin = !parent.pin;
+    
+    if (effectivePin !== pin) {
+        return res.status(403).json({ message: 'PIN码错误' });
+    }
+    
+    res.json({
+        token: jwt.sign({ id: parent.id, role: parent.role, familyId: parent.familyId }, JWT_SECRET),
+        user: { id: parent.id, name: parent.name, role: parent.role, familyId: parent.familyId },
+        isDefaultPin // 告诉前端是否使用的是默认PIN
+    });
+});
+
+// Parent Family Management
+app.post('/api/parent/set-pin', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run('UPDATE users SET pin = ? WHERE id = ?', request.body.pin, request.user!.id); res.json({message:'ok'}); });
+
+app.delete('/api/parent/family/members/:id', protect, async (req: any, res) => { 
+    const request = req as AuthRequest;
+    if (request.user?.role !== 'parent') return res.status(403).json({message: '权限不足'});
+    
+    // 防止删除自己
+    if (req.params.id === request.user!.id) return res.status(400).json({message: '不能删除自己'});
+    
+    await getDb().run('DELETE FROM users WHERE id = ?', req.params.id); 
+    res.json({message:'ok'}); 
+});
+
+app.post('/api/parent/family/members', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    if (request.user?.role !== 'parent') return res.status(403).json({message: '权限不足'});
+    const { name, role, birthdate, gender } = request.body;
+    const id = randomUUID();
+    await getDb().run(`INSERT INTO users (id, familyId, name, role, coins, xp, level, maxXp, birthdate, gender) VALUES (?, ?, ?, ?, 0, 0, 1, 100, ?, ?)`, 
+        id, request.user!.familyId, name, role || 'child', birthdate, gender || 'boy');
+    res.json({ message: 'ok', member: { id, name, role, birthdate, gender } });
+});
+
+app.put('/api/parent/family/members/:id', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    if (request.user?.role !== 'parent') return res.status(403).json({message: '权限不足'});
+    const { name, birthdate, gender } = request.body;
+    
+    if (!name) return res.status(400).json({message: '名字不能为空'});
+
+    await getDb().run('UPDATE users SET name = ?, birthdate = ?, gender = ? WHERE id = ? AND familyId = ?', 
+        name, birthdate, gender, req.params.id, request.user!.familyId);
+    res.json({ message: 'ok' });
+});
+
+// Parent Dashboard & Features
+app.get('/api/parent/dashboard', protect, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb(); const familyId = request.user!.familyId;
+  // 注意：不再自动种子数据，种子数据只在创建家庭时执行一次
+  
+  // 获取待审核任务，包含金币和经验信息
+  const pendingReviews = await db.all(`
+    SELECT te.id, t.title, t.coinReward, t.xpReward, t.durationMinutes as expectedDuration,
+           u.name as childName, te.submittedAt, te.proof, te.actualDurationMinutes as actualDuration
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    JOIN users u ON te.childId = u.id 
+    WHERE t.familyId = ? AND te.status = 'pending'`, familyId);
+  
+  // 本周统计 - 获取所有本周提交的任务（包含任务的预计时长和实际时长）
+  const weekEntries = await db.all(`
+    SELECT te.submittedAt, te.status, te.earnedCoins, te.actualDurationMinutes, t.durationMinutes as expectedDuration
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    WHERE t.familyId = ? AND te.submittedAt >= date('now', '-7 days')`, familyId);
+  
+  const total = weekEntries.length; // 本周提交总数
+  const completed = weekEntries.filter(e => e.status === 'approved').length; // 已通过数
+  const rate = total === 0 ? 0 : Math.round((completed / total) * 100);
+  
+  // 准时率：实际用时 <= 预计用时 的任务占比
+  // 只计算已通过审核的任务
+  const approvedEntries = weekEntries.filter(e => e.status === 'approved');
+  const punctualCount = approvedEntries.filter(e => {
+    // 如果没有记录实际时长，默认视为准时
+    if (!e.actualDurationMinutes) return true;
+    // 实际用时 <= 预计用时 * 1.2 (允许20%的容差)
+    return e.actualDurationMinutes <= (e.expectedDuration * 1.2);
+  }).length;
+  const punctualRate = approvedEntries.length === 0 ? 100 : Math.round((punctualCount / approvedEntries.length) * 100);
+  
+  // 本周获得的总金币
+  const totalCoinsEarned = weekEntries
+    .filter(e => e.status === 'approved')
+    .reduce((sum, e) => sum + (e.earnedCoins || 0), 0);
+  
+  res.json({ 
+    pendingReviews, 
+    stats: { 
+      weekTasks: total, 
+      weekCompleted: completed,
+      completionRate: `${rate}%`, 
+      punctualRate: `${punctualRate}%`,
+      totalCoinsEarned
+    } 
+  });
+});
+
+app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
+    const { action, timeScore, qualityScore, initiativeScore, finalCoins } = req.body; 
+    const entry = await getDb().get(`SELECT te.*, t.coinReward, t.xpReward FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.id = ?`, req.params.entryId);
+    if (!entry) return res.status(404).json({ message: '不存在' });
+    
+    if (action === 'reject') { 
+        await getDb().run("UPDATE task_entries SET status = 'rejected' WHERE id = ?", req.params.entryId); 
+        return res.json({ message: '已打回' }); 
+    }
+    
+    // 计算最终金币（如果前端传了 finalCoins 就用，否则用基础值）
+    const coinsToAward = finalCoins !== undefined ? Math.round(finalCoins) : entry.coinReward;
+    const xpToAward = entry.xpReward; // 经验值不受评分影响
+    
+    // 更新任务记录，保存评分信息
+    await getDb().run(
+        "UPDATE task_entries SET status = 'approved', earnedCoins = ?, earnedXp = ? WHERE id = ?", 
+        coinsToAward, xpToAward, req.params.entryId
+    );
+    
+    // 更新孩子的金币和经验
+    await getDb().run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', coinsToAward, xpToAward, entry.childId);
+    
+    await checkAchievements(entry.childId, getDb());
+    res.json({ message: '已通过', coinsAwarded: coinsToAward, xpAwarded: xpToAward });
+});
+
+app.get('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ?', request.user!.familyId)); });
+app.post('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category) VALUES (?, ?, ?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.coinReward, request.body.xpReward, request.body.durationMinutes, request.body.category); res.json({message:'ok'}); });
+app.delete('/api/parent/tasks/:id', protect, async (req, res) => { await getDb().run('DELETE FROM tasks WHERE id = ?', req.params.id); res.json({message:'ok'}); });
+app.get('/api/parent/wishes', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM wishes WHERE familyId = ?', request.user!.familyId)); });
+app.post('/api/parent/wishes', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    const weight = req.body.weight || 10; // 默认权重10
+    await getDb().run(
+        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, 
+        randomUUID(), request.user!.familyId, req.body.type, req.body.title, req.body.cost, req.body.targetAmount, req.body.icon, req.body.stock, weight
+    ); 
+    res.json({message:'ok'}); 
+});
+
+// 更新奖品（包括权重）
+app.put('/api/parent/wishes/:id', protect, async (req: any, res) => {
+    const { title, cost, icon, stock, weight } = req.body;
+    await getDb().run(
+        'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ? WHERE id = ?',
+        title, cost, icon, stock, weight || 10, req.params.id
+    );
+    res.json({message:'ok'});
+});
+
+app.delete('/api/parent/wishes/:id', protect, async (req, res) => { await getDb().run('DELETE FROM wishes WHERE id = ?', req.params.id); res.json({message:'ok'}); });
+
+// 抽奖奖池上架管理
+app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const { activeIds } = request.body;
+    
+    if (!activeIds || activeIds.length !== 8) {
+        return res.status(400).json({ message: '必须选择恰好8个奖品上架' });
+    }
+    
+    const db = getDb();
+    const familyId = request.user!.familyId;
+    
+    // 先将该家庭所有抽奖奖品设为未上架
+    await db.run('UPDATE wishes SET isActive = 0 WHERE familyId = ? AND type = ?', familyId, 'lottery');
+    
+    // 然后将选中的奖品设为上架
+    for (const id of activeIds) {
+        await db.run('UPDATE wishes SET isActive = 1 WHERE id = ? AND familyId = ? AND type = ?', id, familyId, 'lottery');
+    }
+    
+    res.json({ message: 'ok' });
+});
+app.get('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ?', request.user!.familyId)); });
+app.post('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO privileges (id, familyId, title, description, cost) VALUES (?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.cost); res.json({message:'ok'}); });
+app.delete('/api/parent/privileges/:id', protect, async (req, res) => { await getDb().run('DELETE FROM privileges WHERE id = ?', req.params.id); res.json({message:'ok'}); });
+app.get('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId)); });
+app.post('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO achievement_defs (id, familyId, title, description, icon, conditionType, conditionValue) VALUES (?, ?, ?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.icon, request.body.conditionType, request.body.conditionValue); res.json({message:'ok'}); });
+app.delete('/api/parent/achievements/:id', protect, async (req, res) => { await getDb().run('DELETE FROM achievement_defs WHERE id = ?', req.params.id); res.json({message:'ok'}); });
+
+// Child
+app.get('/api/child/dashboard', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb(); const childId = request.user!.id;
+    const tasks = await db.all('SELECT * FROM tasks WHERE familyId = ?', request.user!.familyId);
+    const entries = await db.all(`SELECT taskId, status FROM task_entries WHERE childId = ?`, childId);
+    const today = new Date(); const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(today); d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const dayCoins = (await db.get(`SELECT sum(earnedCoins) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt) = ?`, childId, dateStr)).s || 0;
+        last7Days.push({ date: dateStr, coins: dayCoins });
+    }
+    res.json({ child: await db.get('SELECT * FROM users WHERE id = ?', childId), tasks: tasks.map(t => ({...t, status: entries.find(e => e.taskId === t.id)?.status || 'todo'})), weeklyStats: last7Days });
+});
+app.post('/api/child/tasks/:taskId/complete', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const { duration } = request.body; await getDb().run(`INSERT INTO task_entries (id, taskId, childId, status, submittedAt, actualDurationMinutes) VALUES (?, ?, ?, 'pending', ?, ?)`, randomUUID(), req.params.taskId, request.user!.id, new Date().toISOString(), duration || 0); res.json({ message: 'submitted' });
+});
+app.get('/api/child/wishes', protect, async (req: any, res) => { 
+    const request = req as AuthRequest;
+    res.json({ 
+        savings: await getDb().get("SELECT * FROM wishes WHERE familyId = ? AND type='savings'", request.user!.familyId), 
+        shop: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='shop'", request.user!.familyId), 
+        lottery: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery'", request.user!.familyId) 
+    }); 
+});
+app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb(); const wish = await db.get('SELECT * FROM wishes WHERE id = ?', req.params.id);
+    if (!wish || (wish.stock===0)) return res.status(400).json({message:'库存不足'});
+    const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); if(user.coins<wish.cost) return res.status(400).json({message:'金币不足'});
+    await db.run('BEGIN'); await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id); 
+    if(wish.stock>0) await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', wish.id);
+    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'unused')`, randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost);
+    await db.run('COMMIT'); res.json({message:'成功'});
+});
+app.get('/api/child/inventory', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM user_inventory WHERE childId = ? ORDER BY acquiredAt DESC', request.user!.id)); });
+app.post('/api/child/inventory/:id/return', protect, async (req: any, res) => { 
+    const request = req as AuthRequest;
+    const db = getDb();
+    const item = await db.get('SELECT * FROM user_inventory WHERE id = ? AND childId = ?', req.params.id, request.user!.id);
+    if (!item) return res.status(404).json({message: '物品不存在'});
+    if (item.status === 'returned') return res.status(400).json({message: '已退款'});
+    
+    await db.run('BEGIN');
+    await db.run("UPDATE user_inventory SET status = 'returned' WHERE id = ?", req.params.id);
+    // 退还金币（兑换时消耗的金币）
+    await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', item.cost, request.user!.id);
+    // 恢复库存
+    if (item.wishId) {
+        await db.run('UPDATE wishes SET stock = stock + 1 WHERE id = ? AND stock >= 0', item.wishId);
+    }
+    await db.run('COMMIT');
+    res.json({message:'ok'}); 
+});
+
+// 储蓄存入
+app.post('/api/child/savings/deposit', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const { amount } = req.body;
+    const db = getDb();
+    
+    if (!amount || amount <= 0) return res.status(400).json({ message: '存入金额无效' });
+    
+    const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id);
+    if (user.coins < amount) return res.status(400).json({ message: '金币不足' });
+    
+    const savings = await db.get("SELECT * FROM wishes WHERE familyId = ? AND type = 'savings'", request.user!.familyId);
+    if (!savings) return res.status(404).json({ message: '没有储蓄目标' });
+    
+    await db.run('BEGIN');
+    await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', amount, request.user!.id);
+    await db.run('UPDATE wishes SET currentAmount = currentAmount + ? WHERE id = ?', amount, savings.id);
+    await db.run('COMMIT');
+    
+    res.json({ message: '存入成功', newAmount: (savings.currentAmount || 0) + amount });
+});
+
+app.post('/api/child/lottery/play', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb(); 
+    const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); 
+    if(user.coins < 10) return res.status(400).json({message:'金币不足'});
+    
+    // 只获取已上架且有库存的奖品 (stock = -1 表示无限库存)
+    const prizes = await db.all("SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock = -1 OR stock > 0)", request.user!.familyId);
+    if(prizes.length === 0) return res.status(400).json({message:'奖池空或奖品已抽完'});
+    
+    // 加权随机算法
+    const totalWeight = prizes.reduce((sum: number, p: any) => sum + (p.weight || 10), 0);
+    let random = Math.random() * totalWeight;
+    let prize = prizes[0];
+    for (const p of prizes) {
+        random -= (p.weight || 10);
+        if (random <= 0) { prize = p; break; }
+    }
+    
+    await db.run('BEGIN'); 
+    await db.run('UPDATE users SET coins = coins - 10 WHERE id = ?', request.user!.id); 
+    
+    // 库存 -1 表示无限，不扣减
+    if (prize.stock !== -1) {
+        await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
+    }
+    
+    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'unused')`, 
+        randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 0);
+    await db.run('COMMIT'); 
+    res.json({winner: prize});
+});
+app.get('/api/child/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all(`SELECT ua.unlockedAt, ad.title, ad.description, ad.icon FROM user_achievements ua JOIN achievement_defs ad ON ua.achievementId = ad.id WHERE ua.childId = ?`, request.user!.id)); });
+
+// Child All Achievements (包含未解锁的，显示进度)
+app.get('/api/child/all-achievements', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const childId = request.user!.id;
+    const familyId = request.user!.familyId;
+    
+    // 获取所有成就定义
+    const allDefs = await db.all('SELECT * FROM achievement_defs WHERE familyId = ?', familyId);
+    
+    // 获取已解锁的成就
+    const unlocked = await db.all('SELECT achievementId, unlockedAt FROM user_achievements WHERE childId = ?', childId);
+    const unlockedMap = new Map(unlocked.map(u => [u.achievementId, u.unlockedAt]));
+    
+    // 获取进度数据
+    const taskCount = (await db.get('SELECT COUNT(*) as count FROM task_entries WHERE childId = ? AND status = "approved"', childId))?.count || 0;
+    const child = await db.get('SELECT coins FROM users WHERE id = ?', childId);
+    const totalCoins = child?.coins || 0;
+    
+    // 组装结果
+    const result = allDefs.map(def => {
+        const isUnlocked = unlockedMap.has(def.id);
+        let progress = 0;
+        
+        if (!isUnlocked) {
+            if (def.conditionType === 'task_count') progress = taskCount;
+            else if (def.conditionType === 'coin_count') progress = totalCoins;
+        }
+        
+        return {
+            id: def.id,
+            title: def.title,
+            description: def.description,
+            icon: def.icon,
+            conditionType: def.conditionType,
+            conditionValue: def.conditionValue,
+            unlocked: isUnlocked,
+            unlockedAt: unlockedMap.get(def.id) || null,
+            progress
+        };
+    });
+    
+    // 已解锁的排前面
+    result.sort((a, b) => (b.unlocked ? 1 : 0) - (a.unlocked ? 1 : 0));
+    
+    res.json(result);
+});
+
+// Child Privileges (read-only list)
+app.get('/api/child/privileges', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ?', request.user!.familyId)); 
+});
+
+// Child Redeem Privilege
+app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const priv = await db.get('SELECT * FROM privileges WHERE id = ?', req.params.id);
+    if (!priv) return res.status(404).json({ message: '特权不存在' });
+    
+    const user = await db.get('SELECT privilegePoints FROM users WHERE id = ?', request.user!.id);
+    if ((user.privilegePoints || 0) < priv.cost) return res.status(400).json({ message: '特权点不足' });
+    
+    await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ?', priv.cost, request.user!.id);
+    res.json({ message: '兑换成功' });
+});
+
+initializeDatabase().then(() => app.listen(PORT, () => console.log(`🚀 Server: ${PORT}`))).catch(console.error);
