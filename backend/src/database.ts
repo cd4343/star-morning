@@ -87,11 +87,17 @@ const createTables = async () => {
       wishId TEXT, 
       title TEXT NOT NULL, 
       icon TEXT, 
-      status TEXT CHECK(status IN ('unused', 'used', 'returned')) DEFAULT 'unused', 
+      status TEXT CHECK(status IN ('pending', 'redeemed', 'cancelled')) DEFAULT 'pending', 
       cost INTEGER DEFAULT 0,
       acquiredAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      usedAt DATETIME,
+      redeemedAt DATETIME,
       FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+  // 迁移旧数据：unused -> pending, used -> redeemed, returned -> cancelled
+  try {
+    await db.run("UPDATE user_inventory SET status = 'pending' WHERE status = 'unused'");
+    await db.run("UPDATE user_inventory SET status = 'redeemed' WHERE status = 'used'");
+    await db.run("UPDATE user_inventory SET status = 'cancelled' WHERE status = 'returned'");
+  } catch (e) {}
 };

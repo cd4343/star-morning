@@ -353,21 +353,25 @@ app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
     const db = getDb(); const wish = await db.get('SELECT * FROM wishes WHERE id = ?', req.params.id);
     if (!wish || (wish.stock===0)) return res.status(400).json({message:'库存不足'});
     const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); if(user.coins<wish.cost) return res.status(400).json({message:'金币不足'});
-    await db.run('BEGIN'); await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id); 
+    await db.run('BEGIN'); 
+    await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id); 
     if(wish.stock>0) await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', wish.id);
-    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'unused')`, randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost);
-    await db.run('COMMIT'); res.json({message:'成功'});
+    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`, randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost);
+    await db.run('COMMIT'); 
+    res.json({message:'兑换成功！已放入背包'});
 });
 app.get('/api/child/inventory', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM user_inventory WHERE childId = ? ORDER BY acquiredAt DESC', request.user!.id)); });
-app.post('/api/child/inventory/:id/return', protect, async (req: any, res) => { 
+// 撤销兑换（退还金币）
+app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
     const db = getDb();
     const item = await db.get('SELECT * FROM user_inventory WHERE id = ? AND childId = ?', req.params.id, request.user!.id);
     if (!item) return res.status(404).json({message: '物品不存在'});
-    if (item.status === 'returned') return res.status(400).json({message: '已退款'});
+    if (item.status === 'cancelled' || item.status === 'returned') return res.status(400).json({message: '已撤销'});
+    if (item.status === 'redeemed' || item.status === 'used') return res.status(400).json({message: '已兑现的物品无法撤销'});
     
     await db.run('BEGIN');
-    await db.run("UPDATE user_inventory SET status = 'returned' WHERE id = ?", req.params.id);
+    await db.run("UPDATE user_inventory SET status = 'cancelled' WHERE id = ?", req.params.id);
     // 退还金币（兑换时消耗的金币）
     await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', item.cost, request.user!.id);
     // 恢复库存
@@ -375,7 +379,20 @@ app.post('/api/child/inventory/:id/return', protect, async (req: any, res) => {
         await db.run('UPDATE wishes SET stock = stock + 1 WHERE id = ? AND stock >= 0', item.wishId);
     }
     await db.run('COMMIT');
-    res.json({message:'ok'}); 
+    res.json({message:'已撤销，金币已退回'}); 
+});
+
+// 兑现物品/服务
+app.post('/api/child/inventory/:id/redeem', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const item = await db.get('SELECT * FROM user_inventory WHERE id = ? AND childId = ?', req.params.id, request.user!.id);
+    if (!item) return res.status(404).json({message: '物品不存在'});
+    if (item.status === 'redeemed' || item.status === 'used') return res.status(400).json({message: '已兑现'});
+    if (item.status === 'cancelled' || item.status === 'returned') return res.status(400).json({message: '已撤销的物品无法兑现'});
+    
+    await db.run("UPDATE user_inventory SET status = 'redeemed', redeemedAt = ? WHERE id = ?", new Date().toISOString(), req.params.id);
+    res.json({message:'兑现成功！'});
 });
 
 // 储蓄存入
@@ -394,10 +411,19 @@ app.post('/api/child/savings/deposit', protect, async (req: any, res) => {
     
     await db.run('BEGIN');
     await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', amount, request.user!.id);
-    await db.run('UPDATE wishes SET currentAmount = currentAmount + ? WHERE id = ?', amount, savings.id);
-    await db.run('COMMIT');
+    const newAmount = (savings.currentAmount || 0) + amount;
+    await db.run('UPDATE wishes SET currentAmount = ? WHERE id = ?', newAmount, savings.id);
     
-    res.json({ message: '存入成功', newAmount: (savings.currentAmount || 0) + amount });
+    // 如果达成目标，自动添加到背包
+    let goalAchieved = false;
+    if (newAmount >= savings.targetAmount && (savings.currentAmount || 0) < savings.targetAmount) {
+        goalAchieved = true;
+        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`, 
+            randomUUID(), request.user!.id, savings.id, savings.title, savings.icon, 0);
+    }
+    
+    await db.run('COMMIT');
+    res.json({ message: goalAchieved ? '🎉 目标达成！已放入背包' : '存入成功', newAmount, goalAchieved });
 });
 
 app.post('/api/child/lottery/play', protect, async (req: any, res) => {
@@ -427,7 +453,7 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
         await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
     }
     
-    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'unused')`, 
+    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`, 
         randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 0);
     await db.run('COMMIT'); 
     res.json({winner: prize});
@@ -498,8 +524,13 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     const user = await db.get('SELECT privilegePoints FROM users WHERE id = ?', request.user!.id);
     if ((user.privilegePoints || 0) < priv.cost) return res.status(400).json({ message: '特权点不足' });
     
+    await db.run('BEGIN');
     await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ?', priv.cost, request.user!.id);
-    res.json({ message: '兑换成功' });
+    // 特权也添加到背包，状态为待兑现
+    await db.run(`INSERT INTO user_inventory (id, childId, title, icon, cost, status) VALUES (?, ?, ?, ?, ?, 'pending')`, 
+        randomUUID(), request.user!.id, priv.title, '👑', 0);
+    await db.run('COMMIT');
+    res.json({ message: '兑换成功！已放入背包' });
 });
 
 initializeDatabase().then(() => app.listen(PORT, () => console.log(`🚀 Server: ${PORT}`))).catch(console.error);

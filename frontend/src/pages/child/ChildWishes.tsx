@@ -29,14 +29,27 @@ export default function ChildWishes() {
   const childData = context?.childData || { coins: 0, privilegePoints: 0 };
   const refresh = context?.refresh || (() => {});
   
-  const [view, setView] = useState<'shop'|'bag'|'savings'|'lottery'>('shop');
+  const [view, setView] = useState<'shop'|'bag'|'savings'|'lottery'|'privileges'>('shop');
   
   const [shopItems, setShopItems] = useState<any[]>([]);
   const [bagItems, setBagItems] = useState<any[]>([]);
+  const [bagFilter, setBagFilter] = useState<'all'|'pending'|'redeemed'|'cancelled'>('all');
   const [savingsGoal, setSavingsGoal] = useState<any>(null);
   const [lotteryPrizes, setLotteryPrizes] = useState<any[]>([]);
+  const [privileges, setPrivileges] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeGridIndex, setActiveGridIndex] = useState<number | null>(null);
+  
+  // 过滤背包物品
+  const filteredBagItems = bagFilter === 'all' 
+    ? bagItems 
+    : bagItems.filter(item => {
+        // 兼容旧数据
+        if (bagFilter === 'pending' && (item.status === 'pending' || item.status === 'unused')) return true;
+        if (bagFilter === 'redeemed' && (item.status === 'redeemed' || item.status === 'used')) return true;
+        if (bagFilter === 'cancelled' && (item.status === 'cancelled' || item.status === 'returned')) return true;
+        return item.status === bagFilter;
+      });
   
   // 友情提示弹窗状态
   const [tipModal, setTipModal] = useState<{isOpen: boolean, title: string, message: string, icon: string}>({
@@ -47,7 +60,19 @@ export default function ChildWishes() {
     setTipModal({ isOpen: true, title, message, icon });
   };
 
-  useEffect(() => { fetchAll(); }, [view]);
+  useEffect(() => { 
+    fetchAll(); 
+  }, [view]);
+  
+  // 当切换到特权或背包视图时，确保数据已加载
+  useEffect(() => {
+    if (view === 'privileges' && privileges.length === 0) {
+      api.get('/child/privileges').then(res => setPrivileges(res.data || [])).catch(() => {});
+    }
+    if (view === 'bag' && bagItems.length === 0) {
+      api.get('/child/inventory').then(res => setBagItems(res.data || [])).catch(() => {});
+    }
+  }, [view]);
 
   const fetchAll = async () => {
       const res = await api.get('/child/wishes');
@@ -58,6 +83,27 @@ export default function ChildWishes() {
           const inv = await api.get('/child/inventory');
           setBagItems(inv.data || []);
       }
+      if (view === 'privileges') {
+          const priv = await api.get('/child/privileges');
+          setPrivileges(priv.data || []);
+      }
+  };
+  
+  // 兑换特权
+  const handleRedeemPrivilege = async (priv: any) => {
+      if ((childData.privilegePoints || 0) < priv.cost) {
+          showTip('特权点不足', `你只有 ${childData.privilegePoints || 0} 特权点，无法兑换 ${priv.title}（需要 ${priv.cost} 特权点）。快去完成任务赚取特权点吧！`, '⭐');
+          return;
+      }
+      if (!window.confirm(`确定消耗 ${priv.cost} 特权点兑换 ${priv.title} 吗？`)) return;
+      try {
+          await api.post(`/child/privileges/${priv.id}/redeem`);
+          showTip('兑换成功', `${priv.title} 已放入背包，快去"背包"查看并兑现吧！`, '🎉');
+          refresh();
+          fetchAll();
+      } catch (e: any) {
+          alert(e.response?.data?.message || '兑换失败');
+      }
   };
   
   // 储蓄存入
@@ -67,41 +113,65 @@ export default function ChildWishes() {
           return;
       }
       try {
-          await api.post(`/child/savings/deposit`, { amount });
+          const res = await api.post(`/child/savings/deposit`, { amount });
           refresh();
           fetchAll();
-          showTip('存入成功', `成功存入 ${amount} 金币！继续加油~`, '🎉');
+          if (res.data.goalAchieved) {
+              showTip('🎉 目标达成！', `储蓄目标已达成！${savingsGoal?.title} 已放入背包，快去"背包"查看吧！`, '🎊');
+          } else {
+              showTip('存入成功', `成功存入 ${amount} 金币！继续加油~`, '💪');
+          }
       } catch (e: any) {
           alert(e.response?.data?.message || '存入失败');
       }
   };
 
   const handleRedeem = async (item: any) => {
-      if (childData.coins < item.cost) return alert('金币不足！去完成任务吧~');
-      if (item.stock === 0) return alert('库存不足啦');
+      if (childData.coins < item.cost) {
+          showTip('金币不足', `你只有 ${childData.coins} 金币，无法兑换 ${item.title}（需要 ${item.cost} 金币）。快去完成任务赚取更多金币吧！`, '💰');
+          return;
+      }
+      if (item.stock === 0) {
+          showTip('库存不足', `${item.title} 已经卖完啦，请联系家长补货~`, '📦');
+          return;
+      }
       if (!window.confirm(`确定消耗 ${item.cost} 金币兑换 ${item.title} 吗？`)) return;
       try {
           setLoading(true);
-          await api.post(`/child/wishes/${item.id}/redeem`);
-          alert('兑换成功！已放入背包');
+          const res = await api.post(`/child/wishes/${item.id}/redeem`);
+          showTip('兑换成功', `${item.title} 已放入背包，快去"背包"查看吧！`, '🎉');
           refresh(); 
           fetchAll(); 
       } catch (e: any) {
-          alert(e.response?.data?.message || '失败');
+          alert(e.response?.data?.message || '兑换失败');
       } finally {
           setLoading(false);
       }
   };
 
-  const handleReturn = async (item: any) => {
+  // 撤销兑换
+  const handleCancel = async (item: any) => {
       if (!window.confirm(`确定撤销兑换 ${item.title} 吗？金币将退回。`)) return;
       try {
-          await api.post(`/child/inventory/${item.id}/return`);
-          alert('已撤销');
+          await api.post(`/child/inventory/${item.id}/cancel`);
+          showTip('已撤销', `${item.title} 已撤销，金币已退回！`, '↩️');
           refresh();
           fetchAll();
       } catch (e: any) {
-          alert(e.response?.data?.message || '失败');
+          alert(e.response?.data?.message || '撤销失败');
+      }
+  };
+  
+  // 兑现物品/服务
+  const handleRedeemItem = async (item: any) => {
+      if (!window.confirm(`确定兑现 ${item.title} 吗？兑现后无法撤销。`)) return;
+      try {
+          await api.post(`/child/inventory/${item.id}/redeem`);
+          showTip('兑现成功', `${item.title} 已兑现！快去享受吧~`, '🎉');
+          refresh();
+          fetchAll();
+      } catch (e: any) {
+          alert(e.response?.data?.message || '兑现失败');
       }
   };
 
@@ -149,10 +219,11 @@ export default function ChildWishes() {
               setActiveGridIndex(winnerIndexInGrid !== -1 ? winnerIndexInGrid : 0);
               
               setTimeout(() => {
-                alert(`🎉 恭喜！你抽中了：${winner.title}`);
+                showTip('🎉 恭喜中奖！', `你抽中了：${winner.title}！已放入背包，快去"背包"查看并兑现吧！`, '🎊');
                 setLoading(false);
                 setActiveGridIndex(null);
                 refresh();
+                fetchAll();
               }, 800);
           }, 2500); 
 
@@ -181,6 +252,7 @@ export default function ChildWishes() {
           <button onClick={()=>setView('bag')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${view==='bag'?'bg-blue-100 text-blue-600 shadow-sm':'text-gray-500'}`}>背包</button>
           <button onClick={()=>setView('savings')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${view==='savings'?'bg-green-100 text-green-600 shadow-sm':'text-gray-500'}`}>储蓄</button>
           <button onClick={()=>setView('lottery')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${view==='lottery'?'bg-purple-100 text-purple-600 shadow-sm':'text-gray-500'}`}>抽奖</button>
+          <button onClick={()=>setView('privileges')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${view==='privileges'?'bg-yellow-100 text-yellow-600 shadow-sm':'text-gray-500'}`}>特权</button>
       </div>
 
       {/* SHOP VIEW */}
@@ -203,19 +275,90 @@ export default function ChildWishes() {
       {/* BAG VIEW */}
       {view === 'bag' && (
           <div className="space-y-3">
-              {bagItems.map(item => (
-                  <Card key={item.id} className="flex justify-between items-center border-l-4 border-blue-400">
-                      <div className="flex items-center gap-3">
-                          <div className="text-3xl bg-blue-50 w-12 h-12 rounded-full flex items-center justify-center">{item.icon}</div>
-                          <div>
-                              <div className="font-bold text-gray-800">{item.title}</div>
-                              <div className="text-xs text-gray-500">{new Date(item.acquiredAt).toLocaleDateString()} 兑换 {item.status === 'returned' && <span className="text-red-500 ml-2 font-bold">(已退款)</span>}</div>
+              {/* 状态筛选 */}
+              <div className="flex gap-2 bg-white p-2 rounded-xl">
+                  <button 
+                      onClick={() => setBagFilter('all')}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${bagFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                      全部
+                  </button>
+                  <button 
+                      onClick={() => setBagFilter('pending')}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${bagFilter === 'pending' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                      待兑现
+                  </button>
+                  <button 
+                      onClick={() => setBagFilter('redeemed')}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${bagFilter === 'redeemed' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                      已兑现
+                  </button>
+                  <button 
+                      onClick={() => setBagFilter('cancelled')}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${bagFilter === 'cancelled' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                      已撤销
+                  </button>
+              </div>
+              
+              {filteredBagItems.map(item => {
+                  const statusMap: Record<string, {label: string, color: string, borderColor: string}> = {
+                      'pending': { label: '待兑现', color: 'text-orange-600', borderColor: 'border-orange-400' },
+                      'redeemed': { label: '已兑现', color: 'text-green-600', borderColor: 'border-green-400' },
+                      'cancelled': { label: '已撤销', color: 'text-red-600', borderColor: 'border-red-400' },
+                      // 兼容旧数据
+                      'unused': { label: '待兑现', color: 'text-orange-600', borderColor: 'border-orange-400' },
+                      'used': { label: '已兑现', color: 'text-green-600', borderColor: 'border-green-400' },
+                      'returned': { label: '已撤销', color: 'text-red-600', borderColor: 'border-red-400' },
+                  };
+                  const statusInfo = statusMap[item.status] || statusMap['pending'];
+                  
+                  return (
+                      <Card key={item.id} className={`flex justify-between items-center border-l-4 ${statusInfo.borderColor}`}>
+                          <div className="flex items-center gap-3">
+                              <div className="text-3xl bg-blue-50 w-12 h-12 rounded-full flex items-center justify-center">{item.icon}</div>
+                              <div>
+                                  <div className="font-bold text-gray-800">{item.title}</div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                      {new Date(item.acquiredAt).toLocaleDateString()} 获得
+                                  </div>
+                                  <div className={`text-xs font-bold mt-1 ${statusInfo.color}`}>
+                                      {statusInfo.label}
+                                  </div>
+                              </div>
                           </div>
-                      </div>
-                      {item.status === 'unused' && ( <button onClick={() => handleReturn(item)} className="text-gray-400 hover:text-red-500 flex items-center gap-1 text-xs border p-2 rounded transition-colors hover:bg-red-50"><RotateCcw size={14}/> 撤销</button> )}
-                  </Card>
-              ))}
-              {bagItems.length === 0 && <div className="text-center text-gray-400 py-10">背包空空如也</div>}
+                          <div className="flex items-center gap-2">
+                              {item.status === 'pending' || item.status === 'unused' ? (
+                                  <>
+                                      <button 
+                                          onClick={() => handleRedeemItem(item)} 
+                                          className="px-3 py-1.5 bg-green-500 text-white text-xs font-bold rounded-lg hover:bg-green-600 transition-colors"
+                                      >
+                                          兑现
+                                      </button>
+                                      <button 
+                                          onClick={() => handleCancel(item)} 
+                                          className="px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
+                                      >
+                                          <RotateCcw size={12}/> 撤销
+                                      </button>
+                                  </>
+                              ) : (
+                                  <span className={`text-xs font-bold px-2 py-1 rounded ${statusInfo.color} bg-gray-100`}>
+                                      {statusInfo.label}
+                                  </span>
+                              )}
+                          </div>
+                      </Card>
+                  );
+              })}
+              {filteredBagItems.length === 0 && (
+                  <div className="text-center text-gray-400 py-10">
+                      {bagFilter === 'all' ? '背包空空如也' : `暂无${bagFilter === 'pending' ? '待兑现' : bagFilter === 'redeemed' ? '已兑现' : '已撤销'}的物品`}
+                  </div>
+              )}
           </div>
       )}
 
@@ -332,6 +475,51 @@ export default function ChildWishes() {
               <div className="mt-8 text-center text-white/60 text-xs bg-black/20 px-4 py-2 rounded-full backdrop-blur-sm">
                   每次抽奖消耗 10 金币 · 奖品放入背包
               </div>
+          </div>
+      )}
+
+      {/* PRIVILEGES VIEW - 特权兑换 */}
+      {view === 'privileges' && (
+          <div className="space-y-3">
+              {privileges.length > 0 ? (
+                  privileges.map(priv => (
+                      <Card key={priv.id} className="bg-gradient-to-br from-yellow-50 to-orange-50 border-yellow-200">
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-3">
+                                  <div className="text-4xl bg-yellow-100 w-16 h-16 rounded-xl flex items-center justify-center shadow-sm">
+                                      👑
+                                  </div>
+                                  <div>
+                                      <div className="font-bold text-gray-800 text-lg">{priv.title}</div>
+                                      {priv.description && (
+                                          <div className="text-xs text-gray-600 mt-1">{priv.description}</div>
+                                      )}
+                                      <div className="text-xs text-yellow-600 font-bold mt-1">
+                                          {priv.cost} 特权点
+                                      </div>
+                                  </div>
+                              </div>
+                              <button
+                                  onClick={() => handleRedeemPrivilege(priv)}
+                                  disabled={(childData.privilegePoints || 0) < priv.cost}
+                                  className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                                      (childData.privilegePoints || 0) >= priv.cost
+                                          ? 'bg-gradient-to-r from-yellow-400 to-orange-400 text-white hover:opacity-90 shadow-lg'
+                                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                  }`}
+                              >
+                                  兑换
+                              </button>
+                          </div>
+                      </Card>
+                  ))
+              ) : (
+                  <div className="text-center py-10">
+                      <div className="text-5xl mb-4">👑</div>
+                      <p className="text-gray-500">暂无特权</p>
+                      <p className="text-gray-400 text-sm mt-1">让爸爸妈妈帮你设置特权吧~</p>
+                  </div>
+              )}
           </div>
       )}
       
