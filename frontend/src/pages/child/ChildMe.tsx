@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
-import { Crown, Trophy, Lock } from 'lucide-react';
+import { Trophy, Lock } from 'lucide-react';
 import api from '../../services/api';
 import { useOutletContext } from 'react-router-dom';
 
@@ -22,18 +22,13 @@ export default function ChildMe() {
   const childData = context?.childData || { coins: 0, xp: 0, level: 1, privilegePoints: 0 };
   const refresh = context?.refresh || (() => {});
   
-  const [privileges, setPrivileges] = useState<any[]>([]);
   const [allAchievements, setAllAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [privRes, achRes] = await Promise.all([
-          api.get('/child/privileges'),
-          api.get('/child/all-achievements') // 新接口：获取所有成就（含未解锁）
-        ]);
-        setPrivileges(privRes.data || []);
+        const achRes = await api.get('/child/all-achievements'); // 获取所有成就（含未解锁）
         setAllAchievements(achRes.data || []);
       } catch (e) {
         console.error(e);
@@ -43,17 +38,6 @@ export default function ChildMe() {
     };
     fetchData();
   }, []);
-
-  const handleRedeemPrivilege = async (priv: any) => {
-    if (!window.confirm(`确定消耗 ${priv.cost} 特权点兑换"${priv.title}"吗？`)) return;
-    try {
-      await api.post(`/child/privileges/${priv.id}/redeem`);
-      alert('兑换成功！');
-      refresh();
-    } catch (e: any) {
-      alert(e.response?.data?.message || '兑换失败');
-    }
-  };
 
   const getConditionText = (ach: Achievement) => {
     switch (ach.conditionType) {
@@ -80,48 +64,6 @@ export default function ChildMe() {
 
   return (
     <div className="p-4 space-y-6">
-      {/* 特权中心 */}
-      <div>
-        <div className="flex items-center gap-3 mb-4 bg-gradient-to-r from-purple-500 to-indigo-600 p-4 rounded-2xl text-white shadow-lg">
-           <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
-               <Crown size={24}/>
-           </div>
-           <div>
-               <h3 className="font-bold text-lg">特权中心</h3>
-               <p className="text-sm text-purple-100">
-                   可用特权点: <span className="font-black text-xl text-yellow-300">{childData?.privilegePoints || 0}</span>
-               </p>
-           </div>
-        </div>
-
-        <div className="space-y-3">
-            {privileges.length === 0 ? (
-                <div className="text-center text-gray-400 py-4 bg-gray-50 rounded-xl border border-dashed">
-                    暂无可兑换的特权
-                </div>
-            ) : (
-                privileges.map(priv => (
-                    <Card key={priv.id} className="flex justify-between items-center border-l-4 border-purple-400">
-                        <div>
-                            <h3 className="font-bold text-gray-800">{priv.title}</h3>
-                            <p className="text-xs text-gray-500 mt-1">{priv.description}</p>
-                        </div>
-                        <Button 
-                            size="sm" 
-                            className={`${(childData?.privilegePoints || 0) >= priv.cost 
-                                ? "bg-purple-600 hover:bg-purple-700 text-white" 
-                                : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
-                            onClick={() => handleRedeemPrivilege(priv)}
-                            disabled={(childData?.privilegePoints || 0) < priv.cost}
-                        >
-                            {priv.cost} 点
-                        </Button>
-                    </Card>
-                ))
-            )}
-        </div>
-      </div>
-
       {/* 成就墙 - 显示所有成就（含未解锁） */}
       <div>
         <div className="flex items-center justify-between mb-3">

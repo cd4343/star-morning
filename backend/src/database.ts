@@ -38,10 +38,13 @@ const createTables = async () => {
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, email TEXT UNIQUE, password TEXT, name TEXT NOT NULL, 
       role TEXT CHECK(role IN ('parent', 'child')) NOT NULL, avatar TEXT, 
       coins INTEGER DEFAULT 0, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, maxXp INTEGER DEFAULT 100, privilegePoints INTEGER DEFAULT 0,
+      rewardXpTotal INTEGER DEFAULT 0,
       pin TEXT,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // 添加累计奖励经验字段（如果不存在）
+  try { await db.run('ALTER TABLE users ADD COLUMN rewardXpTotal INTEGER DEFAULT 0'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, coinReward INTEGER NOT NULL, xpReward INTEGER NOT NULL, durationMinutes INTEGER NOT NULL, category TEXT NOT NULL, frequency TEXT, isEnabled INTEGER DEFAULT 1, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -50,10 +53,12 @@ const createTables = async () => {
   `);
   await db.exec(`
     CREATE TABLE IF NOT EXISTS task_entries (
-      id TEXT PRIMARY KEY, taskId TEXT NOT NULL, childId TEXT NOT NULL, status TEXT CHECK(status IN ('pending', 'approved', 'rejected', 'completed')) DEFAULT 'pending', submittedAt DATETIME DEFAULT CURRENT_TIMESTAMP, reviewedAt DATETIME, proof TEXT, actualDurationMinutes INTEGER, earnedCoins INTEGER DEFAULT 0, earnedXp INTEGER DEFAULT 0,
+      id TEXT PRIMARY KEY, taskId TEXT NOT NULL, childId TEXT NOT NULL, status TEXT CHECK(status IN ('pending', 'approved', 'rejected', 'completed')) DEFAULT 'pending', submittedAt DATETIME DEFAULT CURRENT_TIMESTAMP, reviewedAt DATETIME, proof TEXT, actualDurationMinutes INTEGER, earnedCoins INTEGER DEFAULT 0, earnedXp INTEGER DEFAULT 0, rewardXp INTEGER DEFAULT 0,
       FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+  // 添加奖励经验字段（如果不存在）
+  try { await db.run('ALTER TABLE task_entries ADD COLUMN rewardXp INTEGER DEFAULT 0'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS wishes (
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, type TEXT CHECK(type IN ('shop', 'savings', 'lottery')) NOT NULL, title TEXT NOT NULL, cost INTEGER DEFAULT 0, targetAmount INTEGER DEFAULT 0, currentAmount INTEGER DEFAULT 0, icon TEXT, stock INTEGER DEFAULT -1, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -85,10 +90,12 @@ const createTables = async () => {
       id TEXT PRIMARY KEY, 
       childId TEXT NOT NULL, 
       wishId TEXT, 
+      privilegeId TEXT,
       title TEXT NOT NULL, 
       icon TEXT, 
       status TEXT CHECK(status IN ('pending', 'redeemed', 'cancelled')) DEFAULT 'pending', 
       cost INTEGER DEFAULT 0,
+      costType TEXT CHECK(costType IN ('coins', 'privilegePoints')) DEFAULT 'coins',
       acquiredAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       redeemedAt DATETIME,
       FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
@@ -100,4 +107,7 @@ const createTables = async () => {
     await db.run("UPDATE user_inventory SET status = 'redeemed' WHERE status = 'used'");
     await db.run("UPDATE user_inventory SET status = 'cancelled' WHERE status = 'returned'");
   } catch (e) {}
+  // 添加新字段
+  try { await db.run('ALTER TABLE user_inventory ADD COLUMN privilegeId TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE user_inventory ADD COLUMN costType TEXT CHECK(costType IN (\'coins\', \'privilegePoints\')) DEFAULT \'coins\''); } catch (e) {}
 };

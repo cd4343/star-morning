@@ -98,7 +98,7 @@ export default function ParentDashboard() {
     if (!currentReview) return;
     try {
       setSubmitting(true);
-      await api.post(`/parent/review/${currentReview.id}`, { 
+      const res = await api.post(`/parent/review/${currentReview.id}`, { 
         action: 'approve',
         timeScore,
         qualityScore,
@@ -107,7 +107,17 @@ export default function ParentDashboard() {
       });
       setShowReviewModal(false);
       fetchDashboard();
-      alert(`✅ 审核通过！奖励 ${calculateFinalCoins()} 金币`);
+      
+      // 显示详细的奖励信息
+      const { coinsAwarded, xpAwarded, rewardXpAwarded, privilegePointsAwarded } = res.data;
+      let message = `✅ 审核通过！\n\n`;
+      message += `💰 金币：${coinsAwarded}\n`;
+      message += `⭐ 经验：${xpAwarded}\n`;
+      message += `🎯 奖励经验：${rewardXpAwarded}`;
+      if (privilegePointsAwarded > 0) {
+        message += `\n👑 特权点：+${privilegePointsAwarded}（累计奖励经验达到 ${Math.floor((rewardXpAwarded || 0) / 100) * 100} 点）`;
+      }
+      alert(message);
     } catch (err) {
       alert('操作失败');
     } finally {

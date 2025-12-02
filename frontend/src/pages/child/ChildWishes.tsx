@@ -151,10 +151,15 @@ export default function ChildWishes() {
 
   // 撤销兑换
   const handleCancel = async (item: any) => {
-      if (!window.confirm(`确定撤销兑换 ${item.title} 吗？金币将退回。`)) return;
+      const costType = item.costType || 'coins';
+      const costText = costType === 'privilegePoints' ? `${item.cost} 特权点` : `${item.cost} 金币`;
+      if (!window.confirm(`确定撤销兑换 ${item.title} 吗？${costText}将退回。`)) return;
       try {
-          await api.post(`/child/inventory/${item.id}/cancel`);
-          showTip('已撤销', `${item.title} 已撤销，金币已退回！`, '↩️');
+          const res = await api.post(`/child/inventory/${item.id}/cancel`);
+          const message = costType === 'privilegePoints' 
+              ? `${item.title} 已撤销，特权点已退回！` 
+              : `${item.title} 已撤销，金币已退回！`;
+          showTip('已撤销', message, '↩️');
           refresh();
           fetchAll();
       } catch (e: any) {
@@ -323,6 +328,15 @@ export default function ChildWishes() {
                                   <div className="font-bold text-gray-800">{item.title}</div>
                                   <div className="text-xs text-gray-500 mt-1">
                                       {new Date(item.acquiredAt).toLocaleDateString()} 获得
+                                  </div>
+                                  <div className="text-xs text-gray-400 mt-0.5">
+                                      {item.costType === 'privilegePoints' ? (
+                                          <span className="text-purple-600">👑 {item.cost} 特权点兑换</span>
+                                      ) : item.cost > 0 ? (
+                                          <span className="text-yellow-600">💰 {item.cost} 金币兑换</span>
+                                      ) : (
+                                          <span className="text-green-600">🎁 免费获得</span>
+                                      )}
                                   </div>
                                   <div className={`text-xs font-bold mt-1 ${statusInfo.color}`}>
                                       {statusInfo.label}
