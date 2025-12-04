@@ -69,9 +69,17 @@ export default function ParentTasks() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('确定删除吗？')) return;
-    await api.delete(`/parent/tasks/${id}`);
-    fetchTasks();
+    if (!window.confirm('确定删除这个任务吗？\n\n注意：已完成的任务记录会被保留，统计数据不受影响。')) return;
+    try {
+      const res = await api.delete(`/parent/tasks/${id}`);
+      const data = res.data as { message: string; preservedRecords?: number; note?: string };
+      if (data.note) {
+        alert(data.note);
+      }
+      fetchTasks();
+    } catch (error) {
+      alert('删除失败，请重试');
+    }
   };
 
   // 切换模板选择

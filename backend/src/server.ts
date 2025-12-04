@@ -10,9 +10,22 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = 'your-super-secret-key-change-it';
 
+// 设置请求超时（30秒）
+app.use((req, res, next) => {
+  req.setTimeout(30000, () => {
+    res.status(504).json({ message: '请求超时，请稍后重试' });
+  });
+  res.setTimeout(30000, () => {
+    if (!res.headersSent) {
+      res.status(504).json({ message: '响应超时，请稍后重试' });
+    }
+  });
+  next();
+});
+
 app.use(cors());
 app.use(helmet());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // 限制请求体大小
 
 interface AuthRequest extends Request { user?: { id: string; familyId: string; role: 'parent' | 'child'; }; }
 
@@ -191,21 +204,24 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   const db = getDb(); const familyId = request.user!.familyId;
   // 注意：不再自动种子数据，种子数据只在创建家庭时执行一次
   
-  // 获取待审核任务，包含金币和经验信息
+  // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
   const pendingReviews = await db.all(`
     SELECT te.id, t.title, t.coinReward, t.xpReward, t.durationMinutes as expectedDuration,
            u.name as childName, te.submittedAt, te.proof, te.actualDurationMinutes as actualDuration
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     JOIN users u ON te.childId = u.id 
-    WHERE t.familyId = ? AND te.status = 'pending'`, familyId);
+    WHERE t.familyId = ? AND te.status = 'pending' AND t.isEnabled = 1`, familyId);
   
-  // 本周统计 - 获取所有本周提交的任务（包含任务的预计时长和实际时长）
+  // 本周统计 - 使用 LEFT JOIN 确保包含已删除任务的完成记录
+  // 这样即使任务被删除（isEnabled = 0），历史统计数据也会保留
   const weekEntries = await db.all(`
-    SELECT te.submittedAt, te.status, te.earnedCoins, te.actualDurationMinutes, t.durationMinutes as expectedDuration
+    SELECT te.submittedAt, te.status, te.earnedCoins, te.actualDurationMinutes, 
+           COALESCE(t.durationMinutes, 30) as expectedDuration
     FROM task_entries te 
-    JOIN tasks t ON te.taskId = t.id 
-    WHERE t.familyId = ? AND te.submittedAt >= date('now', '-7 days')`, familyId);
+    LEFT JOIN tasks t ON te.taskId = t.id 
+    WHERE (t.familyId = ? OR t.familyId IS NULL) AND te.submittedAt >= date('now', '-7 days')
+    AND EXISTS (SELECT 1 FROM users u WHERE u.id = te.childId AND u.familyId = ?)`, familyId, familyId);
   
   const total = weekEntries.length; // 本周提交总数
   const completed = weekEntries.filter(e => e.status === 'approved').length; // 已通过数
@@ -300,9 +316,47 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     });
 });
 
-app.get('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ?', request.user!.familyId)); });
-app.post('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category) VALUES (?, ?, ?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.coinReward, request.body.xpReward, request.body.durationMinutes, request.body.category); res.json({message:'ok'}); });
-app.delete('/api/parent/tasks/:id', protect, async (req, res) => { await getDb().run('DELETE FROM tasks WHERE id = ?', req.params.id); res.json({message:'ok'}); });
+// 家长端查询任务：显示所有启用的任务（isEnabled = 1）
+app.get('/api/parent/tasks', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1', request.user!.familyId)); 
+});
+app.post('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, isEnabled) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`, randomUUID(), request.user!.familyId, request.body.title, request.body.coinReward, request.body.xpReward, request.body.durationMinutes, request.body.category); res.json({message:'ok'}); });
+// 软删除任务：设置 isEnabled = 0，保留历史记录
+app.delete('/api/parent/tasks/:id', protect, async (req: any, res) => { 
+    const request = req as AuthRequest;
+    const db = getDb();
+    // 检查任务是否属于当前家庭
+    const task = await db.get('SELECT * FROM tasks WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!task) {
+        return res.status(404).json({ message: '任务不存在' });
+    }
+    // 软删除：设置 isEnabled = 0
+    await db.run('UPDATE tasks SET isEnabled = 0 WHERE id = ?', req.params.id);
+    // 返回已完成记录数，让家长知道这些记录被保留
+    const completedCount = await db.get('SELECT COUNT(*) as count FROM task_entries WHERE taskId = ? AND status = ?', req.params.id, 'approved');
+    res.json({ 
+        message: '任务已删除', 
+        preservedRecords: completedCount?.count || 0,
+        note: completedCount?.count > 0 ? `已保留 ${completedCount.count} 条完成记录，统计数据不受影响` : undefined
+    }); 
+});
+// 恢复已删除的任务
+app.post('/api/parent/tasks/:id/restore', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const task = await db.get('SELECT * FROM tasks WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!task) {
+        return res.status(404).json({ message: '任务不存在' });
+    }
+    await db.run('UPDATE tasks SET isEnabled = 1 WHERE id = ?', req.params.id);
+    res.json({ message: '任务已恢复' });
+});
+// 查询已删除的任务（可选，供家长查看）
+app.get('/api/parent/tasks/deleted', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 0', request.user!.familyId));
+});
 app.get('/api/parent/wishes', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM wishes WHERE familyId = ?', request.user!.familyId)); });
 app.post('/api/parent/wishes', protect, async (req: any, res) => { 
     const request = req as AuthRequest; 
@@ -359,12 +413,14 @@ app.delete('/api/parent/achievements/:id', protect, async (req, res) => { await 
 app.get('/api/child/dashboard', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb(); const childId = request.user!.id;
-    const tasks = await db.all('SELECT * FROM tasks WHERE familyId = ?', request.user!.familyId);
+    // 只显示启用的任务（isEnabled = 1），已删除的任务不显示给孩子
+    const tasks = await db.all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1', request.user!.familyId);
     const entries = await db.all(`SELECT taskId, status FROM task_entries WHERE childId = ?`, childId);
     const today = new Date(); const last7Days = [];
     for (let i = 6; i >= 0; i--) {
         const d = new Date(today); d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split('T')[0];
+        // 统计包含所有任务记录（包括已删除任务的完成记录）
         const dayCoins = (await db.get(`SELECT sum(earnedCoins) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt) = ?`, childId, dateStr)).s || 0;
         last7Days.push({ date: dateStr, coins: dayCoins });
     }

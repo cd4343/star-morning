@@ -218,14 +218,27 @@ export default function ParentWishes() {
       const templates = viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES;
       for (const index of selectedTemplates) {
         const template = templates[index];
-        await api.post('/parent/wishes', {
-          type: viewType,
-          title: template.title,
-          icon: template.icon,
-          cost: viewType === 'shop' ? template.cost : 0,
-          stock: viewType === 'shop' ? template.stock : -1,
-          weight: viewType === 'lottery' ? template.weight : 10
-        });
+        if (viewType === 'shop') {
+          const shopTemplate = template as typeof SHOP_TEMPLATES[0];
+          await api.post('/parent/wishes', {
+            type: viewType,
+            title: shopTemplate.title,
+            icon: shopTemplate.icon,
+            cost: shopTemplate.cost,
+            stock: shopTemplate.stock,
+            weight: 10
+          });
+        } else {
+          const lotteryTemplate = template as typeof LOTTERY_TEMPLATES[0];
+          await api.post('/parent/wishes', {
+            type: viewType,
+            title: lotteryTemplate.title,
+            icon: lotteryTemplate.icon,
+            cost: 0,
+            stock: -1,
+            weight: lotteryTemplate.weight
+          });
+        }
       }
       alert(`成功添加 ${selectedTemplates.length} 个${viewType === 'shop' ? '商品' : '奖品'}！${viewType === 'lottery' ? '现在可以点击"管理上架"选择8个奖品上架了。' : ''}`);
       setShowTemplates(false);
@@ -541,9 +554,9 @@ export default function ParentWishes() {
                     <div className="font-bold text-sm mt-1 text-gray-800">{template.title}</div>
                     <div className="text-[10px] text-gray-400 mt-0.5">
                       {viewType === 'shop' ? (
-                        <>💰 {template.cost} 金币 · 库存 {template.stock}</>
+                        <>💰 {(template as typeof SHOP_TEMPLATES[0]).cost} 金币 · 库存 {(template as typeof SHOP_TEMPLATES[0]).stock}</>
                       ) : (
-                        <>权重: {template.weight}</>
+                        <>权重: {(template as typeof LOTTERY_TEMPLATES[0]).weight}</>
                       )}
                     </div>
                   </button>

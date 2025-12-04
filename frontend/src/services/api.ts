@@ -5,6 +5,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10秒超时，避免请求挂起
 });
 
 // 请求拦截器：自动添加 Token

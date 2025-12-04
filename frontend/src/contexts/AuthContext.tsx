@@ -42,14 +42,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       try {
         // 尝试调用一个需要认证的 API 来验证 token
-        await api.get('/auth/members');
+        // 使用 Promise.race 添加额外的超时保护（15秒）
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Token validation timeout')), 15000);
+        });
+        
+        await Promise.race([
+          api.get('/auth/members'),
+          timeoutPromise
+        ]);
+        
         // Token 有效，恢复用户
         if (storedUser) {
           setUser(JSON.parse(storedUser));
         }
       } catch (err: any) {
-        // Token 无效，清除本地存储
-        console.log('Token invalid, clearing storage');
+        // Token 无效或超时，清除本地存储
+        const isTimeout = err.message?.includes('timeout') || err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT';
+        console.log(isTimeout ? 'Token validation timeout' : 'Token invalid, clearing storage');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         setToken(null);

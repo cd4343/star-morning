@@ -10,11 +10,13 @@ export const initializeDatabase = async () => {
   
   db = await open({
     filename: dbPath,
-    driver: sqlite3.Database
+    driver: sqlite3.Database,
+    timeout: 10000 // 10秒超时，避免数据库操作挂起
   });
 
   console.log('📦 Connected to SQLite database');
   await db.run('PRAGMA foreign_keys = ON');
+  await db.run('PRAGMA busy_timeout = 10000'); // 设置数据库忙等待超时为10秒
   await createTables();
   
   try { await db.run('ALTER TABLE users ADD COLUMN pin TEXT'); } catch (e) {}

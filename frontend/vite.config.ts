@@ -14,5 +14,16 @@ export default defineConfig({
         secure: false,
       }
     }
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+    // 确保构建后的文件可以正确引用资源
+    rollupOptions: {
+      output: {
+        manualChunks: undefined
+      }
+    }
   }
 })
