@@ -10,24 +10,36 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = 'your-super-secret-key-change-it';
 
-// 设置请求超时（30秒）
-app.use((req, res, next) => {
-  req.setTimeout(30000, () => {
-    res.status(504).json({ message: '请求超时，请稍后重试' });
-  });
-  res.setTimeout(30000, () => {
-    if (!res.headersSent) {
-      res.status(504).json({ message: '响应超时，请稍后重试' });
-    }
-  });
-  next();
-});
+// 启动时打印日志，便于调试
+console.log('🔧 Initializing Express app...');
 
 app.use(cors());
 app.use(helmet());
-app.use(express.json({ limit: '10mb' })); // 限制请求体大小
+app.use(express.json({ limit: '10mb' }));
+
+// 请求日志中间件 - 用于调试
+app.use((req, res, next) => {
+  const start = Date.now();
+  console.log(`📥 [${new Date().toISOString()}] ${req.method} ${req.path} - Started`);
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`📤 [${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+  });
+  
+  next();
+});
 
 interface AuthRequest extends Request { user?: { id: string; familyId: string; role: 'parent' | 'child'; }; }
+
+// 健康检查端点 - 用于测试服务器是否正常运行
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
 // --- MIDDLEWARE ---
 const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -638,4 +650,22 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     res.json({ message: '兑换成功！已放入背包' });
 });
 
-initializeDatabase().then(() => app.listen(PORT, () => console.log(`🚀 Server: ${PORT}`))).catch(console.error);
+// 启动服务器
+console.log('🚀 Starting server initialization...');
+initializeDatabase()
+  .then(() => {
+    console.log('✅ Database initialized successfully');
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+      console.log(`📡 API ready at http://localhost:${PORT}/api`);
+    });
+    
+    // 设置服务器级别的超时
+    server.timeout = 30000; // 30秒
+    server.keepAliveTimeout = 65000; // 65秒
+    server.headersTimeout = 66000; // 66秒
+  })
+  .catch((error) => {
+    console.error('❌ Failed to initialize database:', error);
+    process.exit(1);
+  });
