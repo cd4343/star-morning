@@ -31,6 +31,53 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             # 如果 dist 目录不存在，使用当前目录
             super().__init__(*args, directory=os.getcwd(), **kwargs)
     
+    def send_error(self, code, message=None, explain=None):
+        """
+        重写 send_error 方法，正确处理中文字符编码
+        默认的 send_error 使用 latin-1 编码，无法处理中文
+        """
+        import html
+        
+        try:
+            short_msg, long_msg = self.responses.get(code, ('???', '???'))
+        except AttributeError:
+            short_msg, long_msg = '???', '???'
+        
+        if message is None:
+            message = short_msg
+        if explain is None:
+            explain = long_msg
+        
+        self.log_error("code %d, message %s", code, message)
+        
+        # 使用 UTF-8 编码的错误页面
+        error_content = f'''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+    "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+        <title>Error response</title>
+    </head>
+    <body>
+        <h1>Error response</h1>
+        <p>Error code: {code}</p>
+        <p>Message: {html.escape(message, quote=False)}</p>
+        <p>Error code explanation: {code} - {html.escape(explain, quote=False)}</p>
+    </body>
+</html>'''
+        
+        # 使用 UTF-8 编码
+        body = error_content.encode('utf-8', 'replace')
+        
+        # HTTP 状态行不能包含非 ASCII 字符，只发送状态码
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html;charset=utf-8")
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        
+        if self.command != 'HEAD' and code >= 200 and code not in (204, 304):
+            self.wfile.write(body)
+    
     def do_GET(self):
         """处理GET请求"""
         import time

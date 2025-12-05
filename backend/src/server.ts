@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { initializeDatabase, getDb } from './database';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 const JWT_SECRET = 'your-super-secret-key-change-it';
 
 // 启动时打印日志，便于调试
@@ -103,9 +103,58 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => { 
-    const id=randomUUID(); 
-    await getDb().run(`INSERT INTO users (id, familyId, email, password, name, role) VALUES (?, 'TEMP', ?, ?, '家长', 'parent')`, id, req.body.email, await bcrypt.hash(req.body.password, 10)); 
-    res.json({token: jwt.sign({id,role:'parent',familyId:'TEMP'}, JWT_SECRET)}); 
+    try {
+        const { email, password } = req.body;
+        
+        // 验证输入
+        if (!email || !password) {
+            return res.status(400).json({ message: '手机号和密码不能为空' });
+        }
+        
+        // 验证手机号格式（简单验证）
+        if (!/^1[3-9]\d{9}$/.test(email)) {
+            return res.status(400).json({ message: '请输入正确的手机号格式' });
+        }
+        
+        // 验证密码长度
+        if (password.length < 6) {
+            return res.status(400).json({ message: '密码至少需要6位' });
+        }
+        
+        const db = getDb();
+        
+        // 检查手机号是否已注册
+        const existingUser = await db.get('SELECT id FROM users WHERE email = ?', email);
+        if (existingUser) {
+            return res.status(400).json({ message: '该手机号已注册，请直接登录' });
+        }
+        
+        const id = randomUUID();
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        await db.run(
+            `INSERT INTO users (id, familyId, email, password, name, role) VALUES (?, 'TEMP', ?, ?, '家长', 'parent')`, 
+            id, email, hashedPassword
+        );
+        
+        res.json({ token: jwt.sign({ id, role: 'parent', familyId: 'TEMP' }, JWT_SECRET) });
+    } catch (error: any) {
+        console.error('注册错误:', error);
+        
+        // SQLite UNIQUE 约束违反
+        if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE')) {
+            return res.status(400).json({ message: '该手机号已注册，请直接登录' });
+        }
+        
+        // 外键约束错误（理论上不应该发生了）
+        if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('FOREIGN KEY')) {
+            console.error('外键约束错误 - TEMP 家庭可能不存在');
+            return res.status(500).json({ message: '系统初始化错误，请稍后重试' });
+        }
+        
+        // 其他错误
+        return res.status(500).json({ message: '注册失败，请稍后重试' });
+    }
 });
 
 app.post('/api/auth/create-family', protect, async (req: any, res) => { 
@@ -248,7 +297,8 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     // 实际用时 <= 预计用时 * 1.2 (允许20%的容差)
     return e.actualDurationMinutes <= (e.expectedDuration * 1.2);
   }).length;
-  const punctualRate = approvedEntries.length === 0 ? 100 : Math.round((punctualCount / approvedEntries.length) * 100);
+  // 准时率：如果没有已审核的任务，显示 0% 而非 100%
+  const punctualRate = approvedEntries.length === 0 ? 0 : Math.round((punctualCount / approvedEntries.length) * 100);
   
   // 本周获得的总金币
   const totalCoinsEarned = weekEntries

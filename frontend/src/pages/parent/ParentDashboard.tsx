@@ -199,11 +199,41 @@ export default function ParentDashboard() {
           )}
         </div>
 
+        {/* 首次使用引导 */}
+        {stats.weekTasks === 0 && reviews.length === 0 && (
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
+            <div className="text-center">
+              <div className="text-5xl mb-4">🎉</div>
+              <h3 className="font-bold text-xl text-gray-800 mb-2">欢迎使用星辰早晨！</h3>
+              <p className="text-gray-600 text-sm mb-4">
+                还没有任务？快来为孩子设置第一个任务吧！
+              </p>
+              <div className="space-y-3 text-left bg-white/60 rounded-xl p-4 text-sm">
+                <div className="flex items-center gap-3">
+                  <span className="bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span>
+                  <span>点击下方「任务管理」添加任务</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">2</span>
+                  <span>设置「心愿商店」让孩子兑换奖励</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
+                  <span>切换到孩子账号开始使用</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 管理入口 */}
         <div className="grid grid-cols-2 gap-3 pt-4">
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/tasks')}>
+          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2 relative" onClick={() => navigate('/parent/tasks')}>
             <ClipboardList size={28} className="text-blue-600"/>
             <span>任务管理</span>
+            {stats.weekTasks === 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full animate-pulse">去添加</span>
+            )}
           </Button>
           <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/wishes')}>
             <Gift size={28} className="text-pink-600"/>

@@ -10,13 +10,18 @@ export const initializeDatabase = async () => {
   
   db = await open({
     filename: dbPath,
-    driver: sqlite3.Database,
-    timeout: 10000 // 10秒超时，避免数据库操作挂起
+    driver: sqlite3.Database
   });
 
   console.log('📦 Connected to SQLite database');
-  await db.run('PRAGMA foreign_keys = ON');
-  await db.run('PRAGMA busy_timeout = 10000'); // 设置数据库忙等待超时为10秒
+  
+  // SQLite 优化配置
+  await db.run('PRAGMA foreign_keys = ON');           // 启用外键约束
+  await db.run('PRAGMA busy_timeout = 30000');        // 增加忙等待超时为30秒（高并发时需要更长时间）
+  await db.run('PRAGMA journal_mode = WAL');          // 使用 WAL 模式，提高并发读写性能
+  await db.run('PRAGMA synchronous = NORMAL');        // 正常同步模式，平衡性能和安全
+  await db.run('PRAGMA cache_size = -64000');         // 64MB 缓存
+  await db.run('PRAGMA temp_store = MEMORY');         // 临时表存储在内存中
   await createTables();
   
   try { await db.run('ALTER TABLE users ADD COLUMN pin TEXT'); } catch (e) {}
@@ -35,6 +40,14 @@ export const getDb = () => {
 
 const createTables = async () => {
   await db.exec(`CREATE TABLE IF NOT EXISTS families (id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  
+  // 创建临时家庭记录，用于注册流程
+  // 这样注册时 familyId = 'TEMP' 不会触发外键约束错误
+  try {
+    await db.run(`INSERT OR IGNORE INTO families (id, name) VALUES ('TEMP', '临时家庭')`);
+  } catch (e) {
+    // 忽略错误，可能已存在
+  }
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, email TEXT UNIQUE, password TEXT, name TEXT NOT NULL, 
