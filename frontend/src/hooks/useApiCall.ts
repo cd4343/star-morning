@@ -1,4 +1,4 @@
-﻿import { useState, useCallback } from 'react';
+﻿import { useState, useCallback, useEffect } from 'react';
 import api from '../services/api';
 
 interface ApiCallOptions {
@@ -58,9 +58,15 @@ export function useApiCall() {
   return { loading, call, get, post, put, del };
 }
 
-export function useApiData<T>(url: string, defaultValue: T) {
+/**
+ * 数据获取 Hook - 自动在挂载时加载数据
+ * @param url - API 端点
+ * @param defaultValue - 默认值
+ * @param autoFetch - 是否自动加载（默认 true）
+ */
+export function useApiData<T>(url: string, defaultValue: T, autoFetch: boolean = true) {
   const [data, setData] = useState<T>(defaultValue);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(autoFetch); // 只有自动加载时才初始化为 true
   const [error, setError] = useState<string | null>(null);
 
   const fetch = useCallback(async () => {
@@ -77,6 +83,13 @@ export function useApiData<T>(url: string, defaultValue: T) {
       setLoading(false);
     }
   }, [url]);
+
+  // 自动加载数据
+  useEffect(() => {
+    if (autoFetch) {
+      fetch();
+    }
+  }, [autoFetch, fetch]);
 
   const refresh = useCallback(() => { fetch(); }, [fetch]);
 
