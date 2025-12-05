@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../../components/Button';
 import { Header } from '../../components/Header';
 import { Layout } from '../../components/Layout';
+import { IntroModal } from '../../components/IntroModal';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -17,8 +18,8 @@ export default function Login() {
   const [phone, setPhone] = useState(savedPhone);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showFullForm, setShowFullForm] = useState(!hasQuickLogin); // 如果没有保存手机号，显示完整表单
-  const [showIntro, setShowIntro] = useState(false); // 显示应用介绍弹窗
+  const [showFullForm, setShowFullForm] = useState(!hasQuickLogin);
+  const [showIntro, setShowIntro] = useState(false);
 
   const handleLogin = async () => {
     if (!phone || !password) return alert('请输入手机号和密码');
@@ -26,9 +27,7 @@ export default function Login() {
       setLoading(true);
       const res = await api.post('/auth/login', { phone, password });
       
-      // 记住账号
       localStorage.setItem('last_phone', phone);
-      
       login(res.data.token, res.data.user);
       
       if (res.data.user.familyId === 'TEMP') {
@@ -39,11 +38,10 @@ export default function Login() {
     } catch (err: any) {
       const msg = err.response?.data?.message || '登录失败';
       
-      // 如果账号不存在，清除保存的手机号并提示注册
       if (msg.includes('账号') || msg.includes('不存在') || msg.includes('错误')) {
         const shouldRegister = window.confirm(`${msg}\n\n该账号可能不存在，是否前往注册？`);
         if (shouldRegister) {
-          localStorage.removeItem('last_phone'); // 清除无效的保存手机号
+          localStorage.removeItem('last_phone');
           navigate('/register');
           return;
         }
@@ -55,73 +53,21 @@ export default function Login() {
     }
   };
 
-  // 切换到其他账号
   const switchAccount = () => {
     setPhone('');
     setShowFullForm(true);
   };
 
-  // 应用介绍弹窗
-  const IntroModal = () => (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowIntro(false)}>
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="text-center mb-6">
-          <div className="text-5xl mb-3">🌟</div>
-          <h2 className="text-xl font-bold text-gray-800">星辰早晨</h2>
-          <p className="text-sm text-gray-500">家庭成长激励系统</p>
-        </div>
-        
-        <div className="space-y-4 text-sm text-gray-600">
-          <div className="bg-blue-50 rounded-xl p-4">
-            <div className="font-bold text-blue-700 mb-2">💡 这是什么？</div>
-            <p>一个帮助孩子养成好习惯的家庭任务管理应用。家长设置任务和奖励，孩子完成任务获得金币和成就！</p>
-          </div>
-          
-          <div className="bg-green-50 rounded-xl p-4">
-            <div className="font-bold text-green-700 mb-2">✨ 主要功能</div>
-            <ul className="space-y-1 ml-4 list-disc">
-              <li>任务管理：设置每日/每周任务</li>
-              <li>金币奖励：完成任务获得金币</li>
-              <li>心愿商店：用金币兑换奖励</li>
-              <li>成就系统：解锁各种成就勋章</li>
-              <li>抽奖玩法：金币参与趣味抽奖</li>
-            </ul>
-          </div>
-          
-          <div className="bg-orange-50 rounded-xl p-4">
-            <div className="font-bold text-orange-700 mb-2">👨‍👩‍👧 如何使用？</div>
-            <ol className="space-y-1 ml-4 list-decimal">
-              <li>家长注册账号并创建家庭</li>
-              <li>添加孩子信息</li>
-              <li>设置任务、奖励、商品</li>
-              <li>孩子完成任务后提交审核</li>
-              <li>家长审核通过后发放奖励</li>
-            </ol>
-          </div>
-        </div>
-        
-        <button 
-          onClick={() => setShowIntro(false)}
-          className="w-full mt-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl font-bold"
-        >
-          知道了
-        </button>
-      </div>
-    </div>
-  );
-
-  // 快速登录界面 (有保存的手机号)
+  // 快速登录界面
   if (hasQuickLogin && !showFullForm) {
     return (
       <Layout>
-        {showIntro && <IntroModal />}
+        {showIntro && <IntroModal onClose={() => setShowIntro(false)} />}
         <div className="p-6 flex flex-col h-full items-center justify-center">
-          {/* Logo */}
           <div className="text-6xl mb-4">🌟</div>
           <h1 className="text-2xl font-black text-gray-800 mb-2">星辰早晨</h1>
           <p className="text-gray-400 text-sm mb-8">家庭成长激励系统</p>
           
-          {/* 快速登录卡片 */}
           <div className="w-full max-w-sm bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100 shadow-lg">
             <div className="text-center mb-4">
               <div className="text-4xl mb-2">👋</div>
@@ -143,7 +89,6 @@ export default function Login() {
             </Button>
           </div>
           
-          {/* 底部操作 */}
           <div className="mt-8 flex flex-col items-center gap-3">
             <button onClick={switchAccount} className="text-gray-500 text-sm hover:text-gray-700">
               使用其他账号登录
@@ -163,7 +108,7 @@ export default function Login() {
   // 完整登录表单
   return (
     <Layout>
-      {showIntro && <IntroModal />}
+      {showIntro && <IntroModal onClose={() => setShowIntro(false)} />}
       <Header title="登录" showBack onBack={() => hasQuickLogin ? setShowFullForm(false) : navigate('/register')} />
       <div className="p-6 flex flex-col h-full">
         <h2 className="text-2xl font-bold mb-6 text-center">欢迎回来</h2>
@@ -191,14 +136,14 @@ export default function Login() {
         </Button>
         
         <div className="text-center mt-4">
-            <span className="text-gray-400 text-sm">还没有账号？ </span>
-            <button onClick={() => navigate('/register')} className="text-blue-600 font-bold text-sm">立即注册</button>
+          <span className="text-gray-400 text-sm">还没有账号？ </span>
+          <button onClick={() => navigate('/register')} className="text-blue-600 font-bold text-sm">立即注册</button>
         </div>
         
         <div className="text-center mt-2">
-            <button onClick={() => setShowIntro(true)} className="text-gray-400 text-xs hover:text-gray-600">
-              了解这个应用
-            </button>
+          <button onClick={() => setShowIntro(true)} className="text-gray-400 text-xs hover:text-gray-600">
+            了解这个应用
+          </button>
         </div>
       </div>
     </Layout>
