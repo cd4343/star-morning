@@ -103,9 +103,12 @@ export default function Register() {
           <span className="text-gray-400 text-sm">已有账号？ </span>
           <button onClick={() => navigate('/login')} className="text-blue-600 font-bold text-sm">去登录</button>
         </div>
-        <div className="text-center mt-2">
-          <button onClick={() => setShowIntro(true)} className="text-gray-400 text-xs hover:text-gray-600">
-            了解这个应用
+        <div className="text-center mt-4">
+          <button 
+            onClick={() => setShowIntro(true)} 
+            className="px-4 py-2 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700 text-sm font-bold rounded-full border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-all animate-pulse hover:animate-none shadow-sm inline-flex items-center gap-1.5"
+          >
+            <span className="text-base">💡</span> 了解这个应用
           </button>
         </div>
       </div>
