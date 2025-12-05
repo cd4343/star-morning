@@ -52,7 +52,7 @@ export default function CreateFamily() {
       });
       login(res.data.token);
       // 创建家庭后直接进入家长首页，那里有首次使用引导
-      navigate('/parent');
+      navigate('/parent/dashboard');
     } catch (err: any) {
       alert(err.response?.data?.message || '创建失败');
     } finally {
@@ -142,13 +142,21 @@ export default function CreateFamily() {
               value={childName}
               onChange={e => setChildName(e.target.value)}
             />
-            <input 
-              type="date"
-              className="w-36 p-4 bg-gray-100 rounded-xl outline-none focus:ring-2 ring-green-500 transition-all text-gray-600"
-              value={childBirthdate}
-              onChange={e => setChildBirthdate(e.target.value)}
-              placeholder="出生日期"
-            />
+            {/* 日期选择器 - 增强移动端可点击性 */}
+            <div className="relative w-40">
+              <input 
+                type="date"
+                className="w-full p-4 bg-gray-100 rounded-xl outline-none focus:ring-2 ring-green-500 transition-all text-gray-600 appearance-none cursor-pointer"
+                value={childBirthdate}
+                onChange={e => setChildBirthdate(e.target.value)}
+                style={{ colorScheme: 'light' }}
+              />
+              {!childBirthdate && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-gray-400 text-sm">
+                  📅 生日
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="bg-blue-50 p-4 rounded-xl text-blue-600 text-sm">

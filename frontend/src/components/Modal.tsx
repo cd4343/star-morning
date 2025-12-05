@@ -176,12 +176,21 @@ export const AddEditChildModal: React.FC<AddEditChildModalProps> = ({ isOpen, on
                 </div>
                 <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">出生日期 (选填)</label>
-                    <input 
-                        type="date"
-                        className="w-full p-3 bg-gray-100 rounded-xl outline-none focus:ring-2 ring-blue-500"
-                        value={birthdate}
-                        onChange={e => setBirthdate(e.target.value)}
-                    />
+                    {/* 日期选择器 - 增强移动端可点击性 */}
+                    <div className="relative">
+                        <input 
+                            type="date"
+                            className="w-full p-3 bg-gray-100 rounded-xl outline-none focus:ring-2 ring-blue-500 appearance-none cursor-pointer"
+                            value={birthdate}
+                            onChange={e => setBirthdate(e.target.value)}
+                            style={{ colorScheme: 'light' }}
+                        />
+                        {!birthdate && (
+                            <div className="absolute inset-0 flex items-center px-3 pointer-events-none text-gray-400">
+                                📅 点击选择出生日期
+                            </div>
+                        )}
+                    </div>
                 </div>
                 <div className="flex gap-3 pt-4">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200">
