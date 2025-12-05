@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+﻿import { useState, useCallback } from 'react';
 import api from '../services/api';
 
 interface ApiCallOptions {
@@ -10,10 +10,6 @@ interface ApiCallOptions {
   showErrorAlert?: boolean;
 }
 
-/**
- * 统一 API 调用 Hook
- * 处理 loading 状态、错误处理、成功/失败提示
- */
 export function useApiCall() {
   const [loading, setLoading] = useState(false);
 
@@ -34,36 +30,19 @@ export function useApiCall() {
 
     try {
       setLoading(true);
-      
       let response;
       switch (method) {
-        case 'get':
-          response = await api.get(url);
-          break;
-        case 'post':
-          response = await api.post(url, data);
-          break;
-        case 'put':
-          response = await api.put(url, data);
-          break;
-        case 'delete':
-          response = await api.delete(url);
-          break;
+        case 'get': response = await api.get(url); break;
+        case 'post': response = await api.post(url, data); break;
+        case 'put': response = await api.put(url, data); break;
+        case 'delete': response = await api.delete(url); break;
       }
-
-      if (showSuccessAlert && successMessage) {
-        alert(successMessage);
-      }
-      
+      if (showSuccessAlert && successMessage) alert(successMessage);
       onSuccess?.(response.data);
       return response.data as T;
     } catch (err: any) {
       const msg = err.response?.data?.message || errorMessage;
-      
-      if (showErrorAlert) {
-        alert(msg);
-      }
-      
+      if (showErrorAlert) alert(msg);
       onError?.(err);
       return null;
     } finally {
@@ -71,33 +50,14 @@ export function useApiCall() {
     }
   }, []);
 
-  // 便捷方法
-  const get = useCallback(<T = any>(url: string, options?: ApiCallOptions) => 
-    call<T>('get', url, undefined, options), [call]);
-  
-  const post = useCallback(<T = any>(url: string, data?: any, options?: ApiCallOptions) => 
-    call<T>('post', url, data, options), [call]);
-  
-  const put = useCallback(<T = any>(url: string, data?: any, options?: ApiCallOptions) => 
-    call<T>('put', url, data, options), [call]);
-  
-  const del = useCallback(<T = any>(url: string, options?: ApiCallOptions) => 
-    call<T>('delete', url, undefined, options), [call]);
+  const get = useCallback(<T = any>(url: string, options?: ApiCallOptions) => call<T>('get', url, undefined, options), [call]);
+  const post = useCallback(<T = any>(url: string, data?: any, options?: ApiCallOptions) => call<T>('post', url, data, options), [call]);
+  const put = useCallback(<T = any>(url: string, data?: any, options?: ApiCallOptions) => call<T>('put', url, data, options), [call]);
+  const del = useCallback(<T = any>(url: string, options?: ApiCallOptions) => call<T>('delete', url, undefined, options), [call]);
 
-  return {
-    loading,
-    call,
-    get,
-    post,
-    put,
-    del,
-  };
+  return { loading, call, get, post, put, del };
 }
 
-/**
- * 数据获取 Hook
- * 自动加载数据并管理状态
- */
 export function useApiData<T>(url: string, defaultValue: T) {
   const [data, setData] = useState<T>(defaultValue);
   const [loading, setLoading] = useState(true);
@@ -118,19 +78,9 @@ export function useApiData<T>(url: string, defaultValue: T) {
     }
   }, [url]);
 
-  const refresh = useCallback(() => {
-    fetch();
-  }, [fetch]);
+  const refresh = useCallback(() => { fetch(); }, [fetch]);
 
-  return {
-    data,
-    setData,
-    loading,
-    error,
-    fetch,
-    refresh,
-  };
+  return { data, setData, loading, error, fetch, refresh };
 }
 
 export default useApiCall;
-
