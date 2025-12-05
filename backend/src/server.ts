@@ -32,6 +32,32 @@ app.use((req, res, next) => {
 
 interface AuthRequest extends Request { user?: { id: string; familyId: string; role: 'parent' | 'child'; }; }
 
+// 数据库操作包装器 - 带重试机制
+const dbRunWithRetry = async (sql: string, ...params: any[]) => {
+  const maxRetries = 3;
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await getDb().run(sql, ...params);
+    } catch (error: any) {
+      lastError = error;
+      
+      // SQLite BUSY 错误 - 数据库被锁
+      if (error.code === 'SQLITE_BUSY' || error.message?.includes('database is locked')) {
+        console.log(`⏳ 数据库繁忙，重试 ${attempt}/${maxRetries}...`);
+        await new Promise(resolve => setTimeout(resolve, 100 * attempt)); // 延迟重试
+        continue;
+      }
+      
+      // 其他错误直接抛出
+      throw error;
+    }
+  }
+  
+  throw lastError;
+};
+
 // 健康检查端点 - 用于测试服务器是否正常运行
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -132,7 +158,8 @@ app.post('/api/auth/register', async (req, res) => {
         const id = randomUUID();
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        await db.run(
+        // 使用带重试的数据库操作
+        await dbRunWithRetry(
             `INSERT INTO users (id, familyId, email, password, name, role) VALUES (?, 'TEMP', ?, ?, '家长', 'parent')`, 
             id, email, hashedPassword
         );
@@ -146,10 +173,15 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ message: '该手机号已注册，请直接登录' });
         }
         
-        // 外键约束错误（理论上不应该发生了）
+        // 外键约束错误
         if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('FOREIGN KEY')) {
             console.error('外键约束错误 - TEMP 家庭可能不存在');
             return res.status(500).json({ message: '系统初始化错误，请稍后重试' });
+        }
+        
+        // 数据库繁忙 - 返回 503 让前端重试
+        if (error.code === 'SQLITE_BUSY' || error.message?.includes('database is locked')) {
+            return res.status(503).json({ message: '服务器繁忙，请稍后重试' });
         }
         
         // 其他错误
