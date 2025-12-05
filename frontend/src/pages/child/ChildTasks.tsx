@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
+import { PullToRefresh } from '../../components/PullToRefresh';
 import { Check, Clock, Play, X, Pause, Calendar } from 'lucide-react';
 import api from '../../services/api';
 
@@ -176,6 +178,9 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
 };
 
 export default function ChildTasks() {
+  const context = useOutletContext<any>();
+  const refreshParent = context?.refresh; // 刷新父组件数据（顶栏金币等）
+  
   const [tasks, setTasks] = useState<Task[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -265,16 +270,23 @@ export default function ChildTasks() {
   const maxCoins = Math.max(...weeklyStats.map(s => s.coins), 10); 
   const totalWeeklyCoins = weeklyStats.reduce((acc, cur) => acc + cur.coins, 0);
 
+  // 下拉刷新处理
+  const handleRefresh = async () => {
+    await fetchTasks();
+    if (refreshParent) await refreshParent(); // 同时刷新顶栏数据
+  };
+
   return (
-    <div className="p-4 space-y-6">
-      {/* Timer Modal */}
-      {activeTask && (
-          <TaskTimerModal 
-            task={activeTask} 
-            onClose={() => setActiveTask(null)} 
-            onComplete={handleTaskComplete}
-          />
-      )}
+    <PullToRefresh onRefresh={handleRefresh} className="h-full">
+      <div className="p-4 space-y-6">
+        {/* Timer Modal */}
+        {activeTask && (
+            <TaskTimerModal 
+              task={activeTask} 
+              onClose={() => setActiveTask(null)} 
+              onComplete={handleTaskComplete}
+            />
+        )}
 
       {/* Stats Chart */}
       <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 shadow-lg text-white relative overflow-hidden">
@@ -430,6 +442,7 @@ export default function ChildTasks() {
           ))}
         </div>
       </div>
-    </div>
+      </div>
+    </PullToRefresh>
   );
 }

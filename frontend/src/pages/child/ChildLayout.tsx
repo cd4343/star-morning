@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
-import { CheckSquare, Gift, User, RefreshCw, AlertCircle } from 'lucide-react';
+import { CheckSquare, Gift, User, ShieldCheck, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
@@ -84,8 +84,8 @@ export default function ChildLayout() {
                   </div>
                 </div>
               </div>
-              <button onClick={handleSwitchUser} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors flex items-center gap-1 text-xs font-medium">
-                  <RefreshCw size={16}/> 切换
+              <button onClick={handleSwitchUser} className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-full text-blue-600 transition-colors flex items-center gap-1.5 text-xs font-bold">
+                  <ShieldCheck size={14}/> 家长模式
               </button>
             </div>
             
