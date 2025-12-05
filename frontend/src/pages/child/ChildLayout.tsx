@@ -65,22 +65,42 @@ export default function ChildLayout() {
       <div className="w-full h-screen md:h-[850px] md:max-w-md bg-gray-50 flex flex-col md:rounded-[2.5rem] md:shadow-2xl md:border-[8px] md:border-gray-900 overflow-hidden relative">
           
           {/* Top Bar */}
-          <div className="bg-white p-4 flex justify-between items-center shadow-sm z-10 sticky top-0">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl border-2 border-white shadow-sm ${childData?.gender === 'girl' ? 'bg-pink-100' : 'bg-green-100'}`}>
-                 {childData?.avatar || (childData?.gender === 'girl' ? '👧' : '👦')}
-              </div>
-              <div>
-                <div className="font-bold text-gray-800 text-sm">{childData?.name || 'Loading...'}</div>
-                <div className="text-xs text-gray-500 flex gap-2 font-mono">
-                   <span className="flex items-center gap-1"><span className="text-yellow-500">🪙</span> {childData?.coins || 0}</span>
-                   <span className="flex items-center gap-1"><span className="text-purple-500">⭐</span> {childData?.xp || 0}</span>
+          <div className="bg-white p-3 shadow-sm z-10 sticky top-0">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl border-2 border-white shadow-sm ${childData?.gender === 'girl' ? 'bg-pink-100' : 'bg-green-100'}`}>
+                   {childData?.avatar || (childData?.gender === 'girl' ? '👧' : '👦')}
+                </div>
+                <div>
+                  <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                    {childData?.name || 'Loading...'}
+                    <span className="text-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-1.5 py-0.5 rounded-full font-bold">
+                      Lv.{childData?.level || 1}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 flex gap-2 font-mono">
+                     <span className="flex items-center gap-1"><span className="text-yellow-500">🪙</span> {childData?.coins || 0}</span>
+                     <span className="flex items-center gap-1"><span className="text-purple-500">⭐</span> {childData?.xp || 0}</span>
+                  </div>
                 </div>
               </div>
+              <button onClick={handleSwitchUser} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors flex items-center gap-1 text-xs font-medium">
+                  <RefreshCw size={16}/> 切换
+              </button>
             </div>
-            <button onClick={handleSwitchUser} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors flex items-center gap-1 text-xs font-medium">
-                <RefreshCw size={16}/> 切换
-            </button>
+            
+            {/* 经验进度条 */}
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-purple-400 to-indigo-500 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(((childData?.xp || 0) % (childData?.maxXp || 100)) / (childData?.maxXp || 100) * 100, 100)}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-gray-400 font-medium whitespace-nowrap">
+                {(childData?.xp || 0) % (childData?.maxXp || 100)}/{childData?.maxXp || 100}
+              </span>
+            </div>
           </div>
 
           {/* Main Content */}

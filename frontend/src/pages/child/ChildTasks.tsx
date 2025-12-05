@@ -13,32 +13,108 @@ interface Task {
   status: 'todo' | 'pending' | 'completed' | 'approved';
 }
 
-// Timer Modal Component
+// 存储键名
+const ACTIVE_TASK_KEY = 'stellar_active_task';
+const TASK_START_TIME_KEY = 'stellar_task_start_time';
+const TASK_PAUSED_DURATION_KEY = 'stellar_task_paused_duration';
+
+// 格式化时间显示
+const formatTime = (totalSeconds: number) => {
+    const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const s = (totalSeconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+};
+
+// Timer Modal Component - 使用时间戳方案，支持后台运行
 const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: () => void, onComplete: (duration: number) => void }) => {
-    const [seconds, setSeconds] = useState(0);
+    const [displaySeconds, setDisplaySeconds] = useState(0);
     const [isActive, setIsActive] = useState(true);
+    const [startTime, setStartTime] = useState<number>(Date.now());
+    const [pausedDuration, setPausedDuration] = useState(0); // 累计暂停时长
+    const [pauseStartTime, setPauseStartTime] = useState<number | null>(null);
     const intervalRef = useRef<any>(null);
 
+    // 初始化：从 localStorage 恢复状态
     useEffect(() => {
-        if (isActive) {
-            intervalRef.current = setInterval(() => {
-                setSeconds(s => s + 1);
-            }, 1000);
+        const savedStartTime = localStorage.getItem(TASK_START_TIME_KEY);
+        const savedPausedDuration = localStorage.getItem(TASK_PAUSED_DURATION_KEY);
+        
+        if (savedStartTime) {
+            setStartTime(parseInt(savedStartTime));
         } else {
-            clearInterval(intervalRef.current);
+            const now = Date.now();
+            setStartTime(now);
+            localStorage.setItem(TASK_START_TIME_KEY, now.toString());
         }
-        return () => clearInterval(intervalRef.current);
-    }, [isActive]);
+        
+        if (savedPausedDuration) {
+            setPausedDuration(parseInt(savedPausedDuration));
+        }
+        
+        localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(task));
+    }, [task]);
 
-    const formatTime = (totalSeconds: number) => {
-        const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-        const s = (totalSeconds % 60).toString().padStart(2, '0');
-        return `${m}:${s}`;
+    // 计算实际耗时（使用时间戳，即使切出画面也准确）
+    const getElapsedSeconds = () => {
+        const now = Date.now();
+        let elapsed = Math.floor((now - startTime) / 1000) - Math.floor(pausedDuration / 1000);
+        
+        // 如果当前处于暂停状态，减去当前暂停的时间
+        if (pauseStartTime) {
+            elapsed -= Math.floor((now - pauseStartTime) / 1000);
+        }
+        
+        return Math.max(0, elapsed);
+    };
+
+    // 更新显示（每秒更新，但实际时间基于时间戳计算）
+    useEffect(() => {
+        intervalRef.current = setInterval(() => {
+            setDisplaySeconds(getElapsedSeconds());
+        }, 1000);
+        
+        // 立即更新一次
+        setDisplaySeconds(getElapsedSeconds());
+        
+        return () => clearInterval(intervalRef.current);
+    }, [startTime, pausedDuration, pauseStartTime]);
+
+    // 暂停/继续
+    const togglePause = () => {
+        if (isActive) {
+            // 暂停
+            setPauseStartTime(Date.now());
+            setIsActive(false);
+        } else {
+            // 继续
+            if (pauseStartTime) {
+                const newPausedDuration = pausedDuration + (Date.now() - pauseStartTime);
+                setPausedDuration(newPausedDuration);
+                localStorage.setItem(TASK_PAUSED_DURATION_KEY, newPausedDuration.toString());
+            }
+            setPauseStartTime(null);
+            setIsActive(true);
+        }
     };
 
     const handleSubmit = () => {
-        const durationMinutes = Math.ceil(seconds / 60);
+        const totalSeconds = getElapsedSeconds();
+        const durationMinutes = Math.max(1, Math.ceil(totalSeconds / 60));
+        
+        // 清理存储
+        localStorage.removeItem(ACTIVE_TASK_KEY);
+        localStorage.removeItem(TASK_START_TIME_KEY);
+        localStorage.removeItem(TASK_PAUSED_DURATION_KEY);
+        
         onComplete(durationMinutes);
+    };
+
+    const handleClose = () => {
+        // 清理存储
+        localStorage.removeItem(ACTIVE_TASK_KEY);
+        localStorage.removeItem(TASK_START_TIME_KEY);
+        localStorage.removeItem(TASK_PAUSED_DURATION_KEY);
+        onClose();
     };
 
     return (
@@ -49,9 +125,21 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
             </div>
 
             {/* Timer Display */}
-            <div className="text-8xl font-mono font-bold mb-12 tracking-wider tabular-nums">
-                {formatTime(seconds)}
+            <div className={`text-8xl font-mono font-bold mb-4 tracking-wider tabular-nums transition-all ${!isActive ? 'text-yellow-400 animate-pulse' : ''}`}>
+                {formatTime(displaySeconds)}
             </div>
+            
+            {!isActive && (
+                <div className="text-yellow-400 text-sm mb-8 flex items-center gap-2">
+                    <Pause size={16} /> 已暂停
+                </div>
+            )}
+            
+            {isActive && (
+                <div className="text-green-400 text-sm mb-8 flex items-center gap-2">
+                    <Play size={16} /> 计时中...
+                </div>
+            )}
 
             {/* Controls */}
             <div className="flex flex-col gap-4 w-full max-w-xs">
@@ -64,19 +152,24 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
 
                 <div className="flex gap-4">
                     <button 
-                        onClick={() => setIsActive(!isActive)}
-                        className="flex-1 bg-gray-800 hover:bg-gray-700 py-4 rounded-xl font-bold flex items-center justify-center gap-2"
+                        onClick={togglePause}
+                        className={`flex-1 py-4 rounded-xl font-bold flex items-center justify-center gap-2 ${isActive ? 'bg-gray-800 hover:bg-gray-700' : 'bg-yellow-500 hover:bg-yellow-600 text-black'}`}
                     >
                         {isActive ? <><Pause/> 暂停</> : <><Play/> 继续</>}
                     </button>
                     
                     <button 
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="flex-1 bg-red-500/20 hover:bg-red-500/40 text-red-200 py-4 rounded-xl font-bold flex items-center justify-center gap-2"
                     >
                         <X /> 放弃
                     </button>
                 </div>
+            </div>
+            
+            {/* 提示 */}
+            <div className="mt-8 text-xs text-gray-500 text-center max-w-xs">
+                💡 计时器使用时间戳计算，即使切出应用或刷新页面，时间也会继续累计
             </div>
         </div>
     );
@@ -87,6 +180,44 @@ export default function ChildTasks() {
   const [weeklyStats, setWeeklyStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [activeTaskTimer, setActiveTaskTimer] = useState<number>(0); // 用于列表显示的计时
+
+  // 恢复进行中的任务
+  useEffect(() => {
+    const savedTask = localStorage.getItem(ACTIVE_TASK_KEY);
+    if (savedTask) {
+      try {
+        const task = JSON.parse(savedTask);
+        setActiveTask(task);
+      } catch (e) {
+        localStorage.removeItem(ACTIVE_TASK_KEY);
+      }
+    }
+  }, []);
+
+  // 列表中显示进行中任务的计时
+  useEffect(() => {
+    if (!activeTask) {
+      setActiveTaskTimer(0);
+      return;
+    }
+    
+    const updateTimer = () => {
+      const savedStartTime = localStorage.getItem(TASK_START_TIME_KEY);
+      const savedPausedDuration = localStorage.getItem(TASK_PAUSED_DURATION_KEY);
+      
+      if (savedStartTime) {
+        const startTime = parseInt(savedStartTime);
+        const pausedDuration = savedPausedDuration ? parseInt(savedPausedDuration) : 0;
+        const elapsed = Math.floor((Date.now() - startTime) / 1000) - Math.floor(pausedDuration / 1000);
+        setActiveTaskTimer(Math.max(0, elapsed));
+      }
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [activeTask]);
 
   useEffect(() => {
     fetchTasks();
@@ -257,11 +388,26 @@ export default function ChildTasks() {
                   <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mt-2">
                     <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md text-gray-600"><Clock size={12}/> {task.duration}分</span>
                     <span className="font-bold text-yellow-700 bg-yellow-100 px-2 py-1 rounded-md">+{task.coins} 💰</span>
+                    <span className="font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-md">+{task.xp} ⭐</span>
                   </div>
                 </div>
                 
                 <div className="ml-4">
-                    {task.status === 'todo' && (
+                    {/* 进行中状态 - 显示计时 */}
+                    {activeTask?.id === task.id && (
+                      <button 
+                        onClick={() => setActiveTask(task)} 
+                        className="flex flex-col items-center gap-1 text-blue-600 animate-pulse"
+                      >
+                          <div className="bg-blue-100 p-2 rounded-full">
+                            <Clock size={18} className="animate-spin" style={{ animationDuration: '3s' }}/>
+                          </div>
+                          <span className="text-[10px] font-bold font-mono">{formatTime(activeTaskTimer)}</span>
+                          <span className="text-[8px] text-blue-400">点击查看</span>
+                      </button>
+                    )}
+                    {/* 待开始状态 */}
+                    {task.status === 'todo' && activeTask?.id !== task.id && (
                       <button onClick={() => setActiveTask(task)} className="bg-blue-600 active:bg-blue-700 text-white rounded-full p-3 shadow-blue-200 shadow-lg transition-transform hover:scale-105 flex items-center justify-center">
                           <Play size={20} fill="currentColor" className="ml-0.5" />
                       </button>

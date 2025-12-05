@@ -33,10 +33,22 @@ export const IntroModal: React.FC<IntroModalProps> = ({ onClose }) => (
           <div className="font-bold text-green-700 mb-2">✨ 主要功能</div>
           <ul className="space-y-1 ml-4 list-disc">
             <li>任务管理：设置每日/每周任务</li>
-            <li>金币奖励：完成任务获得金币</li>
+            <li>金币奖励：完成任务获得金币 💰</li>
+            <li>经验等级：积累经验升级成长 ⭐</li>
             <li>心愿商店：用金币兑换奖励</li>
             <li>成就系统：解锁各种成就勋章</li>
             <li>抽奖玩法：金币参与趣味抽奖</li>
+          </ul>
+        </div>
+        
+        <div className="bg-purple-50 rounded-xl p-4">
+          <div className="font-bold text-purple-700 mb-2">⭐ 经验等级系统</div>
+          <p className="text-sm mb-2">完成任务不仅能获得金币，还能获得经验值！</p>
+          <ul className="space-y-1 ml-4 list-disc text-sm">
+            <li>每完成一个任务获得对应经验</li>
+            <li>经验积累到一定值会自动升级</li>
+            <li>每100经验还能获得1个特权点</li>
+            <li>特权点可以兑换特殊奖励</li>
           </ul>
         </div>
         
