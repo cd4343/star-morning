@@ -158,6 +158,9 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
         static_extensions = ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot']
         is_static_resource = any(self.path.lower().endswith(ext) for ext in static_extensions) or self.path.startswith('/assets/')
         
+        # 标记为静态资源请求，以便在 end_headers 中添加缓存头
+        self._is_static_resource = is_static_resource
+        
         # 如果是静态资源，尝试返回文件
         if is_static_resource:
             return super().do_GET()
@@ -261,10 +264,23 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             self.send_error(404, "Not Found")
     
     def end_headers(self):
-        """添加CORS头，允许跨域访问"""
+        """添加CORS头和缓存控制"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        
+        # 静态资源缓存策略
+        if hasattr(self, '_is_static_resource') and self._is_static_resource:
+            # JS/CSS 带哈希的文件可以长期缓存（1年）
+            if '/assets/' in self.path:
+                self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+            else:
+                # 其他静态资源缓存 1 天
+                self.send_header('Cache-Control', 'public, max-age=86400')
+        elif self.path == '/index.html' or self.path == '/':
+            # HTML 文件不缓存，确保更新时能获取最新版本
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
+        
         super().end_headers()
     
     def do_OPTIONS(self):

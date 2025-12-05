@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import api from '../services/api';
 
 interface User {
@@ -25,51 +25,52 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [isLoading, setIsLoading] = useState(true); // 初始化时验证 token
+  // 直接从 localStorage 初始化状态（无需等待）
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+  const [user, setUser] = useState<User | null>(() => {
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
+  
+  // isLoading 仅用于首次加载时的短暂验证
+  // 策略：先显示界面，后台验证 token
+  const [isLoading, setIsLoading] = useState(false);
+  const validationDone = useRef(false);
 
   useEffect(() => {
-    // 初始化时验证 token 是否有效
-    const validateToken = async () => {
+    // 仅首次挂载时后台验证 token
+    if (validationDone.current) return;
+    validationDone.current = true;
+    
+    const validateTokenInBackground = async () => {
       const storedToken = localStorage.getItem('token');
-      const storedUser = localStorage.getItem('user');
-      
-      if (!storedToken) {
-        setIsLoading(false);
-        return;
-      }
+      if (!storedToken) return;
       
       try {
-        // 尝试调用一个需要认证的 API 来验证 token
-        // 使用 Promise.race 添加额外的超时保护（15秒）
+        // 后台静默验证 - 不阻塞界面
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Token validation timeout')), 15000);
+          setTimeout(() => reject(new Error('timeout')), 8000);
         });
         
         await Promise.race([
           api.get('/auth/members'),
           timeoutPromise
         ]);
-        
-        // Token 有效，恢复用户
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
-        }
+        // Token 有效，无需操作
       } catch (err: any) {
-        // Token 无效或超时，清除本地存储
-        const isTimeout = err.message?.includes('timeout') || err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT';
-        console.log(isTimeout ? 'Token validation timeout' : 'Token invalid, clearing storage');
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        setToken(null);
-        setUser(null);
-      } finally {
-        setIsLoading(false);
+        // 只有确定 token 无效（401/403）才清除，超时/网络错误不清除
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          console.log('Token invalid, clearing storage');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setToken(null);
+          setUser(null);
+        }
+        // 超时和网络错误保持现有登录状态
       }
     };
     
-    validateToken();
+    validateTokenInBackground();
   }, []);
 
   const login = (newToken: string, newUser?: User) => {
@@ -95,18 +96,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem('user', JSON.stringify(updated));
   };
 
-  // 加载中时显示空白，避免闪烁
-  if (isLoading) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-        <div className="text-center">
-          <div className="text-5xl mb-4 animate-bounce">🌟</div>
-          <div className="text-gray-500">加载中...</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <AuthContext.Provider value={{ user, token, login, logout, updateUser, isAuthenticated: !!token, isLoading }}>
       {children}
@@ -121,4 +110,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
