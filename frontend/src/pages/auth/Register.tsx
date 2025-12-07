@@ -6,10 +6,12 @@ import { Layout } from '../../components/Layout';
 import { IntroModal } from '../../components/IntroModal';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../components/Toast';
 
 export default function Register() {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const toast = useToast();
   
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -27,29 +29,30 @@ export default function Register() {
   }, [countdown]);
 
   const handleSendCode = () => {
-    if (!/^1[3-9]\d{9}$/.test(phone)) return alert('请输入正确的11位手机号码');
+    if (!/^1[3-9]\d{9}$/.test(phone)) return toast.warning('请输入正确的11位手机号码');
     setCountdown(60);
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setMockServerCode(code);
-    setTimeout(() => alert(`【星辰系统】您的验证码是：${code}，请在5分钟内完成注册。`), 1000);
+    setTimeout(() => toast.info(`验证码：${code}，请在5分钟内完成注册`), 1000);
   };
 
   const handleRegister = async () => {
-    if (!phone) return alert('请输入手机号');
-    if (!password) return alert('请设置密码');
-    if (!verifyCode) return alert('请输入验证码');
-    if (!/^1[3-9]\d{9}$/.test(phone)) return alert('手机号格式不正确');
-    if (password.length < 6) return alert('密码至少需要6位');
-    if (verifyCode !== mockServerCode) return alert('验证码错误，请重新获取');
+    if (!phone) return toast.warning('请输入手机号');
+    if (!password) return toast.warning('请设置密码');
+    if (!verifyCode) return toast.warning('请输入验证码');
+    if (!/^1[3-9]\d{9}$/.test(phone)) return toast.warning('手机号格式不正确');
+    if (password.length < 6) return toast.warning('密码至少需要6位');
+    if (verifyCode !== mockServerCode) return toast.error('验证码错误，请重新获取');
 
     try {
       setLoading(true);
       const res = await api.post('/auth/register', { email: phone, password });
       localStorage.setItem('last_phone', phone);
       login(res.data.token);
+      toast.success('注册成功！');
       navigate('/create-family');
     } catch (err: any) {
-      alert(err.response?.data?.message || '注册失败');
+      toast.error(err.response?.data?.message || '注册失败');
     } finally {
       setLoading(false);
     }

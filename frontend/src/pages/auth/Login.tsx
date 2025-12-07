@@ -6,10 +6,14 @@ import { Layout } from '../../components/Layout';
 import { IntroModal } from '../../components/IntroModal';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   
   // 检查是否有保存的手机号
   const savedPhone = localStorage.getItem('last_phone') || '';
@@ -22,7 +26,7 @@ export default function Login() {
   const [showIntro, setShowIntro] = useState(false);
 
   const handleLogin = async () => {
-    if (!phone || !password) return alert('请输入手机号和密码');
+    if (!phone || !password) return toast.warning('请输入手机号和密码');
     try {
       setLoading(true);
       const res = await api.post('/auth/login', { phone, password });
@@ -39,7 +43,13 @@ export default function Login() {
       const msg = err.response?.data?.message || '登录失败';
       
       if (msg.includes('账号') || msg.includes('不存在') || msg.includes('错误')) {
-        const shouldRegister = window.confirm(`${msg}\n\n该账号可能不存在，是否前往注册？`);
+        const shouldRegister = await confirm({
+          title: '账号不存在',
+          message: `${msg}\n\n该账号可能不存在，是否前往注册？`,
+          type: 'info',
+          confirmText: '去注册',
+          cancelText: '取消',
+        });
         if (shouldRegister) {
           localStorage.removeItem('last_phone');
           navigate('/register');
@@ -47,7 +57,7 @@ export default function Login() {
         }
       }
       
-      alert(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -152,6 +162,7 @@ export default function Login() {
           </button>
         </div>
       </div>
+      <ConfirmDialog />
     </Layout>
   );
 }

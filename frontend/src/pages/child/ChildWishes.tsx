@@ -4,6 +4,8 @@ import { Button } from '../../components/Button';
 import { useOutletContext } from 'react-router-dom';
 import api from '../../services/api';
 import { ShoppingBag, RotateCcw, Gift, Dna, X, Coins } from 'lucide-react';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 // 友情提示弹窗组件
 const TipModal = ({ isOpen, onClose, title, message, icon }: { isOpen: boolean, onClose: () => void, title: string, message: string, icon: string }) => {
@@ -28,6 +30,8 @@ export default function ChildWishes() {
   const context = useOutletContext<any>();
   const childData = context?.childData || { coins: 0, privilegePoints: 0 };
   const refresh = context?.refresh || (() => {});
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   
   const [view, setView] = useState<'shop'|'bag'|'savings'|'lottery'|'privileges'>('shop');
   
@@ -95,14 +99,20 @@ export default function ChildWishes() {
           showTip('特权点不足', `你只有 ${childData.privilegePoints || 0} 特权点，无法兑换 ${priv.title}（需要 ${priv.cost} 特权点）。快去完成任务赚取特权点吧！`, '⭐');
           return;
       }
-      if (!window.confirm(`确定消耗 ${priv.cost} 特权点兑换 ${priv.title} 吗？`)) return;
+      const confirmed = await confirm({
+        title: '兑换特权',
+        message: `确定消耗 ${priv.cost} 特权点兑换 ${priv.title} 吗？`,
+        type: 'info',
+        confirmText: '确定兑换',
+      });
+      if (!confirmed) return;
       try {
           await api.post(`/child/privileges/${priv.id}/redeem`);
           showTip('兑换成功', `${priv.title} 已放入背包，快去"背包"查看并兑现吧！`, '🎉');
           refresh();
           fetchAll();
       } catch (e: any) {
-          alert(e.response?.data?.message || '兑换失败');
+          toast.error(e.response?.data?.message || '兑换失败');
       }
   };
   
@@ -122,7 +132,7 @@ export default function ChildWishes() {
               showTip('存入成功', `成功存入 ${amount} 金币！继续加油~`, '💪');
           }
       } catch (e: any) {
-          alert(e.response?.data?.message || '存入失败');
+          toast.error(e.response?.data?.message || '存入失败');
       }
   };
 
@@ -135,7 +145,13 @@ export default function ChildWishes() {
           showTip('库存不足', `${item.title} 已经卖完啦，请联系家长补货~`, '📦');
           return;
       }
-      if (!window.confirm(`确定消耗 ${item.cost} 金币兑换 ${item.title} 吗？`)) return;
+      const confirmed = await confirm({
+        title: '兑换商品',
+        message: `确定消耗 ${item.cost} 金币兑换 ${item.title} 吗？`,
+        type: 'info',
+        confirmText: '确定兑换',
+      });
+      if (!confirmed) return;
       try {
           setLoading(true);
           const res = await api.post(`/child/wishes/${item.id}/redeem`);
@@ -143,7 +159,7 @@ export default function ChildWishes() {
           refresh(); 
           fetchAll(); 
       } catch (e: any) {
-          alert(e.response?.data?.message || '兑换失败');
+          toast.error(e.response?.data?.message || '兑换失败');
       } finally {
           setLoading(false);
       }
@@ -153,7 +169,13 @@ export default function ChildWishes() {
   const handleCancel = async (item: any) => {
       const costType = item.costType || 'coins';
       const costText = costType === 'privilegePoints' ? `${item.cost} 特权点` : `${item.cost} 金币`;
-      if (!window.confirm(`确定撤销兑换 ${item.title} 吗？${costText}将退回。`)) return;
+      const confirmed = await confirm({
+        title: '撤销兑换',
+        message: `确定撤销兑换 ${item.title} 吗？${costText}将退回。`,
+        type: 'warning',
+        confirmText: '确定撤销',
+      });
+      if (!confirmed) return;
       try {
           const res = await api.post(`/child/inventory/${item.id}/cancel`);
           const message = costType === 'privilegePoints' 
@@ -163,20 +185,26 @@ export default function ChildWishes() {
           refresh();
           fetchAll();
       } catch (e: any) {
-          alert(e.response?.data?.message || '撤销失败');
+          toast.error(e.response?.data?.message || '撤销失败');
       }
   };
   
   // 兑现物品/服务
   const handleRedeemItem = async (item: any) => {
-      if (!window.confirm(`确定兑现 ${item.title} 吗？兑现后无法撤销。`)) return;
+      const confirmed = await confirm({
+        title: '兑现确认',
+        message: `确定兑现 ${item.title} 吗？兑现后无法撤销。`,
+        type: 'warning',
+        confirmText: '确定兑现',
+      });
+      if (!confirmed) return;
       try {
           await api.post(`/child/inventory/${item.id}/redeem`);
           showTip('兑现成功', `${item.title} 已兑现！快去享受吧~`, '🎉');
           refresh();
           fetchAll();
       } catch (e: any) {
-          alert(e.response?.data?.message || '兑现失败');
+          toast.error(e.response?.data?.message || '兑现失败');
       }
   };
 
@@ -234,7 +262,7 @@ export default function ChildWishes() {
 
       } catch (e: any) {
           setLoading(false);
-          alert(e.response?.data?.message || '失败');
+          toast.error(e.response?.data?.message || '抽奖失败');
       }
   };
 
@@ -545,6 +573,7 @@ export default function ChildWishes() {
         message={tipModal.message}
         icon={tipModal.icon}
       />
+      <ConfirmDialog />
     </div>
   );
 }

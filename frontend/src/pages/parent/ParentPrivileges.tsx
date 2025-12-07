@@ -7,6 +7,8 @@ import { Layout } from '../../components/Layout';
 import { Plus, Trash2, Sparkles, Check, Pen, X } from 'lucide-react';
 import api from '../../services/api';
 import { useTemplateSelector } from '../../hooks/useTemplateSelector';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 // 特权模板 - 以服务性商品为主
 const PRIVILEGE_TEMPLATES = [
@@ -39,6 +41,8 @@ const PRIVILEGE_TEMPLATES = [
 
 export default function ParentPrivileges() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [list, setList] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const { showTemplates, selectedIndexes, selectedCount, toggleTemplate, isSelected, openTemplates, closeTemplates } = useTemplateSelector();
@@ -71,25 +75,33 @@ export default function ParentPrivileges() {
       setTitle(''); setDesc(''); setCost('');
       fetchList();
     } catch {
-      alert('保存失败');
+      toast.error('保存失败');
     }
   };
 
   const handleAdd = async () => {
-    if (!title) return alert('请输入标题');
+    if (!title) return toast.warning('请输入标题');
     await api.post('/parent/privileges', { title, description: desc, cost: +cost });
     setShowAdd(false); setTitle('');
+    toast.success('添加成功');
     fetchList();
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('确定删除吗？')) return;
+    const confirmed = await confirm({
+      title: '删除特权',
+      message: '确定删除这个特权吗？',
+      type: 'danger',
+      confirmText: '删除',
+    });
+    if (!confirmed) return;
     await api.delete(`/parent/privileges/${id}`);
+    toast.success('删除成功');
     fetchList();
   };
 
   const handleAddTemplates = async () => {
-    if (selectedCount === 0) return alert('请至少选择一个特权模板');
+    if (selectedCount === 0) return toast.warning('请至少选择一个特权模板');
     
     try {
       for (const index of selectedIndexes) {
@@ -100,11 +112,11 @@ export default function ParentPrivileges() {
           cost: template.cost
         });
       }
-      alert(`成功添加 ${selectedCount} 个特权！`);
+      toast.success(`成功添加 ${selectedCount} 个特权！`);
       closeTemplates();
       fetchList();
     } catch {
-      alert('添加失败');
+      toast.error('添加失败');
     }
   };
 
@@ -265,6 +277,7 @@ export default function ParentPrivileges() {
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </Layout>
   );
 }

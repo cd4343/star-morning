@@ -6,6 +6,8 @@ import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import { Plus, Trash2 } from 'lucide-react';
 import api from '../../services/api';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 // 预设成就图标
 const ACHIEVEMENT_ICONS = [
@@ -47,6 +49,8 @@ const ACHIEVEMENT_TEMPLATES = [
 
 export default function ParentAchievements() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [list, setList] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -62,7 +66,7 @@ export default function ParentAchievements() {
   const fetchList = async () => { const res = await api.get('/parent/achievements'); setList(res.data); };
 
   const handleAdd = async () => {
-    if (!title) return alert('请输入标题');
+    if (!title) return toast.warning('请输入标题');
     await api.post('/parent/achievements', { 
         title, 
         description: desc, 
@@ -84,8 +88,15 @@ export default function ParentAchievements() {
   };
 
   const handleDelete = async (id: string) => {
-      if (!window.confirm('确定删除吗？')) return;
+      const confirmed = await confirm({
+        title: '删除成就',
+        message: '确定删除这个成就吗？',
+        type: 'danger',
+        confirmText: '删除',
+      });
+      if (!confirmed) return;
       await api.delete(`/parent/achievements/${id}`);
+      toast.success('删除成功');
       fetchList();
   };
 
@@ -233,6 +244,7 @@ export default function ParentAchievements() {
           </Card>
         ))}
       </div>
+      <ConfirmDialog />
     </Layout>
   );
 }
