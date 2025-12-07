@@ -477,20 +477,21 @@ app.get('/api/parent/tasks/deleted', protect, async (req: any, res) => {
 app.get('/api/parent/wishes', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM wishes WHERE familyId = ?', request.user!.familyId)); });
 app.post('/api/parent/wishes', protect, async (req: any, res) => { 
     const request = req as AuthRequest; 
-    const weight = req.body.weight || 10; // 默认权重10
+    const weight = req.body.weight || 10;
+    const rarity = req.body.rarity || null;
     await getDb().run(
-        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, 
-        randomUUID(), request.user!.familyId, req.body.type, req.body.title, req.body.cost, req.body.targetAmount, req.body.icon, req.body.stock, weight
+        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight, rarity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, 
+        randomUUID(), request.user!.familyId, req.body.type, req.body.title, req.body.cost, req.body.targetAmount, req.body.icon, req.body.stock, weight, rarity
     ); 
     res.json({message:'ok'}); 
 });
 
-// 更新奖品（包括权重）
+// 更新奖品（包括权重和稀有度）
 app.put('/api/parent/wishes/:id', protect, async (req: any, res) => {
-    const { title, cost, icon, stock, weight } = req.body;
+    const { title, cost, icon, stock, weight, rarity, targetAmount } = req.body;
     await getDb().run(
-        'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ? WHERE id = ?',
-        title, cost, icon, stock, weight || 10, req.params.id
+        'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ?, rarity = ?, targetAmount = ? WHERE id = ?',
+        title, cost, icon, stock, weight || 10, rarity || null, targetAmount || 0, req.params.id
     );
     res.json({message:'ok'});
 });

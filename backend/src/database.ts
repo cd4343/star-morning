@@ -77,10 +77,12 @@ const createTables = async () => {
   try { await db.run('ALTER TABLE task_entries ADD COLUMN rewardXp INTEGER DEFAULT 0'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS wishes (
-      id TEXT PRIMARY KEY, familyId TEXT NOT NULL, type TEXT CHECK(type IN ('shop', 'savings', 'lottery')) NOT NULL, title TEXT NOT NULL, cost INTEGER DEFAULT 0, targetAmount INTEGER DEFAULT 0, currentAmount INTEGER DEFAULT 0, icon TEXT, stock INTEGER DEFAULT -1, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      id TEXT PRIMARY KEY, familyId TEXT NOT NULL, type TEXT CHECK(type IN ('shop', 'savings', 'lottery')) NOT NULL, title TEXT NOT NULL, cost INTEGER DEFAULT 0, targetAmount INTEGER DEFAULT 0, currentAmount INTEGER DEFAULT 0, icon TEXT, stock INTEGER DEFAULT -1, rarity TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
     )
   `);
+  // 添加稀有度字段（如果不存在）
+  try { await db.run('ALTER TABLE wishes ADD COLUMN rarity TEXT'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS privileges (
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, cost INTEGER NOT NULL, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,

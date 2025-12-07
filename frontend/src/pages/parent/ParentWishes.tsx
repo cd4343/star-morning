@@ -26,23 +26,33 @@ const SHOP_TEMPLATES = [
   { title: '选择晚餐', icon: '🍕', cost: 20, stock: 99 },
 ];
 
-// 抽奖奖池模板
+// 稀有度配置
+const RARITY_CONFIG = {
+  legendary: { label: '传说', emoji: '🏆', color: 'from-yellow-400 to-amber-500', textColor: 'text-amber-600', bgColor: 'bg-amber-50', weight: 5, maxCount: 1, desc: '极其珍贵，建议只设1个' },
+  rare: { label: '稀有', emoji: '💎', color: 'from-purple-400 to-indigo-500', textColor: 'text-purple-600', bgColor: 'bg-purple-50', weight: 12, maxCount: 2, desc: '比较珍贵，建议最多2个' },
+  uncommon: { label: '优秀', emoji: '🌟', color: 'from-blue-400 to-cyan-500', textColor: 'text-blue-600', bgColor: 'bg-blue-50', weight: 25, maxCount: 2, desc: '还不错，建议2个左右' },
+  common: { label: '普通', emoji: '⭐', color: 'from-green-400 to-emerald-500', textColor: 'text-green-600', bgColor: 'bg-green-50', weight: 40, maxCount: 3, desc: '基础奖品，建议3个左右' },
+} as const;
+
+type RarityType = keyof typeof RARITY_CONFIG;
+
+// 抽奖奖池模板（带稀有度）
 const LOTTERY_TEMPLATES = [
-  { title: '100金币', icon: '💰', weight: 5 },      // 稀有 ~3%
-  { title: '1元零花钱', icon: '💵', weight: 8 },   // 稀有 ~5%
-  { title: '免做家务卡', icon: '🎫', weight: 15 }, // 较少 ~9%
-  { title: '神秘糖果', icon: '🍬', weight: 25 },   // 常见 ~15%
-  { title: '10金币', icon: '🪙', weight: 30 },     // 常见 ~18%
-  { title: '贴纸一张', icon: '🏷️', weight: 25 },   // 常见 ~15%
-  { title: '再抽一次', icon: '🔄', weight: 20 },   // 较少 ~12%
-  { title: '谢谢参与', icon: '😎', weight: 40 },    // 最常见 ~24%
-  { title: '小零食', icon: '🍭', weight: 30 },
-  { title: '看电视30分钟', icon: '📺', weight: 20 },
-  { title: '玩手机30分钟', icon: '📱', weight: 15 },
-  { title: '5金币', icon: '🪙', weight: 35 },
-  { title: '神秘礼物', icon: '🎁', weight: 10 },
-  { title: '惊喜糖果', icon: '🍪', weight: 28 },
-  { title: '再来一次机会', icon: '✨', weight: 18 },
+  { title: '100金币', icon: '💰', weight: 5, rarity: 'legendary' as RarityType },
+  { title: '1元零花钱', icon: '💵', weight: 8, rarity: 'legendary' as RarityType },
+  { title: '免做家务卡', icon: '🎫', weight: 12, rarity: 'rare' as RarityType },
+  { title: '神秘礼物', icon: '🎁', weight: 10, rarity: 'rare' as RarityType },
+  { title: '看电视30分钟', icon: '📺', weight: 20, rarity: 'uncommon' as RarityType },
+  { title: '玩手机30分钟', icon: '📱', weight: 18, rarity: 'uncommon' as RarityType },
+  { title: '神秘糖果', icon: '🍬', weight: 25, rarity: 'uncommon' as RarityType },
+  { title: '10金币', icon: '🪙', weight: 30, rarity: 'common' as RarityType },
+  { title: '贴纸一张', icon: '🏷️', weight: 28, rarity: 'common' as RarityType },
+  { title: '小零食', icon: '🍭', weight: 35, rarity: 'common' as RarityType },
+  { title: '再抽一次', icon: '🔄', weight: 25, rarity: 'uncommon' as RarityType },
+  { title: '5金币', icon: '🪙', weight: 40, rarity: 'common' as RarityType },
+  { title: '惊喜糖果', icon: '🍪', weight: 32, rarity: 'common' as RarityType },
+  { title: '再来一次机会', icon: '✨', weight: 22, rarity: 'uncommon' as RarityType },
+  { title: '谢谢参与', icon: '😎', weight: 50, rarity: 'common' as RarityType },
 ];
 
 // 预设图标库
@@ -118,6 +128,7 @@ export default function ParentWishes() {
   const [cost, setCost] = useState('');
   const [target, setTarget] = useState('');
   const [icon, setIcon] = useState('🎁');
+  const [rarity, setRarity] = useState<RarityType>('common');
 
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
@@ -130,6 +141,7 @@ export default function ParentWishes() {
   const [editIcon, setEditIcon] = useState('🎁');
   const [editCost, setEditCost] = useState('');
   const [editTarget, setEditTarget] = useState('');
+  const [editRarity, setEditRarity] = useState<RarityType>('common');
   const [showEditIconPicker, setShowEditIconPicker] = useState(false);
 
   useEffect(() => { fetchWishes(); }, []);
@@ -158,6 +170,18 @@ export default function ParentWishes() {
       setCost('');
       setTarget('');
       setIcon('🎁');
+      setRarity('common');
+  };
+  
+  // 计算当前各稀有度的数量
+  const getRarityCounts = () => {
+    const lotteryItems = wishes.filter((w: any) => w.type === 'lottery');
+    return {
+      legendary: lotteryItems.filter((w: any) => w.rarity === 'legendary').length,
+      rare: lotteryItems.filter((w: any) => w.rarity === 'rare').length,
+      uncommon: lotteryItems.filter((w: any) => w.rarity === 'uncommon').length,
+      common: lotteryItems.filter((w: any) => !w.rarity || w.rarity === 'common').length,
+    };
   };
 
   const handleAdd = async () => {
@@ -169,13 +193,22 @@ export default function ParentWishes() {
       return alert(`已存在同名${viewType === 'shop' ? '商品' : viewType === 'lottery' ? '奖品' : '心愿'}："${title}"，请修改名称或编辑已有项目。`);
     }
     
-    // 抽奖奖池必须正好8个
+    // 抽奖奖池限制
     if (viewType === 'lottery') {
       const currentLotteryCount = wishes.filter((w: any) => w.type === 'lottery').length;
       if (currentLotteryCount >= 8) {
         return alert('抽奖奖池只能有8个奖品！请先删除一些奖品再添加。');
       }
+      
+      // 检查稀有度数量限制
+      const rarityCounts = getRarityCounts();
+      const config = RARITY_CONFIG[rarity];
+      if (rarityCounts[rarity] >= config.maxCount) {
+        return alert(`${config.emoji} ${config.label}级奖品已达到上限（${config.maxCount}个）！\n\n建议：${config.desc}`);
+      }
     }
+    
+    const weight = viewType === 'lottery' ? RARITY_CONFIG[rarity].weight : 10;
     
     await api.post('/parent/wishes', {
       type: viewType, 
@@ -183,17 +216,18 @@ export default function ParentWishes() {
       cost: +cost, 
       targetAmount: +target, 
       icon, 
-      stock: viewType === 'shop' ? 99 : (viewType === 'lottery' ? -1 : -1), // 抽奖默认无限库存
-      weight: 10 // 默认权重
+      stock: viewType === 'shop' ? 99 : -1,
+      weight,
+      rarity: viewType === 'lottery' ? rarity : null
     });
     
     // 检查抽奖奖池是否达到8个
     if (viewType === 'lottery') {
       const newCount = wishes.filter((w: any) => w.type === 'lottery').length + 1;
       if (newCount === 8) {
-        alert('抽奖奖池已有8个奖品！现在可以点击"管理上架"选择8个奖品上架了。');
+        alert('🎉 抽奖奖池已有8个奖品！现在可以点击"管理上架"选择8个奖品上架了。');
       } else if (newCount < 8) {
-        alert(`抽奖奖池当前有 ${newCount} 个奖品，还需要 ${8 - newCount} 个才能上架。`);
+        alert(`✅ 添加成功！奖池当前有 ${newCount} 个奖品，还需要 ${8 - newCount} 个。`);
       }
     }
     
@@ -279,6 +313,7 @@ export default function ParentWishes() {
     setEditWeight(wish.weight || 10);
     setEditCost(String(wish.cost || 0));
     setEditTarget(String(wish.targetAmount || 0));
+    setEditRarity(wish.rarity || 'common');
   };
   
   // 保存编辑
@@ -291,7 +326,8 @@ export default function ParentWishes() {
         cost: +editCost,
         targetAmount: +editTarget,
         stock: editingWish.stock,
-        weight: editWeight
+        weight: editWeight,
+        rarity: editingWish.type === 'lottery' ? editRarity : null
       });
       setEditingWish(null);
       fetchWishes();
@@ -456,14 +492,76 @@ export default function ParentWishes() {
               )}
 
               {viewType === 'lottery' && (
-                  <div className="text-xs text-gray-600 bg-white p-3 rounded-lg border border-dashed">
-                      <div className="font-bold text-purple-600 mb-1">💡 抽奖说明</div>
-                      <ul className="space-y-1 text-gray-500">
-                          <li>• 先添加奖品到奖池，然后点击"管理上架"选择8个奖品</li>
-                          <li>• 每次抽奖消耗 10 金币</li>
-                          <li>• 必须选择恰好 8 个奖品才能上架转盘</li>
-                      </ul>
-                  </div>
+                  <>
+                    {/* 稀有度选择 */}
+                    <div>
+                      <label className="text-xs text-gray-500 font-bold mb-2 block">奖品稀有度</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => {
+                          const counts = getRarityCounts();
+                          const isAtLimit = counts[key] >= config.maxCount;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => !isAtLimit && setRarity(key)}
+                              disabled={isAtLimit}
+                              className={`p-2 rounded-lg border-2 text-center transition-all ${
+                                rarity === key 
+                                  ? `bg-gradient-to-r ${config.color} text-white border-transparent shadow-lg scale-105` 
+                                  : isAtLimit
+                                    ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                    : `${config.bgColor} border-gray-200 hover:border-gray-300`
+                              }`}
+                            >
+                              <div className="text-lg">{config.emoji}</div>
+                              <div className={`text-xs font-bold ${rarity === key ? 'text-white' : config.textColor}`}>
+                                {config.label}
+                              </div>
+                              <div className={`text-[10px] ${rarity === key ? 'text-white/80' : 'text-gray-400'}`}>
+                                {counts[key]}/{config.maxCount}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* 稀有度说明 */}
+                      <div className={`mt-2 p-2 rounded-lg text-xs ${RARITY_CONFIG[rarity].bgColor}`}>
+                        <span className={`font-bold ${RARITY_CONFIG[rarity].textColor}`}>
+                          {RARITY_CONFIG[rarity].emoji} {RARITY_CONFIG[rarity].label}级：
+                        </span>
+                        <span className="text-gray-600 ml-1">{RARITY_CONFIG[rarity].desc}</span>
+                        <span className="text-gray-500 ml-1">| 推荐权重: {RARITY_CONFIG[rarity].weight}</span>
+                      </div>
+                    </div>
+                    
+                    {/* 概率预览 */}
+                    <div className="text-xs text-gray-600 bg-white p-3 rounded-lg border">
+                      <div className="font-bold text-purple-600 mb-2">📊 稀有度配置建议</div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="flex items-center gap-1">
+                          <span>🏆</span>
+                          <span className="text-amber-600 font-bold">传说</span>
+                          <span className="text-gray-400">~2-3%</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span>💎</span>
+                          <span className="text-purple-600 font-bold">稀有</span>
+                          <span className="text-gray-400">~5-6%</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span>🌟</span>
+                          <span className="text-blue-600 font-bold">优秀</span>
+                          <span className="text-gray-400">~12%</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span>⭐</span>
+                          <span className="text-green-600 font-bold">普通</span>
+                          <span className="text-gray-400">~20%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
               )}
               
               <div className="flex gap-2 pt-2">
@@ -564,6 +662,8 @@ export default function ParentWishes() {
             <div className="grid grid-cols-2 gap-2">
               {(viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES).map((template, index) => {
                 const isSelected = selectedTemplates.includes(index);
+                const lotteryTemplate = template as typeof LOTTERY_TEMPLATES[0];
+                const rarityConfig = viewType === 'lottery' && lotteryTemplate.rarity ? RARITY_CONFIG[lotteryTemplate.rarity] : null;
                 return (
                   <button
                     key={index}
@@ -576,7 +676,14 @@ export default function ParentWishes() {
                   >
                     <div className="flex items-start justify-between">
                       <span className="text-xl">{template.icon}</span>
-                      {isSelected && <Check size={16} className={viewType === 'shop' ? 'text-pink-500' : 'text-purple-500'}/>}
+                      <div className="flex items-center gap-1">
+                        {rarityConfig && (
+                          <span className={`text-[10px] px-1 py-0.5 rounded ${rarityConfig.bgColor} ${rarityConfig.textColor}`}>
+                            {rarityConfig.emoji}
+                          </span>
+                        )}
+                        {isSelected && <Check size={16} className={viewType === 'shop' ? 'text-pink-500' : 'text-purple-500'}/>}
+                      </div>
                     </div>
                     <div className="font-bold text-sm mt-1 text-gray-800">{template.title}</div>
                     <div className="text-[10px] text-gray-400 mt-0.5">
@@ -674,6 +781,12 @@ export default function ParentWishes() {
               <div>
                 <div className="font-bold text-gray-800 flex items-center gap-2">
                   {w.title}
+                  {/* 稀有度标签 */}
+                  {w.type === 'lottery' && w.rarity && RARITY_CONFIG[w.rarity as RarityType] && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${RARITY_CONFIG[w.rarity as RarityType].bgColor} ${RARITY_CONFIG[w.rarity as RarityType].textColor}`}>
+                      {RARITY_CONFIG[w.rarity as RarityType].emoji} {RARITY_CONFIG[w.rarity as RarityType].label}
+                    </span>
+                  )}
                   {/* 显示上架状态标记 */}
                   {w.type === 'lottery' && w.isActive && !lotteryEditMode && (
                     <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-bold">
@@ -799,30 +912,60 @@ export default function ParentWishes() {
                 </div>
               )}
               
-              {/* 抽奖权重 */}
+              {/* 抽奖稀有度 */}
               {editingWish.type === 'lottery' && (
-                <div>
-                  <label className="text-xs text-gray-500 font-bold">中奖权重 (1-100)</label>
-                  <div className="flex items-center gap-3 mt-1">
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="100" 
-                      value={editWeight}
-                      onChange={(e) => setEditWeight(+e.target.value)}
-                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                    />
-                    <input 
-                      type="number" 
-                      min="1" 
-                      max="100"
-                      value={editWeight}
-                      onChange={(e) => setEditWeight(Math.min(100, Math.max(1, +e.target.value)))}
-                      className="w-16 p-2 border rounded-lg text-center font-bold"
-                    />
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold mb-2 block">奖品稀有度</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setEditRarity(key);
+                            setEditWeight(config.weight);
+                          }}
+                          className={`p-2 rounded-lg border-2 text-center transition-all ${
+                            editRarity === key 
+                              ? `bg-gradient-to-r ${config.color} text-white border-transparent shadow-md` 
+                              : `${config.bgColor} border-gray-200 hover:border-gray-300`
+                          }`}
+                        >
+                          <div className="text-base">{config.emoji}</div>
+                          <div className={`text-[10px] font-bold ${editRarity === key ? 'text-white' : config.textColor}`}>
+                            {config.label}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-gray-400 mt-1">数值越高，中奖概率越大</div>
-                </div>
+                  
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold">中奖权重 (1-100)</label>
+                    <div className="flex items-center gap-3 mt-1">
+                      <input 
+                        type="range" 
+                        min="1" 
+                        max="100" 
+                        value={editWeight}
+                        onChange={(e) => setEditWeight(+e.target.value)}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="100"
+                        value={editWeight}
+                        onChange={(e) => setEditWeight(Math.min(100, Math.max(1, +e.target.value)))}
+                        className="w-16 p-2 border rounded-lg text-center font-bold"
+                      />
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-1">
+                      💡 选择稀有度会自动推荐权重，也可手动调整
+                    </div>
+                  </div>
+                </>
               )}
               
               <div className="flex gap-2 pt-2">
