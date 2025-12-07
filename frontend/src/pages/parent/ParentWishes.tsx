@@ -123,9 +123,14 @@ export default function ParentWishes() {
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
   const [selectedLotteryIds, setSelectedLotteryIds] = useState<Set<string>>(new Set());
   
-  // 编辑奖品权重
+  // 编辑商品/奖品 - 完整编辑
   const [editingWish, setEditingWish] = useState<any>(null);
   const [editWeight, setEditWeight] = useState(10);
+  const [editTitle, setEditTitle] = useState('');
+  const [editIcon, setEditIcon] = useState('🎁');
+  const [editCost, setEditCost] = useState('');
+  const [editTarget, setEditTarget] = useState('');
+  const [showEditIconPicker, setShowEditIconPicker] = useState(false);
 
   useEffect(() => { fetchWishes(); }, []);
   
@@ -157,6 +162,12 @@ export default function ParentWishes() {
 
   const handleAdd = async () => {
     if (!title) return alert('请输入标题');
+    
+    // 检查是否已存在同名项目
+    const existingItem = wishes.find((w: any) => w.type === viewType && w.title === title.trim());
+    if (existingItem) {
+      return alert(`已存在同名${viewType === 'shop' ? '商品' : viewType === 'lottery' ? '奖品' : '心愿'}："${title}"，请修改名称或编辑已有项目。`);
+    }
     
     // 抽奖奖池必须正好8个
     if (viewType === 'lottery') {
@@ -202,6 +213,18 @@ export default function ParentWishes() {
   const handleAddTemplates = async () => {
     if (selectedTemplates.length === 0) return alert('请至少选择一个模板');
     
+    const templates = viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES;
+    
+    // 检查是否有重复的模板
+    const existingTitles = wishes.filter((w: any) => w.type === viewType).map((w: any) => w.title);
+    const duplicates = selectedTemplates
+      .map(index => templates[index].title)
+      .filter(title => existingTitles.includes(title));
+    
+    if (duplicates.length > 0) {
+      return alert(`以下${viewType === 'shop' ? '商品' : '奖品'}已存在，请取消选择或删除已有项目：\n${duplicates.join('、')}`);
+    }
+    
     // 抽奖奖池必须正好8个
     if (viewType === 'lottery') {
       const currentLotteryCount = wishes.filter((w: any) => w.type === 'lottery').length;
@@ -215,7 +238,6 @@ export default function ParentWishes() {
     }
     
     try {
-      const templates = viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES;
       for (const index of selectedTemplates) {
         const template = templates[index];
         if (viewType === 'shop') {
@@ -249,20 +271,25 @@ export default function ParentWishes() {
     }
   };
   
-  // 打开编辑权重弹窗
-  const openWeightEditor = (wish: any) => {
+  // 打开完整编辑弹窗
+  const openEditor = (wish: any) => {
     setEditingWish(wish);
+    setEditTitle(wish.title);
+    setEditIcon(wish.icon);
     setEditWeight(wish.weight || 10);
+    setEditCost(String(wish.cost || 0));
+    setEditTarget(String(wish.targetAmount || 0));
   };
   
-  // 保存权重
-  const saveWeight = async () => {
+  // 保存编辑
+  const saveEdit = async () => {
     if (!editingWish) return;
     try {
       await api.put(`/parent/wishes/${editingWish.id}`, {
-        title: editingWish.title,
-        cost: editingWish.cost,
-        icon: editingWish.icon,
+        title: editTitle,
+        icon: editIcon,
+        cost: +editCost,
+        targetAmount: +editTarget,
         stock: editingWish.stock,
         weight: editWeight
       });
@@ -675,16 +702,18 @@ export default function ParentWishes() {
             {/* 非编辑模式下显示操作按钮 */}
             {!(viewType === 'lottery' && lotteryEditMode) && (
               <div className="flex items-center gap-1">
-                {/* 抽奖奖品显示编辑权重按钮 */}
-                {w.type === 'lottery' && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); openWeightEditor(w); }} 
-                    className="p-2 text-purple-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                    title="编辑权重"
-                  >
-                    <Edit2 size={16}/>
-                  </button>
-                )}
+                {/* 编辑按钮 - 所有类型都有 */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); openEditor(w); }} 
+                  className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
+                    w.type === 'shop' ? 'text-pink-400 hover:text-pink-600' :
+                    w.type === 'lottery' ? 'text-purple-400 hover:text-purple-600' :
+                    'text-blue-400 hover:text-blue-600'
+                  }`}
+                  title="编辑"
+                >
+                  <Edit2 size={16}/>
+                </button>
                 <button onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                     <Trash2 size={18}/>
                 </button>
@@ -694,69 +723,126 @@ export default function ParentWishes() {
         ))}
       </div>
       
-      {/* 权重编辑弹窗 */}
+      {/* 完整编辑弹窗 */}
       {editingWish && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg">设置中奖权重</h3>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-lg">
+                编辑{editingWish.type === 'shop' ? '商品' : editingWish.type === 'lottery' ? '奖品' : '储蓄目标'}
+              </h3>
               <button onClick={() => setEditingWish(null)} className="p-1 hover:bg-gray-100 rounded-full">
                 <X size={20} className="text-gray-500"/>
               </button>
             </div>
             
-            <div className="text-center mb-4">
-              <div className="text-4xl mb-2">{editingWish.icon}</div>
-              <div className="font-bold text-gray-800">{editingWish.title}</div>
-            </div>
-            
-            <div className="mb-4">
-              <label className="text-sm font-bold text-gray-600 block mb-2">中奖权重 (1-100)</label>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="range" 
-                  min="1" 
-                  max="100" 
-                  value={editWeight}
-                  onChange={(e) => setEditWeight(+e.target.value)}
-                  className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                />
-                <input 
-                  type="number" 
-                  min="1" 
-                  max="100"
-                  value={editWeight}
-                  onChange={(e) => setEditWeight(Math.min(100, Math.max(1, +e.target.value)))}
-                  className="w-16 p-2 border rounded-lg text-center font-bold"
-                />
+            <div className="p-4 space-y-4">
+              {/* 图标和名称 */}
+              <div className="flex gap-3">
+                <div className="relative">
+                  <label className="text-xs text-gray-500 font-bold">图标</label>
+                  <button 
+                    onClick={() => setShowEditIconPicker(!showEditIconPicker)}
+                    className="w-14 h-12 rounded-lg border bg-gray-50 text-2xl flex items-center justify-center hover:bg-gray-100 mt-1"
+                  >
+                    {editIcon}
+                  </button>
+                  {showEditIconPicker && (
+                    <div className="absolute top-full left-0 mt-1 p-3 bg-white rounded-xl shadow-xl border z-50 w-72">
+                      <div className="grid grid-cols-5 gap-2">
+                        {(editingWish.type === 'shop' ? SHOP_ICONS : editingWish.type === 'lottery' ? LOTTERY_ICONS : SAVINGS_ICONS).map((item, i) => (
+                          <button 
+                            key={i}
+                            onClick={() => { setEditIcon(item.icon); setShowEditIconPicker(false); }}
+                            className={`w-11 h-11 rounded-lg text-xl hover:bg-gray-100 transition-all flex items-center justify-center ${editIcon === item.icon ? 'bg-blue-100 ring-2 ring-blue-400' : 'bg-gray-50'}`}
+                          >
+                            {item.icon}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 font-bold">名称</label>
+                  <input 
+                    className="w-full p-2 rounded-lg border mt-1" 
+                    value={editTitle} 
+                    onChange={e => setEditTitle(e.target.value)} 
+                  />
+                </div>
               </div>
-            </div>
-            
-            <div className="bg-purple-50 p-3 rounded-xl mb-4">
-              <div className="text-xs text-purple-600 space-y-1">
-                <div className="font-bold">💡 权重说明</div>
-                <div>• 数值越高，中奖概率越大</div>
-                <div>• 概率 = 该奖品权重 ÷ 所有上架奖品权重之和</div>
-                <div className="mt-2 font-bold">推荐设置：</div>
-                <div>• 高价值奖品：5-15（稀有）</div>
-                <div>• 中等奖品：20-35（较常见）</div>
-                <div>• 安慰奖：40-60（常见）</div>
+              
+              {/* 商品价格 */}
+              {editingWish.type === 'shop' && (
+                <div>
+                  <label className="text-xs text-gray-500 font-bold">兑换价格 (金币)</label>
+                  <input 
+                    className="w-full p-2 rounded-lg border mt-1" 
+                    type="number" 
+                    value={editCost} 
+                    onChange={e => setEditCost(e.target.value)} 
+                  />
+                </div>
+              )}
+              
+              {/* 储蓄目标 */}
+              {editingWish.type === 'savings' && (
+                <div>
+                  <label className="text-xs text-gray-500 font-bold">目标金额 (金币)</label>
+                  <input 
+                    className="w-full p-2 rounded-lg border mt-1" 
+                    type="number" 
+                    value={editTarget} 
+                    onChange={e => setEditTarget(e.target.value)} 
+                  />
+                </div>
+              )}
+              
+              {/* 抽奖权重 */}
+              {editingWish.type === 'lottery' && (
+                <div>
+                  <label className="text-xs text-gray-500 font-bold">中奖权重 (1-100)</label>
+                  <div className="flex items-center gap-3 mt-1">
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="100" 
+                      value={editWeight}
+                      onChange={(e) => setEditWeight(+e.target.value)}
+                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                    <input 
+                      type="number" 
+                      min="1" 
+                      max="100"
+                      value={editWeight}
+                      onChange={(e) => setEditWeight(Math.min(100, Math.max(1, +e.target.value)))}
+                      className="w-16 p-2 border rounded-lg text-center font-bold"
+                    />
+                  </div>
+                  <div className="text-[10px] text-gray-400 mt-1">数值越高，中奖概率越大</div>
+                </div>
+              )}
+              
+              <div className="flex gap-2 pt-2">
+                <button 
+                  onClick={() => setEditingWish(null)}
+                  className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={saveEdit}
+                  className={`flex-1 py-2.5 text-white rounded-xl font-bold ${
+                    editingWish.type === 'shop' ? 'bg-pink-500 hover:bg-pink-600' :
+                    editingWish.type === 'lottery' ? 'bg-purple-500 hover:bg-purple-600' :
+                    'bg-blue-500 hover:bg-blue-600'
+                  }`}
+                >
+                  保存修改
+                </button>
               </div>
-            </div>
-            
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setEditingWish(null)}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200"
-              >
-                取消
-              </button>
-              <button 
-                onClick={saveWeight}
-                className="flex-1 py-2.5 bg-purple-500 text-white rounded-xl font-bold hover:bg-purple-600"
-              >
-                保存
-              </button>
             </div>
           </div>
         </div>

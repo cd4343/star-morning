@@ -174,25 +174,46 @@ export default function ParentDashboard() {
           <h2 className="font-bold text-red-600 mb-3 flex items-center gap-2">
             <Lock size={18}/> 待审核任务 ({reviews.length})
           </h2>
-          {reviews.length > 0 ? reviews.map(review => (
-            <Card key={review.id} className="border-red-100 bg-red-50/30 mb-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold">{review.title}</h3>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {review.childName} | {new Date(review.submittedAt).toLocaleTimeString()}
+          {reviews.length > 0 ? reviews.map(review => {
+            // 格式化实际用时
+            const formatDuration = (minutes?: number) => {
+              if (!minutes) return '未记录';
+              if (minutes < 60) return `${minutes}分钟`;
+              const hours = Math.floor(minutes / 60);
+              const mins = minutes % 60;
+              return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`;
+            };
+            
+            return (
+              <Card key={review.id} className="border-red-100 bg-red-50/30 mb-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold">{review.title}</h3>
+                    <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                      <span>{review.childName}</span>
+                      <span className="text-gray-300">|</span>
+                      <span className="flex items-center gap-1">
+                        <Clock size={12}/>
+                        用时 {formatDuration(review.actualDuration)}
+                        {review.expectedDuration && (
+                          <span className={review.actualDuration && review.actualDuration <= review.expectedDuration ? 'text-green-600' : 'text-orange-500'}>
+                            (预计{review.expectedDuration}分钟)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="text-xs text-blue-600 mt-1">
+                      基础奖励: {review.coinReward} 💰 · {review.xpReward} ⭐
+                    </div>
                   </div>
-                  <div className="text-xs text-blue-600 mt-1">
-                    基础奖励: {review.coinReward} 💰 · {review.xpReward} ⭐
+                  <div className="flex gap-2">
+                    <button onClick={() => handleReject(review.id)} className="p-2 bg-red-100 text-red-600 rounded-lg font-bold text-xs">打回</button>
+                    <button onClick={() => openReviewModal(review)} className="p-2 bg-green-500 text-white rounded-lg font-bold text-xs shadow-md">审核</button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => handleReject(review.id)} className="p-2 bg-red-100 text-red-600 rounded-lg font-bold text-xs">打回</button>
-                  <button onClick={() => openReviewModal(review)} className="p-2 bg-green-500 text-white rounded-lg font-bold text-xs shadow-md">审核</button>
-                </div>
-              </div>
-            </Card>
-          )) : (
+              </Card>
+            );
+          }) : (
             <div className="text-center py-8 text-gray-400 bg-gray-50 rounded-xl border-2 border-dashed">
               暂无待审核任务，真棒！
             </div>

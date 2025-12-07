@@ -29,6 +29,7 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE users ADD COLUMN gender TEXT'); } catch (e) {} // boy, girl, dad, mom, grandpa, grandma
   try { await db.run('ALTER TABLE wishes ADD COLUMN isActive INTEGER DEFAULT 0'); } catch (e) {} // 抽奖奖品是否上架
   try { await db.run('ALTER TABLE wishes ADD COLUMN weight INTEGER DEFAULT 10'); } catch (e) {} // 抽奖权重 (1-100)
+  try { await db.run('ALTER TABLE tasks ADD COLUMN icon TEXT'); } catch (e) {} // 任务图标
 
   return db;
 };

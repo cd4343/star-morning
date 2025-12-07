@@ -4,9 +4,10 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Plus, Trash2, Sparkles, Check } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Check, Pen, X } from 'lucide-react';
 import api from '../../services/api';
 import { useTemplateSelector } from '../../hooks/useTemplateSelector';
+import { IconPicker } from '../../components/IconPicker';
 
 // 预设任务模板
 const TASK_TEMPLATES = [
@@ -51,16 +52,55 @@ export default function ParentTasks() {
   const [xpReward, setXpReward] = useState('10');
   const [duration, setDuration] = useState('15');
   const [category, setCategory] = useState('劳动');
+  const [icon, setIcon] = useState('📋');
+  
+  // 编辑状态
+  const [editingTask, setEditingTask] = useState<any>(null);
 
   useEffect(() => { fetchTasks(); }, []);
   const fetchTasks = async () => { const res = await api.get('/parent/tasks'); setTasks(res.data); };
+  
+  // 打开编辑
+  const openEdit = (task: any) => {
+    setEditingTask(task);
+    setTitle(task.title);
+    setCoinReward(String(task.coinReward));
+    setXpReward(String(task.xpReward));
+    setDuration(String(task.durationMinutes));
+    setCategory(task.category);
+    setIcon(task.icon || '📋');
+  };
+  
+  // 取消编辑
+  const cancelEdit = () => {
+    setEditingTask(null);
+    setTitle('');
+    setCoinReward('10');
+    setXpReward('10');
+    setDuration('15');
+    setCategory('劳动');
+  };
+  
+  // 保存编辑
+  const handleSaveEdit = async () => {
+    if (!editingTask) return;
+    try {
+      await api.put(`/parent/tasks/${editingTask.id}`, {
+        title, coinReward: +coinReward, xpReward: +xpReward, durationMinutes: +duration, category, icon
+      });
+      cancelEdit();
+      fetchTasks();
+    } catch {
+      alert('保存失败');
+    }
+  };
 
   const handleAdd = async () => {
     if (!title) return alert('请输入标题');
     await api.post('/parent/tasks', {
-      title, coinReward: +coinReward, xpReward: +xpReward, durationMinutes: +duration, category, frequency: { type: 'daily' }
+      title, coinReward: +coinReward, xpReward: +xpReward, durationMinutes: +duration, category, icon, frequency: { type: 'daily' }
     });
-    setShowAdd(false); setTitle('');
+    setShowAdd(false); setTitle(''); setIcon('📋');
     fetchTasks();
   };
 
@@ -114,9 +154,15 @@ export default function ParentTasks() {
         <div className="p-4 bg-blue-50 border-b animate-in slide-in-from-top">
           <h3 className="font-bold mb-4">新建任务</h3>
           <div className="space-y-3">
-            <div>
-              <label className="text-xs text-gray-500 font-bold">任务标题</label>
-              <input className="w-full p-2 rounded border" placeholder="例如：整理床铺" value={title} onChange={e => setTitle(e.target.value)} />
+            <div className="flex gap-2">
+              <div>
+                <label className="text-xs text-gray-500 font-bold">图标</label>
+                <IconPicker value={icon} onChange={setIcon} />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-gray-500 font-bold">任务标题</label>
+                <input className="w-full p-2 rounded border" placeholder="例如：整理床铺" value={title} onChange={e => setTitle(e.target.value)} />
+              </div>
             </div>
             
             <div className="flex gap-2">
@@ -224,16 +270,76 @@ export default function ParentTasks() {
             
             {tasks.map(task => (
               <Card key={task.id} className="flex justify-between items-center">
-                <div>
-                  <div className="font-bold">{task.title}</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {task.category} | 💰{task.coinReward} | ⭐{task.xpReward} | ⏰{task.durationMinutes}分
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-xl">
+                    {task.icon || '📋'}
+                  </div>
+                  <div>
+                    <div className="font-bold">{task.title}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {task.category} | 💰{task.coinReward} | ⭐{task.xpReward} | ⏰{task.durationMinutes}分
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => handleDelete(task.id)} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button>
+                <div className="flex gap-2">
+                  <button onClick={() => openEdit(task)} className="text-blue-400 hover:text-blue-600 p-1"><Pen size={16}/></button>
+                  <button onClick={() => handleDelete(task.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
+                </div>
               </Card>
             ))}
           </>
+        )}
+        
+        {/* 编辑任务弹窗 */}
+        {editingTask && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+              <div className="flex justify-between items-center p-4 border-b">
+                <h3 className="font-bold text-lg">编辑任务</h3>
+                <button onClick={cancelEdit} className="p-1 hover:bg-gray-100 rounded-full">
+                  <X size={20} className="text-gray-500"/>
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="flex gap-2">
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold">图标</label>
+                    <IconPicker value={icon} onChange={setIcon} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold">任务标题</label>
+                    <input className="w-full p-2 rounded border mt-1" value={title} onChange={e => setTitle(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold">种类</label>
+                    <select className="w-full p-2 rounded border bg-white mt-1" value={category} onChange={e => setCategory(e.target.value)}>
+                      <option>劳动</option><option>学习</option><option>兴趣</option><option>运动</option>
+                    </select>
+                  </div>
+                  <div className="w-20">
+                    <label className="text-xs text-gray-500 font-bold">时长(分)</label>
+                    <input className="w-full p-2 rounded border mt-1" type="number" value={duration} onChange={e => setDuration(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold">奖励金币</label>
+                    <input className="w-full p-2 rounded border mt-1" type="number" value={coinReward} onChange={e => setCoinReward(e.target.value)} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold">奖励经验</label>
+                    <input className="w-full p-2 rounded border mt-1" type="number" value={xpReward} onChange={e => setXpReward(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button size="sm" onClick={handleSaveEdit} className="flex-1">保存修改</Button>
+                  <Button size="sm" variant="ghost" onClick={cancelEdit}>取消</Button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </Layout>

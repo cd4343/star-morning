@@ -15,13 +15,23 @@ export default function ChildLayout() {
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
 
+  // 当用户或路径变化时重新获取数据
   useEffect(() => {
+    // 清除旧数据，避免显示上一个用户的信息
+    setChildData(null);
     fetchData();
-  }, [location.pathname]); 
+  }, [location.pathname, user?.id]); 
 
   const fetchData = async () => {
     try {
       const res = await api.get('/child/dashboard');
+      // 验证返回的数据是否与当前用户匹配
+      if (res.data.child && user && res.data.child.id !== user.id) {
+        console.warn('Child data mismatch, refetching...');
+        // 数据不匹配，可能是缓存问题，延迟重试
+        setTimeout(fetchData, 500);
+        return;
+      }
       setChildData(res.data.child);
     } catch (e) {
       console.error(e);

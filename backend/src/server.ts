@@ -415,7 +415,30 @@ app.get('/api/parent/tasks', protect, async (req: any, res) => {
     const request = req as AuthRequest; 
     res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1', request.user!.familyId)); 
 });
-app.post('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, isEnabled) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`, randomUUID(), request.user!.familyId, request.body.title, request.body.coinReward, request.body.xpReward, request.body.durationMinutes, request.body.category); res.json({message:'ok'}); });
+app.post('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, icon, isEnabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, randomUUID(), request.user!.familyId, request.body.title, request.body.coinReward, request.body.xpReward, request.body.durationMinutes, request.body.category, request.body.icon || '📋'); res.json({message:'ok'}); });
+
+// 更新任务
+app.put('/api/parent/tasks/:id', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const task = await db.get('SELECT * FROM tasks WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!task) {
+        return res.status(404).json({ message: '任务不存在' });
+    }
+    const { title, coinReward, xpReward, durationMinutes, category, icon } = req.body;
+    await db.run(
+        'UPDATE tasks SET title = ?, coinReward = ?, xpReward = ?, durationMinutes = ?, category = ?, icon = ? WHERE id = ?',
+        title || task.title,
+        coinReward ?? task.coinReward,
+        xpReward ?? task.xpReward,
+        durationMinutes ?? task.durationMinutes,
+        category || task.category,
+        icon || task.icon || '📋',
+        req.params.id
+    );
+    res.json({ message: '更新成功' });
+});
+
 // 软删除任务：设置 isEnabled = 0，保留历史记录
 app.delete('/api/parent/tasks/:id', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
@@ -498,6 +521,11 @@ app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) =
 });
 app.get('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ?', request.user!.familyId)); });
 app.post('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO privileges (id, familyId, title, description, cost) VALUES (?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.cost); res.json({message:'ok'}); });
+app.put('/api/parent/privileges/:id', protect, async (req: any, res) => {
+    const { title, description, cost } = req.body;
+    await getDb().run('UPDATE privileges SET title = ?, description = ?, cost = ? WHERE id = ?', title, description, cost, req.params.id);
+    res.json({ message: '更新成功' });
+});
 app.delete('/api/parent/privileges/:id', protect, async (req, res) => { await getDb().run('DELETE FROM privileges WHERE id = ?', req.params.id); res.json({message:'ok'}); });
 app.get('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId)); });
 app.post('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO achievement_defs (id, familyId, title, description, icon, conditionType, conditionValue) VALUES (?, ?, ?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.icon, request.body.conditionType, request.body.conditionValue); res.json({message:'ok'}); });
@@ -740,12 +768,42 @@ initializeDatabase()
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
       console.log(`📡 API ready at http://localhost:${PORT}/api`);
+      console.log(`📊 Memory usage: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
     });
     
     // 设置服务器级别的超时
     server.timeout = 30000; // 30秒
     server.keepAliveTimeout = 65000; // 65秒
     server.headersTimeout = 66000; // 66秒
+    
+    // 定期健康检查和内存监控（每5分钟）
+    setInterval(async () => {
+      try {
+        await getDb().get('SELECT 1');
+        const memUsage = process.memoryUsage();
+        console.log(`💚 [${new Date().toISOString()}] Health OK - Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`);
+      } catch (error) {
+        console.error('❌ Health check failed:', error);
+      }
+    }, 5 * 60 * 1000);
+    
+    // 优雅关闭处理
+    process.on('SIGTERM', () => {
+      console.log('📴 SIGTERM received, closing server...');
+      server.close(() => {
+        console.log('👋 Server closed');
+        process.exit(0);
+      });
+    });
+    
+    // 未捕获异常处理 - 记录但不退出
+    process.on('uncaughtException', (error) => {
+      console.error('💥 Uncaught Exception:', error);
+    });
+    
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('💥 Unhandled Rejection:', reason);
+    });
   })
   .catch((error) => {
     console.error('❌ Failed to initialize database:', error);

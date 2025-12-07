@@ -4,7 +4,7 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Plus, Trash2, Sparkles, Check } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Check, Pen, X } from 'lucide-react';
 import api from '../../services/api';
 import { useTemplateSelector } from '../../hooks/useTemplateSelector';
 
@@ -45,9 +45,35 @@ export default function ParentPrivileges() {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [cost, setCost] = useState('');
+  
+  // 编辑状态
+  const [editingPrivilege, setEditingPrivilege] = useState<any>(null);
 
   useEffect(() => { fetchList(); }, []);
   const fetchList = async () => { const res = await api.get('/parent/privileges'); setList(res.data); };
+  
+  // 打开编辑
+  const openEdit = (p: any) => {
+    setEditingPrivilege(p);
+    setTitle(p.title);
+    setDesc(p.description || '');
+    setCost(String(p.cost));
+  };
+  
+  // 保存编辑
+  const handleSaveEdit = async () => {
+    if (!editingPrivilege) return;
+    try {
+      await api.put(`/parent/privileges/${editingPrivilege.id}`, {
+        title, description: desc, cost: +cost
+      });
+      setEditingPrivilege(null);
+      setTitle(''); setDesc(''); setCost('');
+      fetchList();
+    } catch {
+      alert('保存失败');
+    }
+  };
 
   const handleAdd = async () => {
     if (!title) return alert('请输入标题');
@@ -193,17 +219,50 @@ export default function ParentPrivileges() {
             
             {list.map(p => (
               <Card key={p.id} className="flex justify-between items-center">
-                <div>
+                <div className="flex-1">
                   <div className="font-bold">{p.title}</div>
                   <div className="text-xs text-gray-500">{p.description}</div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="font-bold text-purple-600">{p.cost} 特权点</div>
-                  <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button>
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-purple-600 text-sm">{p.cost} 点</div>
+                  <button onClick={() => openEdit(p)} className="text-purple-400 hover:text-purple-600 p-1"><Pen size={16}/></button>
+                  <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
                 </div>
               </Card>
             ))}
           </>
+        )}
+        
+        {/* 编辑特权弹窗 */}
+        {editingPrivilege && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+              <div className="flex justify-between items-center p-4 border-b">
+                <h3 className="font-bold text-lg">编辑特权</h3>
+                <button onClick={() => setEditingPrivilege(null)} className="p-1 hover:bg-gray-100 rounded-full">
+                  <X size={20} className="text-gray-500"/>
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-bold">特权名称</label>
+                  <input className="w-full p-2 rounded border mt-1" value={title} onChange={e => setTitle(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-bold">描述</label>
+                  <input className="w-full p-2 rounded border mt-1" value={desc} onChange={e => setDesc(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-bold">兑换消耗 (特权点)</label>
+                  <input className="w-full p-2 rounded border mt-1" type="number" value={cost} onChange={e => setCost(e.target.value)} />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button size="sm" onClick={handleSaveEdit} className="flex-1">保存修改</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingPrivilege(null)}>取消</Button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </Layout>
