@@ -8,6 +8,8 @@ import { Plus, Trash2, Sparkles, Check, Pen, X } from 'lucide-react';
 import api from '../../services/api';
 import { useTemplateSelector } from '../../hooks/useTemplateSelector';
 import { IconPicker } from '../../components/IconPicker';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 // 预设任务模板
 const TASK_TEMPLATES = [
@@ -43,6 +45,8 @@ const TASK_TEMPLATES = [
 
 export default function ParentTasks() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [tasks, setTasks] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const { showTemplates, selectedIndexes, selectedCount, toggleTemplate, isSelected, openTemplates, closeTemplates } = useTemplateSelector();
@@ -91,12 +95,12 @@ export default function ParentTasks() {
       cancelEdit();
       fetchTasks();
     } catch {
-      alert('保存失败');
+      toast.error('保存失败');
     }
   };
 
   const handleAdd = async () => {
-    if (!title) return alert('请输入标题');
+    if (!title) return toast.warning('请输入标题');
     await api.post('/parent/tasks', {
       title, coinReward: +coinReward, xpReward: +xpReward, durationMinutes: +duration, category, icon, frequency: { type: 'daily' }
     });
@@ -105,19 +109,26 @@ export default function ParentTasks() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('确定删除这个任务吗？\n\n注意：已完成的任务记录会被保留，统计数据不受影响。')) return;
+    const confirmed = await confirm({
+      title: '删除任务',
+      message: '确定删除这个任务吗？已完成的任务记录会被保留，统计数据不受影响。',
+      type: 'danger',
+      confirmText: '删除',
+    });
+    if (!confirmed) return;
     try {
       const res = await api.delete(`/parent/tasks/${id}`);
       const data = res.data as { message: string; preservedRecords?: number; note?: string };
-      if (data.note) alert(data.note);
+      if (data.note) toast.info(data.note);
+      toast.success('删除成功');
       fetchTasks();
     } catch {
-      alert('删除失败，请重试');
+      toast.error('删除失败，请重试');
     }
   };
 
   const handleAddTemplates = async () => {
-    if (selectedCount === 0) return alert('请至少选择一个任务模板');
+    if (selectedCount === 0) return toast.warning('请至少选择一个任务模板');
     
     try {
       for (const index of selectedIndexes) {
@@ -131,11 +142,11 @@ export default function ParentTasks() {
           frequency: { type: 'daily' }
         });
       }
-      alert(`成功添加 ${selectedCount} 个任务！`);
+      toast.success(`成功添加 ${selectedCount} 个任务！`);
       closeTemplates();
       fetchTasks();
     } catch {
-      alert('添加失败');
+      toast.error('添加失败');
     }
   };
 
@@ -342,6 +353,7 @@ export default function ParentTasks() {
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </Layout>
   );
 }

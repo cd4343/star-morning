@@ -8,7 +8,7 @@ import { initializeDatabase, getDb } from './database';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
-const JWT_SECRET = 'your-super-secret-key-change-it';
+const JWT_SECRET = process.env.JWT_SECRET || 'stellar-system-dev-secret-change-in-production';
 
 // 启动时打印日志，便于调试
 console.log('🔧 Initializing Express app...');
@@ -521,10 +521,18 @@ app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) =
     res.json({ message: 'ok' });
 });
 app.get('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ?', request.user!.familyId)); });
-app.post('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO privileges (id, familyId, title, description, cost) VALUES (?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.cost); res.json({message:'ok'}); });
+app.post('/api/parent/privileges', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    const { title, description, cost, icon } = request.body;
+    await getDb().run(
+        `INSERT INTO privileges (id, familyId, title, description, cost, icon) VALUES (?, ?, ?, ?, ?, ?)`, 
+        randomUUID(), request.user!.familyId, title, description, cost, icon || '👑'
+    ); 
+    res.json({message:'ok'}); 
+});
 app.put('/api/parent/privileges/:id', protect, async (req: any, res) => {
-    const { title, description, cost } = req.body;
-    await getDb().run('UPDATE privileges SET title = ?, description = ?, cost = ? WHERE id = ?', title, description, cost, req.params.id);
+    const { title, description, cost, icon } = req.body;
+    await getDb().run('UPDATE privileges SET title = ?, description = ?, cost = ?, icon = ? WHERE id = ?', title, description, cost, icon, req.params.id);
     res.json({ message: '更新成功' });
 });
 app.delete('/api/parent/privileges/:id', protect, async (req, res) => { await getDb().run('DELETE FROM privileges WHERE id = ?', req.params.id); res.json({message:'ok'}); });

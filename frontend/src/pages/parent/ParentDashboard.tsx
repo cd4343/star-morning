@@ -6,6 +6,8 @@ import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell } from 'lucide-react';
 import api from '../../services/api';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 interface ReviewItem {
   id: string;
@@ -43,6 +45,8 @@ const INITIATIVE_OPTIONS = [
 
 export default function ParentDashboard() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [stats, setStats] = useState({ 
     weekTasks: 0, 
@@ -117,21 +121,28 @@ export default function ParentDashboard() {
       if (privilegePointsAwarded > 0) {
         message += `\n👑 特权点：+${privilegePointsAwarded}（累计奖励经验达到 ${Math.floor((rewardXpAwarded || 0) / 100) * 100} 点）`;
       }
-      alert(message);
+      toast.success(message);
     } catch (err) {
-      alert('操作失败');
+      toast.error('操作失败');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleReject = async (entryId: string) => {
-    if (!window.confirm('确定打回这个任务吗？孩子需要重新完成。')) return;
+    const confirmed = await confirm({
+      title: '打回任务',
+      message: '确定打回这个任务吗？孩子需要重新完成。',
+      type: 'warning',
+      confirmText: '确定打回',
+    });
+    if (!confirmed) return;
     try {
       await api.post(`/parent/review/${entryId}`, { action: 'reject' });
+      toast.success('已打回任务');
       fetchDashboard();
     } catch (err) {
-      alert('操作失败');
+      toast.error('操作失败');
     }
   };
 
@@ -429,6 +440,7 @@ export default function ParentDashboard() {
           </div>
         </div>
       )}
+      <ConfirmDialog />
     </Layout>
   );
 }

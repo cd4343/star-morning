@@ -85,10 +85,12 @@ const createTables = async () => {
   try { await db.run('ALTER TABLE wishes ADD COLUMN rarity TEXT'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS privileges (
-      id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, cost INTEGER NOT NULL, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, cost INTEGER NOT NULL, icon TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
     )
   `);
+  // 添加图标字段（如果不存在）
+  try { await db.run('ALTER TABLE privileges ADD COLUMN icon TEXT'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS achievement_defs (
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, icon TEXT, conditionType TEXT NOT NULL, conditionValue INTEGER DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,

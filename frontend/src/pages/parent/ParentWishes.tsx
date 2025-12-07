@@ -6,6 +6,8 @@ import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import { Plus, Trash2, Check, CheckCircle2, Circle, Settings2, Edit2, X, Sparkles } from 'lucide-react';
 import api from '../../services/api';
+import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 
 // 商品模板
 const SHOP_TEMPLATES = [
@@ -114,6 +116,8 @@ const SAVINGS_ICONS = [
 
 export default function ParentWishes() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [wishes, setWishes] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -188,26 +192,26 @@ export default function ParentWishes() {
   };
 
   const handleAdd = async () => {
-    if (!title) return alert('请输入标题');
+    if (!title) return toast.warning('请输入标题');
     
     // 检查是否已存在同名项目
     const existingItem = wishes.find((w: any) => w.type === viewType && w.title === title.trim());
     if (existingItem) {
-      return alert(`已存在同名${viewType === 'shop' ? '商品' : viewType === 'lottery' ? '奖品' : '心愿'}："${title}"，请修改名称或编辑已有项目。`);
+      return toast.warning(`已存在同名${viewType === 'shop' ? '商品' : viewType === 'lottery' ? '奖品' : '心愿'}："${title}"`);
     }
     
     // 抽奖奖池限制
     if (viewType === 'lottery') {
       const currentLotteryCount = wishes.filter((w: any) => w.type === 'lottery').length;
       if (currentLotteryCount >= 8) {
-        return alert('抽奖奖池只能有8个奖品！请先删除一些奖品再添加。');
+        return toast.warning('抽奖奖池只能有8个奖品！请先删除一些奖品再添加。');
       }
       
       // 检查稀有度数量限制
       const rarityCounts = getRarityCounts();
       const config = RARITY_CONFIG[rarity];
       if (rarityCounts[rarity] >= config.maxCount) {
-        return alert(`${config.emoji} ${config.label}级奖品已达到上限（${config.maxCount}个）！\n\n建议：${config.desc}`);
+        return toast.warning(`${config.emoji} ${config.label}级奖品已达到上限（${config.maxCount}个）！建议：${config.desc}`);
       }
     }
     
@@ -228,9 +232,9 @@ export default function ParentWishes() {
     if (viewType === 'lottery') {
       const newCount = wishes.filter((w: any) => w.type === 'lottery').length + 1;
       if (newCount === 8) {
-        alert('🎉 抽奖奖池已有8个奖品！现在可以点击"管理上架"选择8个奖品上架了。');
+        toast.success('🎉 奖池已有8个奖品！可以点击"管理上架"选择上架了。');
       } else if (newCount < 8) {
-        alert(`✅ 添加成功！奖池当前有 ${newCount} 个奖品，还需要 ${8 - newCount} 个。`);
+        toast.success(`添加成功！奖池当前${newCount}个，还需${8 - newCount}个。`);
       }
     }
     
@@ -248,7 +252,7 @@ export default function ParentWishes() {
 
   // 批量添加选中的模板
   const handleAddTemplates = async () => {
-    if (selectedTemplates.length === 0) return alert('请至少选择一个模板');
+    if (selectedTemplates.length === 0) return toast.warning('请至少选择一个模板');
     
     const templates = viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES;
     
@@ -259,7 +263,7 @@ export default function ParentWishes() {
       .filter(title => existingTitles.includes(title));
     
     if (duplicates.length > 0) {
-      return alert(`以下${viewType === 'shop' ? '商品' : '奖品'}已存在，请取消选择或删除已有项目：\n${duplicates.join('、')}`);
+      return toast.warning(`以下${viewType === 'shop' ? '商品' : '奖品'}已存在：${duplicates.join('、')}`);
     }
     
     // 抽奖奖池必须正好8个
@@ -267,10 +271,10 @@ export default function ParentWishes() {
       const currentLotteryCount = wishes.filter((w: any) => w.type === 'lottery').length;
       const totalAfterAdd = currentLotteryCount + selectedTemplates.length;
       if (totalAfterAdd < 8) {
-        return alert(`抽奖奖池需要正好8个奖品！当前已有 ${currentLotteryCount} 个，选择 ${selectedTemplates.length} 个后共 ${totalAfterAdd} 个，还差 ${8 - totalAfterAdd} 个。`);
+        return toast.warning(`奖池需要8个奖品！当前${currentLotteryCount}个，选择后共${totalAfterAdd}个，还差${8 - totalAfterAdd}个。`);
       }
       if (totalAfterAdd > 8) {
-        return alert(`抽奖奖池只能有8个奖品！当前已有 ${currentLotteryCount} 个，最多只能再添加 ${8 - currentLotteryCount} 个。`);
+        return toast.warning(`奖池只能有8个奖品！当前${currentLotteryCount}个，最多再添加${8 - currentLotteryCount}个。`);
       }
     }
     
@@ -299,12 +303,12 @@ export default function ParentWishes() {
           });
         }
       }
-      alert(`成功添加 ${selectedTemplates.length} 个${viewType === 'shop' ? '商品' : '奖品'}！${viewType === 'lottery' ? '现在可以点击"管理上架"选择8个奖品上架了。' : ''}`);
+      toast.success(`成功添加 ${selectedTemplates.length} 个${viewType === 'shop' ? '商品' : '奖品'}！`);
       setShowTemplates(false);
       setSelectedTemplates([]);
       fetchWishes();
     } catch (e) {
-      alert('添加失败');
+      toast.error('添加失败');
     }
   };
   
@@ -335,7 +339,7 @@ export default function ParentWishes() {
       setEditingWish(null);
       fetchWishes();
     } catch (e: any) {
-      alert('保存失败');
+      toast.error('保存失败');
     }
   };
   
@@ -347,9 +351,20 @@ export default function ParentWishes() {
   };
 
   const handleDelete = async (id: string) => {
-      if (!window.confirm('确定删除吗？')) return;
-      await api.delete(`/parent/wishes/${id}`);
-      fetchWishes();
+      const confirmed = await confirm({
+        title: '删除确认',
+        message: '确定删除吗？此操作无法撤销。',
+        type: 'danger',
+        confirmText: '删除',
+      });
+      if (!confirmed) return;
+      try {
+        await api.delete(`/parent/wishes/${id}`);
+        toast.success('删除成功');
+        fetchWishes();
+      } catch {
+        toast.error('删除失败');
+      }
   };
 
   // 切换奖品选择
@@ -363,7 +378,7 @@ export default function ParentWishes() {
       setTempWeights(newWeights);
     } else {
       if (newSet.size >= 8) {
-        alert('最多只能选择8个奖品上架到转盘！');
+        toast.warning('最多只能选择8个奖品上架到转盘！');
         return;
       }
       newSet.add(id);
@@ -415,11 +430,11 @@ export default function ParentWishes() {
   // 保存奖池上架设置（包括权重更新）
   const saveLotterySelection = async () => {
     if (selectedLotteryIds.size < 8) {
-      alert(`抽奖奖池必须选择恰好 8 个奖品才能上架！当前已选 ${selectedLotteryIds.size} 个，还差 ${8 - selectedLotteryIds.size} 个。`);
+      toast.warning(`必须选择8个奖品！当前已选${selectedLotteryIds.size}个，还差${8 - selectedLotteryIds.size}个。`);
       return;
     }
     if (selectedLotteryIds.size > 8) {
-      alert(`抽奖奖池只能选择 8 个奖品上架！当前已选 ${selectedLotteryIds.size} 个，请取消选择 ${selectedLotteryIds.size - 8} 个。`);
+      toast.warning(`只能选择8个奖品！当前已选${selectedLotteryIds.size}个，请取消${selectedLotteryIds.size - 8}个。`);
       return;
     }
     try {
@@ -444,13 +459,13 @@ export default function ParentWishes() {
       await api.post('/parent/wishes/lottery/activate', {
         activeIds: Array.from(selectedLotteryIds)
       });
-      alert('✅ 奖池设置成功！转盘已上架，孩子可以开始抽奖了！');
+      toast.success('奖池设置成功！孩子可以开始抽奖了！');
       setLotteryEditMode(false);
       setTempWeights({});
       setAdjustingPrizeId(null);
       fetchWishes();
     } catch (e: any) {
-      alert(e.response?.data?.message || '设置失败');
+      toast.error(e.response?.data?.message || '设置失败');
     }
   };
   
@@ -1189,6 +1204,7 @@ export default function ParentWishes() {
           </div>
         </div>
       )}
+      <ConfirmDialog />
     </Layout>
   );
 }
