@@ -133,6 +133,9 @@ export default function ParentWishes() {
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
   const [selectedLotteryIds, setSelectedLotteryIds] = useState<Set<string>>(new Set());
+  // 实时权重调整（在管理上架时使用）
+  const [tempWeights, setTempWeights] = useState<Record<string, number>>({});
+  const [adjustingPrizeId, setAdjustingPrizeId] = useState<string | null>(null);
   
   // 编辑商品/奖品 - 完整编辑
   const [editingWish, setEditingWish] = useState<any>(null);
@@ -354,17 +357,62 @@ export default function ParentWishes() {
     const newSet = new Set(selectedLotteryIds);
     if (newSet.has(id)) {
       newSet.delete(id);
+      // 移除临时权重
+      const newWeights = { ...tempWeights };
+      delete newWeights[id];
+      setTempWeights(newWeights);
     } else {
       if (newSet.size >= 8) {
         alert('最多只能选择8个奖品上架到转盘！');
         return;
       }
       newSet.add(id);
+      // 初始化临时权重
+      const prize = wishes.find(w => w.id === id);
+      if (prize) {
+        setTempWeights(prev => ({ ...prev, [id]: prize.weight || 10 }));
+      }
     }
     setSelectedLotteryIds(newSet);
   };
+  
+  // 获取选中奖品的实时权重（优先使用临时权重）
+  const getEffectiveWeight = (prizeId: string) => {
+    if (tempWeights[prizeId] !== undefined) {
+      return tempWeights[prizeId];
+    }
+    const prize = wishes.find(w => w.id === prizeId);
+    return prize?.weight || 10;
+  };
+  
+  // 计算选中奖品的总权重
+  const getSelectedTotalWeight = () => {
+    let total = 0;
+    selectedLotteryIds.forEach(id => {
+      total += getEffectiveWeight(id);
+    });
+    return total;
+  };
+  
+  // 计算选中奖品的概率
+  const getSelectedProbability = (prizeId: string) => {
+    const totalWeight = getSelectedTotalWeight();
+    if (totalWeight === 0) return '0.0';
+    const weight = getEffectiveWeight(prizeId);
+    return ((weight / totalWeight) * 100).toFixed(1);
+  };
+  
+  // 更新临时权重
+  const updateTempWeight = (prizeId: string, newWeight: number) => {
+    setTempWeights(prev => ({ ...prev, [prizeId]: Math.max(1, Math.min(100, newWeight)) }));
+  };
+  
+  // 通过稀有度快速设置权重
+  const setWeightByRarity = (prizeId: string, rarityKey: RarityType) => {
+    setTempWeights(prev => ({ ...prev, [prizeId]: RARITY_CONFIG[rarityKey].weight }));
+  };
 
-  // 保存奖池上架设置
+  // 保存奖池上架设置（包括权重更新）
   const saveLotterySelection = async () => {
     if (selectedLotteryIds.size < 8) {
       alert(`抽奖奖池必须选择恰好 8 个奖品才能上架！当前已选 ${selectedLotteryIds.size} 个，还差 ${8 - selectedLotteryIds.size} 个。`);
@@ -375,15 +423,57 @@ export default function ParentWishes() {
       return;
     }
     try {
+      // 先保存所有权重变更
+      const weightUpdates = Object.entries(tempWeights);
+      for (const [prizeId, weight] of weightUpdates) {
+        const prize = wishes.find(w => w.id === prizeId);
+        if (prize && prize.weight !== weight) {
+          await api.put(`/parent/wishes/${prizeId}`, {
+            title: prize.title,
+            icon: prize.icon,
+            cost: prize.cost,
+            targetAmount: prize.targetAmount,
+            stock: prize.stock,
+            weight: weight,
+            rarity: prize.rarity
+          });
+        }
+      }
+      
+      // 再保存上架选择
       await api.post('/parent/wishes/lottery/activate', {
         activeIds: Array.from(selectedLotteryIds)
       });
       alert('✅ 奖池设置成功！转盘已上架，孩子可以开始抽奖了！');
       setLotteryEditMode(false);
+      setTempWeights({});
+      setAdjustingPrizeId(null);
       fetchWishes();
     } catch (e: any) {
       alert(e.response?.data?.message || '设置失败');
     }
+  };
+  
+  // 进入管理上架模式时初始化
+  const enterLotteryEditMode = () => {
+    setLotteryEditMode(true);
+    // 初始化临时权重为当前已选奖品的权重
+    const initialWeights: Record<string, number> = {};
+    selectedLotteryIds.forEach(id => {
+      const prize = wishes.find(w => w.id === id);
+      if (prize) {
+        initialWeights[id] = prize.weight || 10;
+      }
+    });
+    setTempWeights(initialWeights);
+  };
+  
+  // 退出管理上架模式
+  const exitLotteryEditMode = () => {
+    setLotteryEditMode(false);
+    setTempWeights({});
+    setAdjustingPrizeId(null);
+    fetchWishes();
   };
 
   // Filter list
@@ -613,7 +703,7 @@ export default function ParentWishes() {
               </div>
               {!lotteryEditMode ? (
                 <button 
-                  onClick={() => setLotteryEditMode(true)}
+                  onClick={enterLotteryEditMode}
                   className="flex items-center gap-1 px-3 py-1.5 bg-purple-500 text-white rounded-lg text-sm font-bold hover:bg-purple-600 transition-colors"
                 >
                   <Settings2 size={14}/> 管理上架
@@ -621,7 +711,7 @@ export default function ParentWishes() {
               ) : (
                 <div className="flex gap-2">
                   <button 
-                    onClick={() => { setLotteryEditMode(false); fetchWishes(); }}
+                    onClick={exitLotteryEditMode}
                     className="px-3 py-1.5 bg-gray-200 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-300"
                   >
                     取消
@@ -642,7 +732,116 @@ export default function ParentWishes() {
             </div>
             {lotteryEditMode && (
               <div className="mt-2 text-xs text-purple-600">
-                💡 点击奖品进行勾选，选满8个后点击"确认上架"
+                💡 点击奖品进行勾选，选满8个后点击"确认上架"。点击已选奖品的权重可以调整概率。
+              </div>
+            )}
+            
+            {/* 实时概率预览面板 */}
+            {lotteryEditMode && selectedLotteryIds.size > 0 && (
+              <div className="mt-3 p-3 bg-white rounded-xl border-2 border-purple-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-purple-700 text-sm">📊 实时概率预览</span>
+                  <span className="text-xs text-gray-500">总权重: {getSelectedTotalWeight()}</span>
+                </div>
+                <div className="space-y-2">
+                  {Array.from(selectedLotteryIds).map(id => {
+                    const prize = wishes.find(w => w.id === id);
+                    if (!prize) return null;
+                    const weight = getEffectiveWeight(id);
+                    const probability = getSelectedProbability(id);
+                    const rarityConfig = prize.rarity ? RARITY_CONFIG[prize.rarity as RarityType] : null;
+                    const isAdjusting = adjustingPrizeId === id;
+                    
+                    return (
+                      <div key={id} className={`p-2 rounded-lg transition-all ${isAdjusting ? 'bg-purple-50 ring-2 ring-purple-400' : 'bg-gray-50'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className="text-lg">{prize.icon}</span>
+                            <span className="font-medium text-sm truncate">{prize.title}</span>
+                            {rarityConfig && (
+                              <span className={`text-[10px] px-1 py-0.5 rounded ${rarityConfig.bgColor} ${rarityConfig.textColor}`}>
+                                {rarityConfig.emoji}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {/* 权重调整按钮 */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setAdjustingPrizeId(isAdjusting ? null : id); }}
+                              className={`px-2 py-1 rounded text-xs font-bold transition-all ${
+                                isAdjusting 
+                                  ? 'bg-purple-500 text-white' 
+                                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                              }`}
+                            >
+                              权重: {weight}
+                            </button>
+                            {/* 概率显示 */}
+                            <div className={`w-16 text-right font-bold text-sm ${
+                              parseFloat(probability) <= 5 ? 'text-amber-600' :
+                              parseFloat(probability) <= 15 ? 'text-blue-600' :
+                              'text-green-600'
+                            }`}>
+                              {probability}%
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* 权重调整面板 */}
+                        {isAdjusting && (
+                          <div className="mt-2 pt-2 border-t border-purple-200 space-y-2" onClick={e => e.stopPropagation()}>
+                            {/* 稀有度快捷按钮 */}
+                            <div className="flex gap-1">
+                              {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => (
+                                <button
+                                  key={key}
+                                  onClick={() => setWeightByRarity(id, key)}
+                                  className={`flex-1 py-1 rounded text-[10px] font-bold transition-all ${
+                                    weight === config.weight 
+                                      ? `bg-gradient-to-r ${config.color} text-white` 
+                                      : `${config.bgColor} ${config.textColor} hover:opacity-80`
+                                  }`}
+                                >
+                                  {config.emoji} {config.weight}
+                                </button>
+                              ))}
+                            </div>
+                            {/* 滑块调整 */}
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="range"
+                                min="1"
+                                max="100"
+                                value={weight}
+                                onChange={(e) => updateTempWeight(id, +e.target.value)}
+                                className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                              />
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={weight}
+                                onChange={(e) => updateTempWeight(id, +e.target.value)}
+                                className="w-14 p-1 border rounded text-center text-sm font-bold"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                {/* 概率分布提示 */}
+                {selectedLotteryIds.size === 8 && (
+                  <div className="mt-3 pt-2 border-t text-xs text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <span className="text-amber-600">●</span> ≤5% 传说/稀有
+                      <span className="text-blue-600 ml-2">●</span> 6-15% 优秀
+                      <span className="text-green-600 ml-2">●</span> &gt;15% 普通
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
