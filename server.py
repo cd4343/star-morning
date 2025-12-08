@@ -198,16 +198,21 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 # 转发到后端 - 过滤掉不应该转发的头
                 backend_url = f'http://localhost:3001{self.path}'
                 
-                # 构建安全的请求头
-                skip_headers = ['host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade']
-                safe_headers = {}
+                # 构建安全的请求头 - 确保 Content-Type 正确传递
+                skip_headers = ['host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'content-length', 'content-type']
+                safe_headers = {
+                    'Host': 'localhost:3001',
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(post_data))
+                }
+                # 复制其他安全的头
                 for key, value in self.headers.items():
                     if key.lower() not in skip_headers:
                         safe_headers[key] = value
                 
+                print(f"[调试] POST 请求体长度: {len(post_data)}, Content-Type: {safe_headers['Content-Type']}")
+                
                 req = urllib.request.Request(backend_url, data=post_data, headers=safe_headers)
-                req.add_header('Host', 'localhost:3001')
-                req.add_header('Content-Type', self.headers.get('Content-Type', 'application/json'))
                 
                 # 添加超时设置（10秒）
                 with urllib.request.urlopen(req, timeout=10) as response:
