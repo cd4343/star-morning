@@ -89,22 +89,22 @@ npm run dev
 
 ```
 star-coin/
-├── backend/              # 后端服务
+├── backend/                   # 后端服务
 │   ├── src/
-│   │   ├── server.ts     # Express 服务器
-│   │   └── database.ts   # 数据库初始化
+│   │   ├── server.ts          # Express 服务器
+│   │   └── database.ts        # 数据库初始化
 │   └── package.json
-├── frontend/             # 前端应用
+├── frontend/                  # 前端应用
 │   ├── src/
-│   │   ├── pages/        # 页面组件
-│   │   ├── components/   # 通用组件
-│   │   └── contexts/     # React Context
+│   │   ├── pages/             # 页面组件
+│   │   ├── components/        # 通用组件
+│   │   └── contexts/          # React Context
 │   └── package.json
 ├── start_app.bat              # Windows 智能启动脚本（选择环境）
 ├── start_app_local.bat        # 本地开发环境启动脚本
 ├── start_app_production.bat   # 生产服务器启动脚本
-├── start_server.bat           # 远程服务器启动脚本（Python HTTP Server）
-├── server.py                  # Python HTTP 服务器（端口80）
+├── start_dev.ps1              # PowerShell 开发启动脚本
+├── server.py                  # Python HTTP 服务器（生产环境，端口80）
 └── README.md
 ```
 
