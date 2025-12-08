@@ -91,7 +91,16 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             print(f"[请求] GET {self.path} - 开始处理")
             try:
                 backend_url = f'http://localhost:3001{self.path}'
-                req = urllib.request.Request(backend_url, headers=dict(self.headers))
+                
+                # 构建安全的请求头 - 过滤掉不应该转发的头
+                skip_headers = ['host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade']
+                safe_headers = {}
+                for key, value in self.headers.items():
+                    if key.lower() not in skip_headers:
+                        safe_headers[key] = value
+                safe_headers['Host'] = 'localhost:3001'
+                
+                req = urllib.request.Request(backend_url, headers=safe_headers)
                 
                 # 处理 304 Not Modified 响应
                 # 添加超时设置，避免请求挂起（10秒超时）
@@ -186,9 +195,18 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 content_length = int(self.headers.get('Content-Length', 0))
                 post_data = self.rfile.read(content_length) if content_length > 0 else b''
                 
-                # 转发到后端
+                # 转发到后端 - 过滤掉不应该转发的头
                 backend_url = f'http://localhost:3001{self.path}'
-                req = urllib.request.Request(backend_url, data=post_data, headers=dict(self.headers))
+                
+                # 构建安全的请求头
+                skip_headers = ['host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade']
+                safe_headers = {}
+                for key, value in self.headers.items():
+                    if key.lower() not in skip_headers:
+                        safe_headers[key] = value
+                
+                req = urllib.request.Request(backend_url, data=post_data, headers=safe_headers)
+                req.add_header('Host', 'localhost:3001')
                 req.add_header('Content-Type', self.headers.get('Content-Type', 'application/json'))
                 
                 # 添加超时设置（10秒）
@@ -238,7 +256,16 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             print(f"[请求] DELETE {self.path} - 开始处理")
             try:
                 backend_url = f'http://localhost:3001{self.path}'
-                req = urllib.request.Request(backend_url, method='DELETE', headers=dict(self.headers))
+                
+                # 构建安全的请求头 - 过滤掉不应该转发的头
+                skip_headers = ['host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade']
+                safe_headers = {}
+                for key, value in self.headers.items():
+                    if key.lower() not in skip_headers:
+                        safe_headers[key] = value
+                safe_headers['Host'] = 'localhost:3001'
+                
+                req = urllib.request.Request(backend_url, method='DELETE', headers=safe_headers)
                 
                 # 添加超时设置（10秒）
                 with urllib.request.urlopen(req, timeout=10) as response:
