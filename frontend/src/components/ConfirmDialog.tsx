@@ -49,8 +49,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const styles = typeStyles[type];
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl max-w-sm w-full shadow-xl animate-in zoom-in-95 duration-200">
+    <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl max-w-sm w-full shadow-xl animate-in zoom-in-95 duration-200" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
         {/* Header */}
         <div className="p-4 flex items-start gap-3">
           <div className={`p-2 rounded-full ${styles.iconBg}`}>

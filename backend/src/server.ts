@@ -85,11 +85,81 @@ const checkAchievements = async (childId: string, db: any) => {
   const child = await db.get('SELECT * FROM users WHERE id = ?', childId);
   if (!child) return;
   const defs = await db.all(`SELECT * FROM achievement_defs WHERE familyId = ? AND conditionType != 'manual'`, child.familyId);
-  const taskCount = (await db.get('SELECT COUNT(*) as count FROM task_entries WHERE childId = ? AND status = "approved"', childId)).count;
+  
+  // 基础统计
+  const taskCount = (await db.get('SELECT COUNT(*) as count FROM task_entries WHERE childId = ? AND status = "approved"', childId))?.count || 0;
+  
+  // 分类任务统计
+  const categoryStats = await db.all(`
+    SELECT t.category, COUNT(*) as count 
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    WHERE te.childId = ? AND te.status = 'approved' 
+    GROUP BY t.category
+  `, childId);
+  const categoryCountMap: Record<string, number> = {};
+  categoryStats.forEach((s: any) => { categoryCountMap[s.category] = s.count; });
+  
+  // 连续天数统计（按类别）
+  const getStreakDays = async (category?: string): Promise<number> => {
+    const query = category 
+      ? `SELECT DISTINCT DATE(te.submittedAt) as day FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY day DESC`
+      : `SELECT DISTINCT DATE(submittedAt) as day FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY day DESC`;
+    const days = category 
+      ? await db.all(query, childId, category)
+      : await db.all(query, childId);
+    
+    if (days.length === 0) return 0;
+    
+    let streak = 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (let i = 0; i < days.length; i++) {
+      const dayDate = new Date(days[i].day);
+      const expectedDate = new Date(today);
+      expectedDate.setDate(expectedDate.getDate() - i);
+      expectedDate.setHours(0, 0, 0, 0);
+      
+      if (dayDate.getTime() === expectedDate.getTime()) {
+        streak++;
+      } else if (i === 0 && dayDate.getTime() === expectedDate.getTime() - 86400000) {
+        // 允许昨天开始（今天还没完成任务的情况）
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  };
+  
   for (const def of defs) {
       let unlocked = false;
-      if (def.conditionType === 'task_count' && taskCount >= def.conditionValue) unlocked = true;
-      if (def.conditionType === 'coin_count' && child.coins >= def.conditionValue) unlocked = true;
+      
+      switch (def.conditionType) {
+        case 'task_count':
+          unlocked = taskCount >= def.conditionValue;
+          break;
+        case 'coin_count':
+          unlocked = child.coins >= def.conditionValue;
+          break;
+        case 'xp_count':
+          unlocked = child.xp >= def.conditionValue;
+          break;
+        case 'level_reach':
+          const level = Math.floor(child.xp / 100) + 1;
+          unlocked = level >= def.conditionValue;
+          break;
+        case 'category_count':
+          const catCount = categoryCountMap[def.conditionCategory] || 0;
+          unlocked = catCount >= def.conditionValue;
+          break;
+        case 'streak_days':
+          const streak = await getStreakDays(def.conditionCategory || undefined);
+          unlocked = streak >= def.conditionValue;
+          break;
+      }
+      
       if (unlocked) {
           const existing = await db.get('SELECT id FROM user_achievements WHERE childId = ? AND achievementId = ?', childId, def.id);
           if (!existing) await db.run('INSERT INTO user_achievements (id, childId, achievementId, unlockedAt) VALUES (?, ?, ?, ?)', randomUUID(), childId, def.id, new Date().toISOString());
@@ -349,6 +419,293 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   });
 });
 
+// 详细统计数据 API
+app.get('/api/parent/stats', protect, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const familyId = request.user!.familyId;
+  
+  // 获取家庭中的所有孩子
+  const children = await db.all('SELECT id, name, coins, xp FROM users WHERE familyId = ? AND role = "child"', familyId);
+  
+  if (children.length === 0) {
+    return res.json({
+      overview: { todayTasks: 0, weekTasks: 0, monthTasks: 0, totalTasks: 0, streakDays: 0, maxStreakDays: 0 },
+      coins: { todayEarned: 0, weekEarned: 0, monthEarned: 0, totalEarned: 0, todaySpent: 0, weekSpent: 0, monthSpent: 0, totalSpent: 0 },
+      categoryStats: [],
+      dailyAverage: 0,
+      coinTrend: [],
+      nearestAchievements: [],
+      children: []
+    });
+  }
+  
+  const childIds = children.map(c => c.id);
+  const childIdPlaceholders = childIds.map(() => '?').join(',');
+  
+  // === 1. 任务完成数统计 ===
+  const todayTasks = (await db.get(`
+    SELECT COUNT(*) as count FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND DATE(submittedAt) = DATE('now')
+  `, ...childIds))?.count || 0;
+  
+  const weekTasks = (await db.get(`
+    SELECT COUNT(*) as count FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND submittedAt >= DATE('now', '-7 days')
+  `, ...childIds))?.count || 0;
+  
+  const monthTasks = (await db.get(`
+    SELECT COUNT(*) as count FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND submittedAt >= DATE('now', '-30 days')
+  `, ...childIds))?.count || 0;
+  
+  const totalTasks = (await db.get(`
+    SELECT COUNT(*) as count FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
+  `, ...childIds))?.count || 0;
+  
+  // === 2. 连续打卡天数 ===
+  const taskDays = await db.all(`
+    SELECT DISTINCT DATE(submittedAt) as day 
+    FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    ORDER BY day DESC
+  `, ...childIds);
+  
+  let streakDays = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  for (let i = 0; i < taskDays.length; i++) {
+    const dayDate = new Date(taskDays[i].day);
+    const expectedDate = new Date(today);
+    expectedDate.setDate(expectedDate.getDate() - i);
+    expectedDate.setHours(0, 0, 0, 0);
+    
+    if (dayDate.getTime() === expectedDate.getTime()) {
+      streakDays++;
+    } else if (i === 0 && dayDate.getTime() === expectedDate.getTime() - 86400000) {
+      // 允许昨天开始（今天还没完成任务）
+      streakDays++;
+    } else {
+      break;
+    }
+  }
+  
+  // 计算历史最长连续天数
+  let maxStreakDays = 0;
+  let currentStreak = 0;
+  let prevDate: Date | null = null;
+  
+  for (const row of taskDays) {
+    const dayDate = new Date(row.day);
+    if (prevDate === null) {
+      currentStreak = 1;
+    } else {
+      const diff = (prevDate.getTime() - dayDate.getTime()) / 86400000;
+      if (diff === 1) {
+        currentStreak++;
+      } else {
+        maxStreakDays = Math.max(maxStreakDays, currentStreak);
+        currentStreak = 1;
+      }
+    }
+    prevDate = dayDate;
+  }
+  maxStreakDays = Math.max(maxStreakDays, currentStreak);
+  
+  // === 3. 金币获得/消耗统计 ===
+  // 获得金币（从任务奖励）
+  const todayEarned = (await db.get(`
+    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND DATE(submittedAt) = DATE('now')
+  `, ...childIds))?.total || 0;
+  
+  const weekEarned = (await db.get(`
+    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND submittedAt >= DATE('now', '-7 days')
+  `, ...childIds))?.total || 0;
+  
+  const monthEarned = (await db.get(`
+    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND submittedAt >= DATE('now', '-30 days')
+  `, ...childIds))?.total || 0;
+  
+  const totalEarned = (await db.get(`
+    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
+  `, ...childIds))?.total || 0;
+  
+  // 消耗金币（从背包记录，只统计用金币购买的）
+  const todaySpent = (await db.get(`
+    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
+    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
+    AND DATE(acquiredAt) = DATE('now')
+  `, ...childIds))?.total || 0;
+  
+  const weekSpent = (await db.get(`
+    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
+    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
+    AND acquiredAt >= DATE('now', '-7 days')
+  `, ...childIds))?.total || 0;
+  
+  const monthSpent = (await db.get(`
+    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
+    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
+    AND acquiredAt >= DATE('now', '-30 days')
+  `, ...childIds))?.total || 0;
+  
+  const totalSpent = (await db.get(`
+    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
+    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins'
+  `, ...childIds))?.total || 0;
+  
+  // === 4. 分类任务完成比例 ===
+  const categoryStats = await db.all(`
+    SELECT t.category, COUNT(*) as count 
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    WHERE te.childId IN (${childIdPlaceholders}) AND te.status = 'approved' 
+    GROUP BY t.category
+  `, ...childIds);
+  
+  const totalCategoryCount = categoryStats.reduce((sum, c) => sum + c.count, 0);
+  const categoryWithPercent = categoryStats.map(c => ({
+    category: c.category,
+    count: c.count,
+    percent: totalCategoryCount > 0 ? Math.round((c.count / totalCategoryCount) * 100) : 0
+  }));
+  
+  // === 5. 每日平均任务完成数（最近30天）===
+  const activeDays = (await db.get(`
+    SELECT COUNT(DISTINCT DATE(submittedAt)) as days 
+    FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND submittedAt >= DATE('now', '-30 days')
+  `, ...childIds))?.days || 0;
+  
+  const dailyAverage = activeDays > 0 ? Math.round((monthTasks / activeDays) * 10) / 10 : 0;
+  
+  // === 6. 金币趋势（最近7天）===
+  const coinTrend = await db.all(`
+    SELECT DATE(submittedAt) as date, COALESCE(SUM(earnedCoins), 0) as earned
+    FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
+    AND submittedAt >= DATE('now', '-7 days')
+    GROUP BY DATE(submittedAt)
+    ORDER BY date ASC
+  `, ...childIds);
+  
+  // 补全最近7天的数据
+  const last7Days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const existing = coinTrend.find(t => t.date === dateStr);
+    last7Days.push({
+      date: dateStr,
+      dayOfWeek: ['日', '一', '二', '三', '四', '五', '六'][d.getDay()],
+      earned: existing?.earned || 0
+    });
+  }
+  
+  // === 7. 最接近解锁的成就 ===
+  const allDefs = await db.all('SELECT * FROM achievement_defs WHERE familyId = ?', familyId);
+  const unlocked = await db.all(`
+    SELECT achievementId FROM user_achievements 
+    WHERE childId IN (${childIdPlaceholders})
+  `, ...childIds);
+  const unlockedIds = new Set(unlocked.map(u => u.achievementId));
+  
+  // 计算每个未解锁成就的进度
+  const nearestAchievements: any[] = [];
+  
+  for (const def of allDefs) {
+    if (unlockedIds.has(def.id)) continue;
+    if (def.conditionType === 'manual') continue;
+    
+    let progress = 0;
+    switch (def.conditionType) {
+      case 'task_count': progress = totalTasks; break;
+      case 'coin_count': progress = children.reduce((sum, c) => sum + (c.coins || 0), 0); break;
+      case 'xp_count': progress = children.reduce((sum, c) => sum + (c.xp || 0), 0); break;
+      case 'level_reach': progress = Math.floor(children.reduce((sum, c) => sum + (c.xp || 0), 0) / 100) + 1; break;
+      case 'streak_days': progress = streakDays; break;
+      case 'category_count':
+        const catStat = categoryStats.find(c => c.category === def.conditionCategory);
+        progress = catStat?.count || 0;
+        break;
+    }
+    
+    const percent = def.conditionValue > 0 ? Math.min(Math.round((progress / def.conditionValue) * 100), 99) : 0;
+    
+    nearestAchievements.push({
+      id: def.id,
+      title: def.title,
+      description: def.description,
+      icon: def.icon,
+      conditionType: def.conditionType,
+      conditionValue: def.conditionValue,
+      progress,
+      percent
+    });
+  }
+  
+  // 按进度百分比排序，取最接近的3个
+  nearestAchievements.sort((a, b) => b.percent - a.percent);
+  const top3Achievements = nearestAchievements.slice(0, 3);
+  
+  // === 8. 每个孩子的简要统计 ===
+  const childrenStats = await Promise.all(children.map(async (child) => {
+    const childTasks = (await db.get(`
+      SELECT COUNT(*) as count FROM task_entries 
+      WHERE childId = ? AND status = 'approved'
+    `, child.id))?.count || 0;
+    
+    return {
+      id: child.id,
+      name: child.name,
+      coins: child.coins,
+      xp: child.xp,
+      level: Math.floor((child.xp || 0) / 100) + 1,
+      totalTasks: childTasks
+    };
+  }));
+  
+  res.json({
+    overview: {
+      todayTasks,
+      weekTasks,
+      monthTasks,
+      totalTasks,
+      streakDays,
+      maxStreakDays
+    },
+    coins: {
+      todayEarned,
+      weekEarned,
+      monthEarned,
+      totalEarned,
+      todaySpent,
+      weekSpent,
+      monthSpent,
+      totalSpent
+    },
+    categoryStats: categoryWithPercent,
+    dailyAverage,
+    coinTrend: last7Days,
+    nearestAchievements: top3Achievements,
+    children: childrenStats
+  });
+});
+
 app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     const { action, timeScore, qualityScore, initiativeScore, finalCoins } = req.body; 
     const entry = await getDb().get(`SELECT te.*, t.coinReward, t.xpReward FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.id = ?`, req.params.entryId);
@@ -537,7 +894,24 @@ app.put('/api/parent/privileges/:id', protect, async (req: any, res) => {
 });
 app.delete('/api/parent/privileges/:id', protect, async (req, res) => { await getDb().run('DELETE FROM privileges WHERE id = ?', req.params.id); res.json({message:'ok'}); });
 app.get('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId)); });
-app.post('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO achievement_defs (id, familyId, title, description, icon, conditionType, conditionValue) VALUES (?, ?, ?, ?, ?, ?, ?)`, randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.icon, request.body.conditionType, request.body.conditionValue); res.json({message:'ok'}); });
+app.post('/api/parent/achievements', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    await getDb().run(
+        `INSERT INTO achievement_defs (id, familyId, title, description, icon, conditionType, conditionValue, conditionCategory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, 
+        randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.icon, 
+        request.body.conditionType, request.body.conditionValue, request.body.conditionCategory || null
+    ); 
+    res.json({message:'ok'}); 
+});
+app.put('/api/parent/achievements/:id', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    const { title, description, icon, conditionType, conditionValue, conditionCategory } = request.body;
+    await getDb().run(
+        `UPDATE achievement_defs SET title = ?, description = ?, icon = ?, conditionType = ?, conditionValue = ?, conditionCategory = ? WHERE id = ? AND familyId = ?`, 
+        title, description, icon, conditionType, conditionValue, conditionCategory || null, req.params.id, request.user!.familyId
+    ); 
+    res.json({message:'ok'}); 
+});
 app.delete('/api/parent/achievements/:id', protect, async (req, res) => { await getDb().run('DELETE FROM achievement_defs WHERE id = ?', req.params.id); res.json({message:'ok'}); });
 
 // Child
@@ -566,7 +940,8 @@ app.get('/api/child/wishes', protect, async (req: any, res) => {
     res.json({ 
         savings: await getDb().get("SELECT * FROM wishes WHERE familyId = ? AND type='savings'", request.user!.familyId), 
         shop: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='shop'", request.user!.familyId), 
-        lottery: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery'", request.user!.familyId) 
+        // 抽奖奖池只返回已上架且有库存的奖品
+        lottery: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery' AND isActive = 1 AND (stock = -1 OR stock > 0)", request.user!.familyId) 
     }); 
 });
 app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
@@ -680,19 +1055,25 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
         if (random <= 0) { prize = p; break; }
     }
     
-    await db.run('BEGIN'); 
-    await db.run('UPDATE users SET coins = coins - 10 WHERE id = ?', request.user!.id); 
-    
-    // 库存 -1 表示无限，不扣减
-    if (prize.stock !== -1) {
-        await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
+    try {
+        await db.run('BEGIN'); 
+        await db.run('UPDATE users SET coins = coins - 10 WHERE id = ?', request.user!.id); 
+        
+        // 库存 -1 表示无限，不扣减
+        if (prize.stock !== -1) {
+            await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
+        }
+        
+        // 抽奖奖品添加到背包，status='unused'（未使用/待兑现）
+        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'unused')`, 
+            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 0, 'coins');
+        await db.run('COMMIT'); 
+        res.json({winner: prize});
+    } catch (err) {
+        await db.run('ROLLBACK');
+        console.error('抽奖失败:', err);
+        return res.status(500).json({message: '抽奖失败，请重试'});
     }
-    
-    // 抽奖奖品添加到背包，cost=0（免费获得），costType=coins（但实际是免费）
-    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-        randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 0, 'coins');
-    await db.run('COMMIT'); 
-    res.json({winner: prize});
 });
 app.get('/api/child/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all(`SELECT ua.unlockedAt, ad.title, ad.description, ad.icon FROM user_achievements ua JOIN achievement_defs ad ON ua.achievementId = ad.id WHERE ua.childId = ?`, request.user!.id)); });
 
@@ -712,8 +1093,60 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
     
     // 获取进度数据
     const taskCount = (await db.get('SELECT COUNT(*) as count FROM task_entries WHERE childId = ? AND status = "approved"', childId))?.count || 0;
-    const child = await db.get('SELECT coins FROM users WHERE id = ?', childId);
+    const child = await db.get('SELECT coins, xp FROM users WHERE id = ?', childId);
     const totalCoins = child?.coins || 0;
+    const totalXp = child?.xp || 0;
+    const level = Math.floor(totalXp / 100) + 1;
+    
+    // 分类任务统计
+    const categoryStats = await db.all(`
+      SELECT t.category, COUNT(*) as count 
+      FROM task_entries te 
+      JOIN tasks t ON te.taskId = t.id 
+      WHERE te.childId = ? AND te.status = 'approved' 
+      GROUP BY t.category
+    `, childId);
+    const categoryCountMap: Record<string, number> = {};
+    categoryStats.forEach((s: any) => { categoryCountMap[s.category] = s.count; });
+    
+    // 连续天数计算函数
+    const getStreakDays = async (category?: string): Promise<number> => {
+      const query = category 
+        ? `SELECT DISTINCT DATE(te.submittedAt) as day FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY day DESC`
+        : `SELECT DISTINCT DATE(submittedAt) as day FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY day DESC`;
+      const days = category 
+        ? await db.all(query, childId, category)
+        : await db.all(query, childId);
+      
+      if (days.length === 0) return 0;
+      
+      let streak = 0;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      for (let i = 0; i < days.length; i++) {
+        const dayDate = new Date(days[i].day);
+        const expectedDate = new Date(today);
+        expectedDate.setDate(expectedDate.getDate() - i);
+        expectedDate.setHours(0, 0, 0, 0);
+        
+        if (dayDate.getTime() === expectedDate.getTime()) {
+          streak++;
+        } else if (i === 0 && dayDate.getTime() === expectedDate.getTime() - 86400000) {
+          streak++;
+        } else {
+          break;
+        }
+      }
+      return streak;
+    };
+    
+    // 预先计算所有需要的连续天数
+    const streakCache: Record<string, number> = {};
+    streakCache['__all__'] = await getStreakDays();
+    for (const cat of ['劳动', '学习', '兴趣', '运动']) {
+      streakCache[cat] = await getStreakDays(cat);
+    }
     
     // 组装结果
     const result = allDefs.map(def => {
@@ -721,8 +1154,14 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
         let progress = 0;
         
         if (!isUnlocked) {
-            if (def.conditionType === 'task_count') progress = taskCount;
-            else if (def.conditionType === 'coin_count') progress = totalCoins;
+            switch (def.conditionType) {
+              case 'task_count': progress = taskCount; break;
+              case 'coin_count': progress = totalCoins; break;
+              case 'xp_count': progress = totalXp; break;
+              case 'level_reach': progress = level; break;
+              case 'category_count': progress = categoryCountMap[def.conditionCategory] || 0; break;
+              case 'streak_days': progress = def.conditionCategory ? (streakCache[def.conditionCategory] || 0) : streakCache['__all__']; break;
+            }
         }
         
         return {
@@ -732,6 +1171,7 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
             icon: def.icon,
             conditionType: def.conditionType,
             conditionValue: def.conditionValue,
+            conditionCategory: def.conditionCategory,
             unlocked: isUnlocked,
             unlockedAt: unlockedMap.get(def.id) || null,
             progress

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>连接测试 - Star Morning</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .card {
+            background: white;
+            color: #333;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 { color: #667eea; margin-top: 0; }
+        .test-item {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            background: #f5f5f5;
+        }
+        .success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover { background: #5568d3; }
+        #result { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🌟 Star Morning 连接测试</h1>
+        
+        <div class="test-item info">
+            <strong>当前页面:</strong> <span id="currentUrl"></span>
+        </div>
+        
+        <div class="test-item info">
+            <strong>测试时间:</strong> <span id="testTime"></span>
+        </div>
+        
+        <button onclick="testBackend()">测试后端 API (3001)</button>
+        <button onclick="testFrontend()">测试前端页面 (3000)</button>
+        <button onclick="clearStorage()">清除浏览器存储</button>
+        
+        <div id="result"></div>
+    </div>
+    
+    <script>
+        document.getElementById('currentUrl').textContent = window.location.href;
+        document.getElementById('testTime').textContent = new Date().toLocaleString('zh-CN');
+        
+        function addResult(message, type) {
+            const result = document.getElementById('result');
+            const div = document.createElement('div');
+            div.className = `test-item ${type}`;
+            div.innerHTML = message;
+            result.appendChild(div);
+        }
+        
+        async function testBackend() {
+            addResult('正在测试后端 API...', 'info');
+            try {
+                const response = await fetch('http://localhost:3001/api/health', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    addResult(`✅ 后端连接成功！<br>状态: ${response.status}<br>响应: ${JSON.stringify(data)}`, 'success');
+                } else {
+                    addResult(`⚠️ 后端响应异常: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                addResult(`❌ 后端连接失败！<br>错误: ${error.message}<br><br>可能原因：<br>1. 后端服务未启动<br>2. 防火墙阻止<br>3. 浏览器安全策略`, 'error');
+            }
+        }
+        
+        async function testFrontend() {
+            addResult('正在测试前端页面...', 'info');
+            try {
+                const response = await fetch('http://localhost:3000/', {
+                    method: 'GET',
+                    mode: 'no-cors'
+                });
+                addResult('✅ 前端页面可访问！', 'success');
+            } catch (error) {
+                addResult(`❌ 前端页面访问失败！<br>错误: ${error.message}`, 'error');
+            }
+        }
+        
+        function clearStorage() {
+            localStorage.clear();
+            sessionStorage.clear();
+            addResult('✅ 已清除所有浏览器存储！<br>请刷新页面 (F5)', 'success');
+        }
+    </script>
+</body>
+</html>
+

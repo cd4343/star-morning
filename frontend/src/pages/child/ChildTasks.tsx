@@ -120,7 +120,7 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
     };
 
     return (
-        <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-200">
+        <div className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-200">
             <div className="text-center mb-12">
                 <h2 className="text-2xl font-bold mb-2">{task.title}</h2>
                 <p className="text-gray-400">建议时长: {task.duration}分钟</p>

@@ -9,6 +9,8 @@ import api from '../../services/api';
 import { useTemplateSelector } from '../../hooks/useTemplateSelector';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
+import { BottomSheet } from '../../components/BottomSheet';
+import { IconPicker } from '../../components/IconPicker';
 
 // 特权模板 - 以服务性商品为主
 const PRIVILEGE_TEMPLATES = [
@@ -49,9 +51,11 @@ export default function ParentPrivileges() {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [cost, setCost] = useState('');
+  const [icon, setIcon] = useState('👑');
   
   // 编辑状态
   const [editingPrivilege, setEditingPrivilege] = useState<any>(null);
+  const [editIcon, setEditIcon] = useState('👑');
 
   useEffect(() => { fetchList(); }, []);
   const fetchList = async () => { const res = await api.get('/parent/privileges'); setList(res.data); };
@@ -62,6 +66,7 @@ export default function ParentPrivileges() {
     setTitle(p.title);
     setDesc(p.description || '');
     setCost(String(p.cost));
+    setEditIcon(p.icon || '👑');
   };
   
   // 保存编辑
@@ -69,10 +74,10 @@ export default function ParentPrivileges() {
     if (!editingPrivilege) return;
     try {
       await api.put(`/parent/privileges/${editingPrivilege.id}`, {
-        title, description: desc, cost: +cost
+        title, description: desc, cost: +cost, icon: editIcon
       });
       setEditingPrivilege(null);
-      setTitle(''); setDesc(''); setCost('');
+      setTitle(''); setDesc(''); setCost(''); setEditIcon('👑');
       fetchList();
     } catch {
       toast.error('保存失败');
@@ -81,8 +86,8 @@ export default function ParentPrivileges() {
 
   const handleAdd = async () => {
     if (!title) return toast.warning('请输入标题');
-    await api.post('/parent/privileges', { title, description: desc, cost: +cost });
-    setShowAdd(false); setTitle('');
+    await api.post('/parent/privileges', { title, description: desc, cost: +cost, icon });
+    setShowAdd(false); setTitle(''); setIcon('👑');
     toast.success('添加成功');
     fetchList();
   };
@@ -109,7 +114,8 @@ export default function ParentPrivileges() {
         await api.post('/parent/privileges', {
           title: template.title,
           description: template.desc,
-          cost: template.cost
+          cost: template.cost,
+          icon: template.icon
         });
       }
       toast.success(`成功添加 ${selectedCount} 个特权！`);
@@ -131,29 +137,39 @@ export default function ParentPrivileges() {
     <Layout>
       <Header title="特权管理" showBack onBack={() => navigate('/parent/dashboard')} rightElem={<button onClick={() => setShowAdd(true)}><Plus className="text-blue-600"/></button>} />
       
-      {showAdd && (
-        <div className="p-4 bg-purple-50 border-b animate-in slide-in-from-top">
-          <h3 className="font-bold mb-2">新建特权</h3>
-          <div className="space-y-2">
+      {/* 新建特权 - 底部抽屉 */}
+      <BottomSheet 
+        isOpen={showAdd} 
+        onClose={() => setShowAdd(false)} 
+        title="👑 新建特权"
+        footer={
+          <div className="flex gap-3">
+            <Button onClick={handleAdd} className="flex-1 py-3 bg-gradient-to-r from-purple-500 to-pink-500 border-none">保存特权</Button>
+            <Button variant="ghost" onClick={() => setShowAdd(false)} className="flex-1 py-3">取消</Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex gap-3">
             <div>
-              <label className="text-xs text-gray-500 font-bold">特权名称</label>
-              <input className="w-full p-2 rounded border" placeholder="例如：周末晚睡一小时" value={title} onChange={e => setTitle(e.target.value)} />
+              <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+              <IconPicker value={icon} onChange={setIcon} categories={['time', 'chores', 'entertainment', 'emoji', 'food']} />
             </div>
-            <div>
-              <label className="text-xs text-gray-500 font-bold">描述</label>
-              <input className="w-full p-2 rounded border" placeholder="简短描述" value={desc} onChange={e => setDesc(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 font-bold">兑换消耗 (特权点)</label>
-              <input className="w-full p-2 rounded border" type="number" placeholder="1" value={cost} onChange={e => setCost(e.target.value)} />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <Button size="sm" onClick={handleAdd} className="flex-1">保存</Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)}>取消</Button>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-bold block mb-1">特权名称</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all" placeholder="例如：周末晚睡一小时" value={title} onChange={e => setTitle(e.target.value)} />
             </div>
           </div>
+          <div>
+            <label className="text-xs text-gray-500 font-bold block mb-1">描述</label>
+            <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" placeholder="简短描述（可选）" value={desc} onChange={e => setDesc(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 font-bold block mb-1">⭐ 兑换消耗 (特权点)</label>
+            <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" placeholder="1" value={cost} onChange={e => setCost(e.target.value)} />
+          </div>
         </div>
-      )}
+      </BottomSheet>
 
       <div className="p-4 space-y-3 overflow-y-auto flex-1">
         {/* 空状态 */}
@@ -174,7 +190,7 @@ export default function ParentPrivileges() {
 
         {/* 模板选择界面 */}
         {showTemplates && (
-          <div className="animate-in fade-in">
+          <div className="animate-in fade-in pb-20">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <Sparkles className="text-purple-500" size={20}/> 选择特权模板
@@ -212,13 +228,16 @@ export default function ParentPrivileges() {
                 </div>
               </div>
             ))}
-            
-            <div className="flex gap-2 sticky bottom-0 bg-gray-50 py-3 -mx-4 px-4 border-t">
-              <Button onClick={closeTemplates} variant="ghost" className="flex-1">取消</Button>
-              <Button onClick={handleAddTemplates} className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 border-none" disabled={selectedCount === 0}>
-                添加 {selectedCount} 个特权
-              </Button>
-            </div>
+          </div>
+        )}
+        
+        {/* 模板选择底部操作栏 - 绝对定位 + 安全区域 */}
+        {showTemplates && (
+          <div className="absolute bottom-0 left-0 right-0 bg-white py-3 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t shadow-[0_-4px_12px_rgba(0,0,0,0.1)] z-20 flex gap-2">
+            <Button onClick={closeTemplates} variant="ghost" className="flex-1">取消</Button>
+            <Button onClick={handleAddTemplates} className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 border-none" disabled={selectedCount === 0}>
+              添加 {selectedCount} 个特权
+            </Button>
           </div>
         )}
 
@@ -231,12 +250,17 @@ export default function ParentPrivileges() {
             
             {list.map(p => (
               <Card key={p.id} className="flex justify-between items-center">
-                <div className="flex-1">
-                  <div className="font-bold">{p.title}</div>
-                  <div className="text-xs text-gray-500">{p.description}</div>
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl flex items-center justify-center text-xl">
+                    {p.icon || '👑'}
+                  </div>
+                  <div>
+                    <div className="font-bold">{p.title}</div>
+                    <div className="text-xs text-gray-500">{p.description}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-purple-600 text-sm">{p.cost} 点</div>
+                  <div className="font-bold text-purple-600 text-sm bg-purple-50 px-2 py-1 rounded-lg">{p.cost} 点</div>
                   <button onClick={() => openEdit(p)} className="text-purple-400 hover:text-purple-600 p-1"><Pen size={16}/></button>
                   <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
                 </div>
@@ -245,32 +269,38 @@ export default function ParentPrivileges() {
           </>
         )}
         
-        {/* 编辑特权弹窗 */}
+        {/* 编辑特权弹窗 - 支持安全区域 */}
         {editingPrivilege && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-              <div className="flex justify-between items-center p-4 border-b">
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+              <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
                 <h3 className="font-bold text-lg">编辑特权</h3>
                 <button onClick={() => setEditingPrivilege(null)} className="p-1 hover:bg-gray-100 rounded-full">
                   <X size={20} className="text-gray-500"/>
                 </button>
               </div>
-              <div className="p-4 space-y-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-bold">特权名称</label>
-                  <input className="w-full p-2 rounded border mt-1" value={title} onChange={e => setTitle(e.target.value)} />
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+                    <IconPicker value={editIcon} onChange={setEditIcon} categories={['time', 'chores', 'entertainment', 'emoji', 'food']} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold block mb-1">特权名称</label>
+                    <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" value={title} onChange={e => setTitle(e.target.value)} />
+                  </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-bold">描述</label>
-                  <input className="w-full p-2 rounded border mt-1" value={desc} onChange={e => setDesc(e.target.value)} />
+                  <label className="text-xs text-gray-500 font-bold block mb-1">描述</label>
+                  <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" placeholder="简短描述（可选）" value={desc} onChange={e => setDesc(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-bold">兑换消耗 (特权点)</label>
-                  <input className="w-full p-2 rounded border mt-1" type="number" value={cost} onChange={e => setCost(e.target.value)} />
+                  <label className="text-xs text-gray-500 font-bold block mb-1">⭐ 兑换消耗 (特权点)</label>
+                  <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" value={cost} onChange={e => setCost(e.target.value)} />
                 </div>
-                <div className="flex gap-2 pt-2">
-                  <Button size="sm" onClick={handleSaveEdit} className="flex-1">保存修改</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditingPrivilege(null)}>取消</Button>
+                <div className="flex gap-3 pt-2">
+                  <Button onClick={handleSaveEdit} className="flex-1 py-3 bg-gradient-to-r from-purple-500 to-pink-500 border-none">保存修改</Button>
+                  <Button variant="ghost" onClick={() => setEditingPrivilege(null)} className="flex-1 py-3">取消</Button>
                 </div>
               </div>
             </div>

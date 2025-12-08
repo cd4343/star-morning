@@ -8,6 +8,8 @@ import { Plus, Trash2, Check, CheckCircle2, Circle, Settings2, Edit2, X, Sparkle
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
+import { BottomSheet } from '../../components/BottomSheet';
+import { IconPicker, ICON_LIBRARY } from '../../components/IconPicker';
 
 // 商品模板
 const SHOP_TEMPLATES = [
@@ -57,62 +59,12 @@ const LOTTERY_TEMPLATES = [
   { title: '谢谢参与', icon: '😎', weight: 50, rarity: 'common' as RarityType },
 ];
 
-// 预设图标库
-const SHOP_ICONS = [
-    { icon: '📺', name: '电视' },
-    { icon: '🎮', name: '游戏' },
-    { icon: '🍦', name: '冰淇淋' },
-    { icon: '🍬', name: '糖果' },
-    { icon: '🍪', name: '饼干' },
-    { icon: '🎂', name: '蛋糕' },
-    { icon: '🧸', name: '玩具熊' },
-    { icon: '📚', name: '书籍' },
-    { icon: '🎨', name: '画画' },
-    { icon: '⚽', name: '足球' },
-    { icon: '🎁', name: '礼物' },
-    { icon: '🎪', name: '游乐园' },
-    { icon: '🎬', name: '电影' },
-    { icon: '🍕', name: '披萨' },
-    { icon: '🌟', name: '星星' },
-];
-
-const LOTTERY_ICONS = [
-    { icon: '💰', name: '金币' },
-    { icon: '💵', name: '现金' },
-    { icon: '🪙', name: '硬币' },
-    { icon: '💎', name: '钻石' },
-    { icon: '🍬', name: '糖果' },
-    { icon: '🍭', name: '棒棒糖' },
-    { icon: '🍪', name: '饼干' },
-    { icon: '🎂', name: '蛋糕' },
-    { icon: '🍦', name: '冰淇淋' },
-    { icon: '🎫', name: '免做卡' },
-    { icon: '🎟️', name: '券' },
-    { icon: '🏷️', name: '贴纸' },
-    { icon: '🔄', name: '再来一次' },
-    { icon: '😎', name: '谢谢参与' },
-    { icon: '🎁', name: '神秘礼物' },
-    { icon: '✨', name: '惊喜' },
-    { icon: '🌟', name: '星星' },
-    { icon: '🎀', name: '蝴蝶结' },
-    { icon: '🧸', name: '玩具' },
-    { icon: '📱', name: '手机时间' },
-];
-
-const SAVINGS_ICONS = [
-    { icon: '🎮', name: '游戏机' },
-    { icon: '📱', name: '手机' },
-    { icon: '💻', name: '电脑' },
-    { icon: '🚲', name: '自行车' },
-    { icon: '⌚', name: '手表' },
-    { icon: '🎸', name: '吉他' },
-    { icon: '📷', name: '相机' },
-    { icon: '🎧', name: '耳机' },
-    { icon: '👟', name: '球鞋' },
-    { icon: '🏀', name: '篮球' },
-    { icon: '🎁', name: '大礼物' },
-    { icon: '✈️', name: '旅行' },
-];
+// 根据类型获取图标分类
+const ICON_CATEGORIES_BY_TYPE: Record<'shop' | 'savings' | 'lottery', ('food' | 'entertainment' | 'daily' | 'reward' | 'hobby' | 'sports' | 'emoji')[]> = {
+  shop: ['food', 'entertainment', 'daily', 'reward'],
+  savings: ['entertainment', 'reward', 'hobby', 'sports'],
+  lottery: ['reward', 'food', 'emoji', 'entertainment'],
+};
 
 export default function ParentWishes() {
   const navigate = useNavigate();
@@ -120,7 +72,6 @@ export default function ParentWishes() {
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [wishes, setWishes] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [showIconPicker, setShowIconPicker] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
   
@@ -149,7 +100,6 @@ export default function ParentWishes() {
   const [editCost, setEditCost] = useState('');
   const [editTarget, setEditTarget] = useState('');
   const [editRarity, setEditRarity] = useState<RarityType>('common');
-  const [showEditIconPicker, setShowEditIconPicker] = useState(false);
 
   useEffect(() => { fetchWishes(); }, []);
   
@@ -163,14 +113,8 @@ export default function ParentWishes() {
     setSelectedLotteryIds(new Set(activeLotteryIds));
   };
 
-  const getIconsForType = () => {
-      switch (viewType) {
-          case 'shop': return SHOP_ICONS;
-          case 'lottery': return LOTTERY_ICONS;
-          case 'savings': return SAVINGS_ICONS;
-          default: return SHOP_ICONS;
-      }
-  };
+  // 获取当前类型的图标分类
+  const getIconCategories = () => ICON_CATEGORIES_BY_TYPE[viewType];
 
   const resetForm = () => {
       setTitle('');
@@ -498,8 +442,6 @@ export default function ParentWishes() {
   const lotteryItems = wishes.filter(w => w.type === 'lottery');
   const activeLotteryCount = lotteryItems.filter(w => w.isActive).length;
 
-  const currentIcons = getIconsForType();
-
   return (
     <Layout>
       <Header title="心愿管理" showBack onBack={() => navigate('/parent/dashboard')} rightElem={<button onClick={() => setShowAdd(true)}><Plus className="text-blue-600"/></button>} />
@@ -527,159 +469,95 @@ export default function ParentWishes() {
           ))}
       </div>
 
-      {showAdd && (
-        <div className={`p-4 border-b animate-in slide-in-from-top ${
-            viewType === 'shop' ? 'bg-gradient-to-b from-pink-50 to-rose-50' :
-            viewType === 'lottery' ? 'bg-gradient-to-b from-purple-50 to-indigo-50' :
-            'bg-gradient-to-b from-blue-50 to-cyan-50'
-        }`}>
-          <h3 className="font-bold mb-3">
-              {viewType === 'shop' && '🛒 新建商品'}
-              {viewType === 'savings' && '🎯 新建储蓄目标'}
-              {viewType === 'lottery' && '🎰 新建奖品'}
-          </h3>
-          
-          <div className="space-y-3">
-              <div className="flex gap-2">
-                 <div className="relative">
-                     <label className="text-xs text-gray-500 font-bold">图标</label>
-                     <button 
-                         onClick={() => setShowIconPicker(!showIconPicker)}
-                         className="w-14 h-10 rounded-lg border bg-white text-2xl flex items-center justify-center hover:bg-gray-50 shadow-sm"
-                     >
-                         {icon}
-                     </button>
-                     
-                     {/* 图标选择器 */}
-                     {showIconPicker && (
-                         <div className="absolute top-full left-0 mt-1 p-3 bg-white rounded-xl shadow-xl border z-50 w-72">
-                             <div className="text-xs text-gray-400 mb-2 font-medium">选择图标</div>
-                             <div className="grid grid-cols-5 gap-2">
-                                 {currentIcons.map((item, i) => (
-                                     <button 
-                                         key={i}
-                                         onClick={() => setIcon(item.icon)}
-                                         className={`w-11 h-11 rounded-lg text-xl hover:bg-pink-100 transition-all flex items-center justify-center ${icon === item.icon ? 'bg-pink-200 ring-2 ring-pink-400 scale-110' : 'bg-gray-50'}`}
-                                         title={item.name}
-                                     >
-                                         {item.icon}
-                                     </button>
-                                 ))}
-                             </div>
-                             <button 
-                                 onClick={() => setShowIconPicker(false)}
-                                 className="w-full mt-3 py-2 bg-blue-500 text-white rounded-lg font-bold text-sm hover:bg-blue-600 transition-colors"
-                             >
-                                 确定
-                             </button>
-                         </div>
-                     )}
-                 </div>
-                 <div className="flex-1">
-                     <label className="text-xs text-gray-500 font-bold">名称</label>
-                     <input className="w-full p-2 rounded-lg border" placeholder="例如：乐高玩具" value={title} onChange={e => setTitle(e.target.value)} />
-                 </div>
-              </div>
-              
-              {viewType === 'shop' && (
-                  <div>
-                      <label className="text-xs text-gray-500 font-bold">兑换价格 (金币)</label>
-                      <input className="w-full p-2 rounded-lg border" type="number" placeholder="30" value={cost} onChange={e => setCost(e.target.value)} />
-                  </div>
-              )}
-              
-              {viewType === 'savings' && (
-                  <div>
-                      <label className="text-xs text-gray-500 font-bold">目标金额 (金币)</label>
-                      <input className="w-full p-2 rounded-lg border" type="number" placeholder="1000" value={target} onChange={e => setTarget(e.target.value)} />
-                      <p className="text-[10px] text-gray-400 mt-1">💡 孩子可以看到储蓄进度，激励存钱</p>
-                  </div>
-              )}
-
-              {viewType === 'lottery' && (
-                  <>
-                    {/* 稀有度选择 */}
-                    <div>
-                      <label className="text-xs text-gray-500 font-bold mb-2 block">奖品稀有度</label>
-                      <div className="grid grid-cols-4 gap-2">
-                        {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => {
-                          const counts = getRarityCounts();
-                          const isAtLimit = counts[key] >= config.maxCount;
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              onClick={() => !isAtLimit && setRarity(key)}
-                              disabled={isAtLimit}
-                              className={`p-2 rounded-lg border-2 text-center transition-all ${
-                                rarity === key 
-                                  ? `bg-gradient-to-r ${config.color} text-white border-transparent shadow-lg scale-105` 
-                                  : isAtLimit
-                                    ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                                    : `${config.bgColor} border-gray-200 hover:border-gray-300`
-                              }`}
-                            >
-                              <div className="text-lg">{config.emoji}</div>
-                              <div className={`text-xs font-bold ${rarity === key ? 'text-white' : config.textColor}`}>
-                                {config.label}
-                              </div>
-                              <div className={`text-[10px] ${rarity === key ? 'text-white/80' : 'text-gray-400'}`}>
-                                {counts[key]}/{config.maxCount}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {/* 稀有度说明 */}
-                      <div className={`mt-2 p-2 rounded-lg text-xs ${RARITY_CONFIG[rarity].bgColor}`}>
-                        <span className={`font-bold ${RARITY_CONFIG[rarity].textColor}`}>
-                          {RARITY_CONFIG[rarity].emoji} {RARITY_CONFIG[rarity].label}级：
-                        </span>
-                        <span className="text-gray-600 ml-1">{RARITY_CONFIG[rarity].desc}</span>
-                        <span className="text-gray-500 ml-1">| 推荐权重: {RARITY_CONFIG[rarity].weight}</span>
-                      </div>
-                    </div>
-                    
-                    {/* 概率预览 */}
-                    <div className="text-xs text-gray-600 bg-white p-3 rounded-lg border">
-                      <div className="font-bold text-purple-600 mb-2">📊 稀有度配置建议</div>
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="flex items-center gap-1">
-                          <span>🏆</span>
-                          <span className="text-amber-600 font-bold">传说</span>
-                          <span className="text-gray-400">~2-3%</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span>💎</span>
-                          <span className="text-purple-600 font-bold">稀有</span>
-                          <span className="text-gray-400">~5-6%</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span>🌟</span>
-                          <span className="text-blue-600 font-bold">优秀</span>
-                          <span className="text-gray-400">~12%</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span>⭐</span>
-                          <span className="text-green-600 font-bold">普通</span>
-                          <span className="text-gray-400">~20%</span>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-              )}
-              
-              <div className="flex gap-2 pt-2">
-                 <Button size="sm" onClick={handleAdd} className={`flex-1 border-none ${
-                     viewType === 'shop' ? 'bg-gradient-to-r from-pink-500 to-rose-500' :
-                     viewType === 'lottery' ? 'bg-gradient-to-r from-purple-500 to-indigo-500' :
-                     'bg-gradient-to-r from-blue-500 to-cyan-500'
-                 }`}>保存</Button>
-                 <Button size="sm" variant="ghost" onClick={() => { setShowAdd(false); resetForm(); }}>取消</Button>
-              </div>
+      {/* 新建商品/奖品/储蓄 - 底部抽屉 */}
+      <BottomSheet 
+        isOpen={showAdd} 
+        onClose={() => { setShowAdd(false); resetForm(); }} 
+        title={viewType === 'shop' ? '🛒 新建商品' : viewType === 'lottery' ? '🎰 新建奖品' : '🎯 新建储蓄目标'}
+        footer={
+          <div className="flex gap-3">
+            <Button onClick={handleAdd} className={`flex-1 py-3 border-none ${
+              viewType === 'shop' ? 'bg-gradient-to-r from-pink-500 to-rose-500' :
+              viewType === 'lottery' ? 'bg-gradient-to-r from-purple-500 to-indigo-500' :
+              'bg-gradient-to-r from-blue-500 to-cyan-500'
+            }`}>保存</Button>
+            <Button variant="ghost" onClick={() => { setShowAdd(false); resetForm(); }} className="flex-1 py-3">取消</Button>
           </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <div>
+              <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+              <IconPicker value={icon} onChange={setIcon} categories={getIconCategories()} />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-bold block mb-1">名称</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition-all" placeholder="例如：乐高玩具" value={title} onChange={e => setTitle(e.target.value)} />
+            </div>
+          </div>
+          
+          {viewType === 'shop' && (
+            <div>
+              <label className="text-xs text-gray-500 font-bold block mb-1">💰 兑换价格 (金币)</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="30" value={cost} onChange={e => setCost(e.target.value)} />
+            </div>
+          )}
+          
+          {viewType === 'savings' && (
+            <div>
+              <label className="text-xs text-gray-500 font-bold block mb-1">🎯 目标金额 (金币)</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" type="number" placeholder="1000" value={target} onChange={e => setTarget(e.target.value)} />
+              <p className="text-[11px] text-gray-400 mt-2">💡 孩子可以看到储蓄进度，激励存钱</p>
+            </div>
+          )}
+
+          {viewType === 'lottery' && (
+            <>
+              {/* 稀有度选择 */}
+              <div>
+                <label className="text-xs text-gray-500 font-bold mb-2 block">奖品稀有度</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => {
+                    const counts = getRarityCounts();
+                    const isAtLimit = counts[key] >= config.maxCount;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => !isAtLimit && setRarity(key)}
+                        disabled={isAtLimit}
+                        className={`p-2 rounded-xl border-2 text-center transition-all ${
+                          rarity === key 
+                            ? `bg-gradient-to-r ${config.color} text-white border-transparent shadow-lg scale-105` 
+                            : isAtLimit
+                              ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                              : `${config.bgColor} border-gray-200 hover:border-gray-300`
+                        }`}
+                      >
+                        <div className="text-lg">{config.emoji}</div>
+                        <div className={`text-xs font-bold ${rarity === key ? 'text-white' : config.textColor}`}>
+                          {config.label}
+                        </div>
+                        <div className={`text-[10px] ${rarity === key ? 'text-white/80' : 'text-gray-400'}`}>
+                          {counts[key]}/{config.maxCount}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* 稀有度说明 */}
+                <div className={`mt-2 p-2.5 rounded-xl text-xs ${RARITY_CONFIG[rarity].bgColor}`}>
+                  <span className={`font-bold ${RARITY_CONFIG[rarity].textColor}`}>
+                    {RARITY_CONFIG[rarity].emoji} {RARITY_CONFIG[rarity].label}级：
+                  </span>
+                  <span className="text-gray-600 ml-1">{RARITY_CONFIG[rarity].desc}</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      )}
+      </BottomSheet>
 
       <div className="p-4 space-y-3 overflow-y-auto flex-1">
         {/* 快捷模板入口 - 商品和抽奖 */}
@@ -864,7 +742,7 @@ export default function ParentWishes() {
 
         {/* 模板选择界面 */}
         {showTemplates && (viewType === 'shop' || viewType === 'lottery') && (
-          <div className="animate-in fade-in">
+          <div className="animate-in fade-in pb-20">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <Sparkles className={viewType === 'shop' ? 'text-pink-500' : 'text-purple-500'} size={20}/>
@@ -911,23 +789,26 @@ export default function ParentWishes() {
                 );
               })}
             </div>
-            
-            <div className="flex gap-2 sticky bottom-0 bg-gray-50 py-3 -mx-4 px-4 border-t mt-4">
-              <Button onClick={() => { setShowTemplates(false); setSelectedTemplates([]); }} variant="ghost" className="flex-1">
-                取消
-              </Button>
-              <Button 
-                onClick={handleAddTemplates} 
-                className={`flex-1 border-none ${
-                  viewType === 'shop' 
-                    ? 'bg-gradient-to-r from-pink-500 to-rose-500' 
-                    : 'bg-gradient-to-r from-purple-500 to-indigo-500'
-                }`}
-                disabled={selectedTemplates.length === 0}
-              >
-                添加 {selectedTemplates.length} 个{viewType === 'shop' ? '商品' : '奖品'}
-              </Button>
-            </div>
+          </div>
+        )}
+        
+        {/* 模板选择底部操作栏 - 绝对定位 + 安全区域 */}
+        {showTemplates && (viewType === 'shop' || viewType === 'lottery') && (
+          <div className="absolute bottom-0 left-0 right-0 bg-white py-3 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t shadow-[0_-4px_12px_rgba(0,0,0,0.1)] z-20 flex gap-2">
+            <Button onClick={() => { setShowTemplates(false); setSelectedTemplates([]); }} variant="ghost" className="flex-1">
+              取消
+            </Button>
+            <Button 
+              onClick={handleAddTemplates} 
+              className={`flex-1 border-none ${
+                viewType === 'shop' 
+                  ? 'bg-gradient-to-r from-pink-500 to-rose-500' 
+                  : 'bg-gradient-to-r from-purple-500 to-indigo-500'
+              }`}
+              disabled={selectedTemplates.length === 0}
+            >
+              添加 {selectedTemplates.length} 个{viewType === 'shop' ? '商品' : '奖品'}
+            </Button>
           </div>
         )}
 
@@ -1050,11 +931,11 @@ export default function ParentWishes() {
         ))}
       </div>
       
-      {/* 完整编辑弹窗 */}
+      {/* 完整编辑弹窗 - 支持安全区域 */}
       {editingWish && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-            <div className="flex justify-between items-center p-4 border-b">
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
               <h3 className="font-bold text-lg">
                 编辑{editingWish.type === 'shop' ? '商品' : editingWish.type === 'lottery' ? '奖品' : '储蓄目标'}
               </h3>
@@ -1063,37 +944,23 @@ export default function ParentWishes() {
               </button>
             </div>
             
-            <div className="p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* 图标和名称 */}
               <div className="flex gap-3">
-                <div className="relative">
-                  <label className="text-xs text-gray-500 font-bold">图标</label>
-                  <button 
-                    onClick={() => setShowEditIconPicker(!showEditIconPicker)}
-                    className="w-14 h-12 rounded-lg border bg-gray-50 text-2xl flex items-center justify-center hover:bg-gray-100 mt-1"
-                  >
-                    {editIcon}
-                  </button>
-                  {showEditIconPicker && (
-                    <div className="absolute top-full left-0 mt-1 p-3 bg-white rounded-xl shadow-xl border z-50 w-72">
-                      <div className="grid grid-cols-5 gap-2">
-                        {(editingWish.type === 'shop' ? SHOP_ICONS : editingWish.type === 'lottery' ? LOTTERY_ICONS : SAVINGS_ICONS).map((item, i) => (
-                          <button 
-                            key={i}
-                            onClick={() => { setEditIcon(item.icon); setShowEditIconPicker(false); }}
-                            className={`w-11 h-11 rounded-lg text-xl hover:bg-gray-100 transition-all flex items-center justify-center ${editIcon === item.icon ? 'bg-blue-100 ring-2 ring-blue-400' : 'bg-gray-50'}`}
-                          >
-                            {item.icon}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+                  <IconPicker 
+                    value={editIcon} 
+                    onChange={setEditIcon} 
+                    categories={editingWish.type === 'shop' ? ['food', 'entertainment', 'daily', 'reward'] : 
+                               editingWish.type === 'lottery' ? ['reward', 'food', 'emoji', 'entertainment'] : 
+                               ['entertainment', 'reward', 'hobby', 'sports']} 
+                  />
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs text-gray-500 font-bold">名称</label>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">名称</label>
                   <input 
-                    className="w-full p-2 rounded-lg border mt-1" 
+                    className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" 
                     value={editTitle} 
                     onChange={e => setEditTitle(e.target.value)} 
                   />

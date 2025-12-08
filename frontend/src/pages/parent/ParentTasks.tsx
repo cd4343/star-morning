@@ -10,6 +10,7 @@ import { useTemplateSelector } from '../../hooks/useTemplateSelector';
 import { IconPicker } from '../../components/IconPicker';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
+import { BottomSheet } from '../../components/BottomSheet';
 
 // 预设任务模板
 const TASK_TEMPLATES = [
@@ -161,52 +162,55 @@ export default function ParentTasks() {
     <Layout>
       <Header title="任务管理" showBack onBack={() => navigate('/parent/dashboard')} rightElem={<button onClick={() => setShowAdd(true)}><Plus className="text-blue-600"/></button>} />
       
-      {showAdd && (
-        <div className="p-4 bg-blue-50 border-b animate-in slide-in-from-top">
-          <h3 className="font-bold mb-4">新建任务</h3>
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <div>
-                <label className="text-xs text-gray-500 font-bold">图标</label>
-                <IconPicker value={icon} onChange={setIcon} />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 font-bold">任务标题</label>
-                <input className="w-full p-2 rounded border" placeholder="例如：整理床铺" value={title} onChange={e => setTitle(e.target.value)} />
-              </div>
+      {/* 新建任务 - 底部抽屉 */}
+      <BottomSheet 
+        isOpen={showAdd} 
+        onClose={() => setShowAdd(false)} 
+        title="📋 新建任务"
+        footer={
+          <div className="flex gap-3">
+            <Button onClick={handleAdd} className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 border-none">保存任务</Button>
+            <Button variant="ghost" onClick={() => setShowAdd(false)} className="flex-1 py-3">取消</Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <div>
+              <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+              <IconPicker value={icon} onChange={setIcon} />
             </div>
-            
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 font-bold">种类</label>
-                <select className="w-full p-2 rounded border bg-white" value={category} onChange={e => setCategory(e.target.value)}>
-                  <option>劳动</option><option>学习</option><option>兴趣</option><option>运动</option>
-                </select>
-              </div>
-              <div className="w-20">
-                <label className="text-xs text-gray-500 font-bold">时长(分)</label>
-                <input className="w-full p-2 rounded border" type="number" value={duration} onChange={e => setDuration(e.target.value)} />
-              </div>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-bold block mb-1">任务标题</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="例如：整理床铺" value={title} onChange={e => setTitle(e.target.value)} />
             </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-bold block mb-1">种类</label>
+              <select className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={category} onChange={e => setCategory(e.target.value)}>
+                <option>劳动</option><option>学习</option><option>兴趣</option><option>运动</option>
+              </select>
+            </div>
+            <div className="w-24">
+              <label className="text-xs text-gray-500 font-bold block mb-1">时长(分)</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" type="number" value={duration} onChange={e => setDuration(e.target.value)} />
+            </div>
+          </div>
 
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 font-bold">奖励金币</label>
-                <input className="w-full p-2 rounded border" type="number" value={coinReward} onChange={e => setCoinReward(e.target.value)} />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 font-bold">奖励经验</label>
-                <input className="w-full p-2 rounded border" type="number" value={xpReward} onChange={e => setXpReward(e.target.value)} />
-              </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-bold block mb-1">💰 奖励金币</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" type="number" value={coinReward} onChange={e => setCoinReward(e.target.value)} />
             </div>
-
-            <div className="flex gap-2 pt-2">
-              <Button size="sm" onClick={handleAdd} className="flex-1">保存任务</Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)}>取消</Button>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-bold block mb-1">⭐ 奖励经验</label>
+              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" type="number" value={xpReward} onChange={e => setXpReward(e.target.value)} />
             </div>
           </div>
         </div>
-      )}
+      </BottomSheet>
 
       <div className="p-4 space-y-3 overflow-y-auto flex-1">
         {/* 空状态 */}
@@ -227,7 +231,7 @@ export default function ParentTasks() {
 
         {/* 模板选择界面 */}
         {showTemplates && (
-          <div className="animate-in fade-in">
+          <div className="animate-in fade-in pb-20">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <Sparkles className="text-purple-500" size={20}/> 选择任务模板
@@ -263,12 +267,16 @@ export default function ParentTasks() {
               </div>
             ))}
             
-            <div className="flex gap-2 sticky bottom-0 bg-gray-50 py-3 -mx-4 px-4 border-t">
-              <Button onClick={closeTemplates} variant="ghost" className="flex-1">取消</Button>
-              <Button onClick={handleAddTemplates} className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 border-none" disabled={selectedCount === 0}>
-                添加 {selectedCount} 个任务
-              </Button>
-            </div>
+          </div>
+        )}
+        
+        {/* 模板选择底部操作栏 - 绝对定位 + 安全区域 */}
+        {showTemplates && (
+          <div className="absolute bottom-0 left-0 right-0 bg-white py-3 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t shadow-[0_-4px_12px_rgba(0,0,0,0.1)] z-20 flex gap-2">
+            <Button onClick={closeTemplates} variant="ghost" className="flex-1">取消</Button>
+            <Button onClick={handleAddTemplates} className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 border-none" disabled={selectedCount === 0}>
+              添加 {selectedCount} 个任务
+            </Button>
           </div>
         )}
 
@@ -301,17 +309,17 @@ export default function ParentTasks() {
           </>
         )}
         
-        {/* 编辑任务弹窗 */}
+        {/* 编辑任务弹窗 - 支持安全区域 */}
         {editingTask && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-              <div className="flex justify-between items-center p-4 border-b">
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+              <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
                 <h3 className="font-bold text-lg">编辑任务</h3>
                 <button onClick={cancelEdit} className="p-1 hover:bg-gray-100 rounded-full">
                   <X size={20} className="text-gray-500"/>
                 </button>
               </div>
-              <div className="p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 <div className="flex gap-2">
                   <div>
                     <label className="text-xs text-gray-500 font-bold">图标</label>

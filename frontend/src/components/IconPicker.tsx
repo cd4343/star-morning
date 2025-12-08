@@ -236,7 +236,7 @@ export const IconPicker: React.FC<IconPickerProps> = ({
       
       {isOpen && (
         <>
-          {/* 背景遮罩 */}
+          {/* 背景遮罩 - 透明，用于检测点击外部关闭 */}
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           
           {/* 图标选择器 */}

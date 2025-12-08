@@ -118,18 +118,18 @@ export default function ChildLayout() {
             <Outlet context={{ childData, refresh: fetchData }} />
           </div>
 
-          {/* Bottom Nav */}
-          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full flex justify-around py-3 text-xs text-gray-400 font-medium z-20 pb-5 md:pb-3">
+          {/* Bottom Nav - 支持安全区域 */}
+          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full flex justify-around py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
             <NavLink to="/child/tasks" icon={<CheckSquare size={22}/>} label="任务" active={location.pathname.includes('tasks')} />
             <NavLink to="/child/wishes" icon={<Gift size={22}/>} label="心愿" active={location.pathname.includes('wishes')} />
             <NavLink to="/child/me" icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
           </div>
       </div>
 
-      {/* 默认PIN码提示弹窗 */}
+      {/* 默认PIN码提示弹窗 - 支持安全区域 */}
       {showDefaultPinHint && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
             <div className="text-center">
               <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle className="w-8 h-8 text-blue-600" />
@@ -163,10 +163,10 @@ export default function ChildLayout() {
           type="password"
       />
       
-      {/* 修改PIN码提醒弹窗 */}
+      {/* 修改PIN码提醒弹窗 - 支持安全区域 */}
       {showPinChangeReminder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
             <div className="text-center">
               <div className="text-5xl mb-3">🔐</div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">安全提醒</h3>

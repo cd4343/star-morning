@@ -8,6 +8,7 @@ import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell }
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
+import { StatsPanel } from '../../components/StatsPanel';
 
 interface ReviewItem {
   id: string;
@@ -48,13 +49,7 @@ export default function ParentDashboard() {
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
-  const [stats, setStats] = useState({ 
-    weekTasks: 0, 
-    weekCompleted: 0,
-    completionRate: '0%', 
-    punctualRate: '100%',
-    totalCoinsEarned: 0
-  });
+  const [weekTasks, setWeekTasks] = useState(0);
   
   // 审批弹窗状态
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -74,7 +69,7 @@ export default function ParentDashboard() {
       if (res.data) {
           setReviews(res.data.pendingReviews || []);
           if (res.data.stats) {
-              setStats(res.data.stats);
+              setWeekTasks(res.data.weekTasks || 0);
           }
       }
     } catch (err) {
@@ -156,29 +151,8 @@ export default function ParentDashboard() {
       />
       
       <div className="p-4 space-y-6 overflow-y-auto flex-1 pb-10">
-        {/* 概览数据 */}
-        <div className="grid grid-cols-2 gap-2 text-center">
-          <Card className="py-4 bg-blue-50 border-blue-100">
-            <div className="text-xs text-gray-500 mb-1">本周任务完成</div>
-            <div className="text-2xl font-black text-gray-800">
-              <span className="text-green-600">{stats.weekCompleted}</span>
-              <span className="text-gray-400 text-lg mx-1">/</span>
-              <span>{stats.weekTasks}</span>
-            </div>
-          </Card>
-          <Card className="py-4 bg-green-50 border-green-100">
-            <div className="text-xs text-gray-500 mb-1">完成率</div>
-            <div className="text-2xl font-black text-green-600">{stats.completionRate}</div>
-          </Card>
-          <Card className="py-4 bg-purple-50 border-purple-100">
-            <div className="text-xs text-gray-500 mb-1">准时率</div>
-            <div className="text-2xl font-black text-purple-600">{stats.punctualRate}</div>
-          </Card>
-          <Card className="py-4 bg-yellow-50 border-yellow-100">
-            <div className="text-xs text-gray-500 mb-1">本周获得金币</div>
-            <div className="text-2xl font-black text-yellow-600">{stats.totalCoinsEarned} 💰</div>
-          </Card>
-        </div>
+        {/* 成长数据统计面板 */}
+        <StatsPanel />
 
         {/* 待审核 */}
         <div>
@@ -232,7 +206,7 @@ export default function ParentDashboard() {
         </div>
 
         {/* 首次使用引导 */}
-        {stats.weekTasks === 0 && reviews.length === 0 && (
+        {weekTasks === 0 && reviews.length === 0 && (
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
             <div className="text-center">
               <div className="text-5xl mb-4">🎉</div>
@@ -263,7 +237,7 @@ export default function ParentDashboard() {
           <Button variant="secondary" size="lg" className="h-24 flex-col gap-2 relative" onClick={() => navigate('/parent/tasks')}>
             <ClipboardList size={28} className="text-blue-600"/>
             <span>任务管理</span>
-            {stats.weekTasks === 0 && (
+            {weekTasks === 0 && (
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full animate-pulse">去添加</span>
             )}
           </Button>
@@ -286,19 +260,19 @@ export default function ParentDashboard() {
         </div>
       </div>
 
-      {/* 审批弹窗 */}
+      {/* 审批弹窗 - 支持安全区域 */}
       {showReviewModal && currentReview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
             {/* Header */}
-            <div className="flex justify-between items-center p-4 border-b sticky top-0 bg-white rounded-t-2xl">
+            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b bg-white rounded-t-2xl">
               <h3 className="font-bold text-lg">任务审批</h3>
               <button onClick={() => setShowReviewModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
                 <X size={20} className="text-gray-500"/>
               </button>
             </div>
 
-            <div className="p-4 space-y-5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
               {/* 任务信息 */}
               <div className="bg-gray-50 p-4 rounded-xl">
                 <h4 className="font-bold text-lg text-gray-800">{currentReview.title}</h4>

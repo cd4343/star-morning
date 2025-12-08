@@ -11,8 +11,8 @@ import { useConfirmDialog } from '../../components/ConfirmDialog';
 const TipModal = ({ isOpen, onClose, title, message, icon }: { isOpen: boolean, onClose: () => void, title: string, message: string, icon: string }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
         <div className="text-center">
           <div className="text-5xl mb-3">{icon}</div>
           <h3 className="text-xl font-bold text-gray-800 mb-2">{title}</h3>
@@ -231,11 +231,14 @@ export default function ChildWishes() {
         return;
       }
       
+      // 将 spinInterval 提升到外部，以便在 catch 中也能清除
+      let spinInterval: NodeJS.Timeout | null = null;
+      
       try {
           setLoading(true);
           // Start fake spin
           let currentStep = 0;
-          const spinInterval = setInterval(() => {
+          spinInterval = setInterval(() => {
               setActiveGridIndex(GRID_PATH[currentStep % 8]);
               currentStep++;
           }, 80); // Faster spin
@@ -247,7 +250,7 @@ export default function ChildWishes() {
           const winnerIndexInGrid = gridPrizes.findIndex(p => p?.id === winner.id);
           
           setTimeout(() => {
-              clearInterval(spinInterval);
+              if (spinInterval) clearInterval(spinInterval);
               // Land on winner
               setActiveGridIndex(winnerIndexInGrid !== -1 ? winnerIndexInGrid : 0);
               
@@ -261,7 +264,10 @@ export default function ChildWishes() {
           }, 2500); 
 
       } catch (e: any) {
+          // 错误时清除转盘动画
+          if (spinInterval) clearInterval(spinInterval);
           setLoading(false);
+          setActiveGridIndex(null);
           toast.error(e.response?.data?.message || '抽奖失败');
       }
   };

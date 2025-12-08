@@ -39,12 +39,14 @@ export default function ChildMe() {
     fetchData();
   }, []);
 
-  const getConditionText = (ach: Achievement) => {
+  const getConditionText = (ach: any) => {
     switch (ach.conditionType) {
       case 'task_count': return `完成 ${ach.conditionValue} 个任务`;
       case 'coin_count': return `累计获得 ${ach.conditionValue} 金币`;
-      case 'streak_days': return `连续 ${ach.conditionValue} 天完成任务`;
-      case 'category_task': return `完成指定类型任务`;
+      case 'xp_count': return `累计获得 ${ach.conditionValue} 经验`;
+      case 'level_reach': return `达到 ${ach.conditionValue} 级`;
+      case 'category_count': return `完成 ${ach.conditionValue} 个${ach.conditionCategory || ''}任务`;
+      case 'streak_days': return `连续 ${ach.conditionValue} 天${ach.conditionCategory ? `完成${ach.conditionCategory}` : '完成任务'}`;
       case 'manual': return '特殊成就';
       default: return ach.description;
     }

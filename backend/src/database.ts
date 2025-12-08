@@ -93,10 +93,13 @@ const createTables = async () => {
   try { await db.run('ALTER TABLE privileges ADD COLUMN icon TEXT'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS achievement_defs (
-      id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, icon TEXT, conditionType TEXT NOT NULL, conditionValue INTEGER DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, icon TEXT, conditionType TEXT NOT NULL, conditionValue INTEGER DEFAULT 0, conditionCategory TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
     )
   `);
+  // 添加 conditionCategory 字段（如果不存在）- 用于 category_count 和 streak_days 类型
+  try { await db.run('ALTER TABLE achievement_defs ADD COLUMN conditionCategory TEXT'); } catch (e) {}
+  
   await db.exec(`
     CREATE TABLE IF NOT EXISTS user_achievements (
       id TEXT PRIMARY KEY, childId TEXT NOT NULL, achievementId TEXT NOT NULL, unlockedAt DATETIME DEFAULT CURRENT_TIMESTAMP, 

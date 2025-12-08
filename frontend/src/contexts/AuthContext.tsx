@@ -60,7 +60,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } catch (err: any) {
         // 只有确定 token 无效（401/403）才清除，超时/网络错误不清除
         if (err.response?.status === 401 || err.response?.status === 403) {
-          console.log('Token invalid, clearing storage');
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           setToken(null);
