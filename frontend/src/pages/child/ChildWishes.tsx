@@ -232,7 +232,7 @@ export default function ChildWishes() {
       }
       
       // 将 spinInterval 提升到外部，以便在 catch 中也能清除
-      let spinInterval: NodeJS.Timeout | null = null;
+      let spinInterval: ReturnType<typeof setInterval> | null = null;
       
       try {
           setLoading(true);
