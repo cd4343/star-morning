@@ -150,9 +150,11 @@ const getTasksForDate = async (db: any, familyId: string, childId: string, targe
     // 合并任务和完成状态
     return tasksForToday.map((task: any) => {
       const entry = entries.find((e: any) => e.taskId === task.id);
+      // 被退回的任务应该显示为"待做"状态，让孩子可以重新开始
+      const displayStatus = entry?.status === 'rejected' ? 'todo' : (entry?.status || 'todo');
       return {
         ...task,
-        status: entry?.status || 'todo',
+        status: displayStatus,
         entryId: entry?.id,
         earnedCoins: entry?.earnedCoins,
         earnedXp: entry?.earnedXp,
@@ -1112,7 +1114,36 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
 });
 app.post('/api/child/tasks/:taskId/complete', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const { duration } = request.body; await getDb().run(`INSERT INTO task_entries (id, taskId, childId, status, submittedAt, actualDurationMinutes) VALUES (?, ?, ?, 'pending', ?, ?)`, randomUUID(), req.params.taskId, request.user!.id, new Date().toISOString(), duration || 0); res.json({ message: 'submitted' });
+    const { duration } = request.body;
+    const db = getDb();
+    const taskId = req.params.taskId;
+    const childId = request.user!.id;
+    const now = new Date().toISOString();
+    
+    // 检查是否有被退回的记录（今天的），如果有则更新而不是新建
+    const today = new Date().toISOString().split('T')[0];
+    const existingEntry = await db.get(
+        `SELECT id FROM task_entries 
+         WHERE taskId = ? AND childId = ? AND status = 'rejected' 
+         AND DATE(submittedAt) = ?`,
+        taskId, childId, today
+    );
+    
+    if (existingEntry) {
+        // 更新被退回的记录
+        await db.run(
+            `UPDATE task_entries SET status = 'pending', submittedAt = ?, actualDurationMinutes = ? WHERE id = ?`,
+            now, duration || 0, existingEntry.id
+        );
+    } else {
+        // 创建新记录
+        await db.run(
+            `INSERT INTO task_entries (id, taskId, childId, status, submittedAt, actualDurationMinutes) VALUES (?, ?, ?, 'pending', ?, ?)`,
+            randomUUID(), taskId, childId, now, duration || 0
+        );
+    }
+    
+    res.json({ message: 'submitted' });
 });
 app.get('/api/child/wishes', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
