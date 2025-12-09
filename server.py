@@ -248,7 +248,75 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
     
     def do_PUT(self):
         """处理PUT请求 - 转发到后端API"""
-        self.do_POST()  # 使用相同的处理逻辑
+        import time
+        self._request_start_time = time.time()
+        
+        # API 请求转发到后端服务器
+        if self.path.startswith('/api/'):
+            import urllib.request
+            
+            print(f"[请求] PUT {self.path} - 开始处理")
+            try:
+                # 读取请求体
+                content_length = int(self.headers.get('Content-Length', 0))
+                put_data = self.rfile.read(content_length) if content_length > 0 else b''
+                
+                # 转发到后端 - 过滤掉不应该转发的头
+                backend_url = f'http://localhost:3001{self.path}'
+                
+                # 构建安全的请求头
+                skip_headers = ['host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'content-length', 'content-type']
+                safe_headers = {
+                    'Host': 'localhost:3001',
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(put_data))
+                }
+                for key, value in self.headers.items():
+                    if key.lower() not in skip_headers:
+                        safe_headers[key] = value
+                
+                print(f"[调试] PUT 请求体长度: {len(put_data)}, Content-Type: {safe_headers['Content-Type']}")
+                
+                # 关键修复：显式设置 method='PUT'
+                req = urllib.request.Request(backend_url, data=put_data, headers=safe_headers, method='PUT')
+                
+                # 添加超时设置（10秒）
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    self.send_response(response.getcode())
+                    for header, value in response.headers.items():
+                        if header.lower() not in ['connection', 'transfer-encoding']:
+                            self.send_header(header, value)
+                    self.end_headers()
+                    self.wfile.write(response.read())
+            except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+                elapsed = time.time() - self._request_start_time
+                error_msg = str(e)
+                if 'timeout' in error_msg.lower() or isinstance(e, (socket.timeout, TimeoutError)):
+                    print(f"[错误] PUT {self.path} - 后端超时 ({elapsed:.3f}s)")
+                    self.send_error(504, f"Backend timeout: Request timed out after 10 seconds")
+                else:
+                    print(f"[错误] PUT {self.path} - 连接错误: {error_msg} ({elapsed:.3f}s)")
+                    self.send_error(502, f"Backend connection error: {error_msg}")
+            except urllib.error.HTTPError as e:
+                # 处理后端返回的 HTTP 错误
+                elapsed = time.time() - self._request_start_time
+                print(f"[错误] PUT {self.path} - 后端返回 {e.code} ({elapsed:.3f}s)")
+                self.send_response(e.code)
+                for header, value in e.headers.items():
+                    if header.lower() not in ['connection', 'transfer-encoding']:
+                        self.send_header(header, value)
+                self.end_headers()
+                self.wfile.write(e.read())
+            except Exception as e:
+                elapsed = time.time() - self._request_start_time
+                error_msg = str(e)
+                print(f"[错误] PUT {self.path} - 代理错误: {error_msg} ({elapsed:.3f}s)")
+                self.send_error(502, f"Backend proxy error: {error_msg}")
+            else:
+                elapsed = time.time() - self._request_start_time
+                print(f"[成功] PUT {self.path} - 完成 ({elapsed:.3f}s)")
+        else:
+            self.send_error(404, "Not Found")
     
     def do_DELETE(self):
         """处理DELETE请求 - 转发到后端API"""

@@ -119,8 +119,19 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
         onClose();
     };
 
+    // 阻止触摸事件穿透到父组件（防止PullToRefresh干扰）
+    const handleTouchEvent = (e: React.TouchEvent) => {
+        e.stopPropagation();
+    };
+
     return (
-        <div className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-200">
+        <div 
+            className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-200"
+            style={{ touchAction: 'none' }}
+            onTouchStart={handleTouchEvent}
+            onTouchMove={handleTouchEvent}
+            onTouchEnd={handleTouchEvent}
+        >
             <div className="text-center mb-12">
                 <h2 className="text-2xl font-bold mb-2">{task.title}</h2>
                 <p className="text-gray-400">建议时长: {task.duration}分钟</p>
@@ -267,8 +278,14 @@ export default function ChildTasks() {
       return { day: days[date.getDay()], date: `${m}.${d}` };
   };
   
-  const maxCoins = Math.max(...weeklyStats.map(s => s.coins), 10); 
-  const totalWeeklyCoins = weeklyStats.reduce((acc, cur) => acc + cur.coins, 0);
+  // 计算柱状图高度基于收入（earned），净值可能为负
+  const maxEarned = Math.max(...weeklyStats.map(s => s.earned || s.coins || 0), 10); 
+  // 本周总净值（收入 - 消耗）
+  const totalWeeklyNet = weeklyStats.reduce((acc, cur) => acc + (cur.coins ?? 0), 0);
+  // 本周总收入
+  const totalWeeklyEarned = weeklyStats.reduce((acc, cur) => acc + (cur.earned ?? cur.coins ?? 0), 0);
+  // 本周总消耗
+  const totalWeeklySpent = weeklyStats.reduce((acc, cur) => acc + (cur.spent ?? 0), 0);
 
   // 下拉刷新处理
   const handleRefresh = async () => {
@@ -277,18 +294,20 @@ export default function ChildTasks() {
   };
 
   return (
-    <PullToRefresh onRefresh={handleRefresh} className="h-full">
-      <div className="p-4 space-y-6">
-        {/* Timer Modal */}
-        {activeTask && (
-            <TaskTimerModal 
-              task={activeTask} 
-              onClose={() => setActiveTask(null)} 
-              onComplete={handleTaskComplete}
-            />
-        )}
+    <>
+      {/* Timer Modal - 放在 PullToRefresh 外部，防止滑动干扰 */}
+      {activeTask && (
+          <TaskTimerModal 
+            task={activeTask} 
+            onClose={() => setActiveTask(null)} 
+            onComplete={handleTaskComplete}
+          />
+      )}
+      
+      <PullToRefresh onRefresh={handleRefresh} className="h-full">
+        <div className="p-4 space-y-6">
 
-      {/* Stats Chart */}
+        {/* Stats Chart */}
       <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 shadow-lg text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 p-2 opacity-10">
             <Calendar size={100} />
@@ -298,13 +317,20 @@ export default function ChildTasks() {
           <div>
               <h2 className="font-bold text-xl tracking-tight">本周收获</h2>
               <p className="text-xs text-indigo-200 mt-1">坚持就是胜利！</p>
+              {/* 收支明细 */}
+              {totalWeeklySpent > 0 && (
+                <div className="text-[10px] text-indigo-200 mt-2 space-y-0.5">
+                  <div>📈 收入: +{totalWeeklyEarned}</div>
+                  <div>📉 消耗: -{totalWeeklySpent}</div>
+                </div>
+              )}
           </div>
           <div className="text-right">
-              <div className="text-3xl font-black text-yellow-300 drop-shadow-sm">
-                  {totalWeeklyCoins} <span className="text-sm font-medium text-white/80">金币</span>
+              <div className={`text-3xl font-black drop-shadow-sm ${totalWeeklyNet >= 0 ? 'text-yellow-300' : 'text-red-300'}`}>
+                  {totalWeeklyNet >= 0 ? '+' : ''}{totalWeeklyNet} <span className="text-sm font-medium text-white/80">金币</span>
               </div>
               <div className="text-[10px] text-indigo-200 bg-indigo-800/30 px-2 py-0.5 rounded-full inline-block mt-1">
-                  本周累计
+                  本周净值
               </div>
           </div>
         </div>
@@ -312,16 +338,19 @@ export default function ChildTasks() {
         <div className="flex justify-between items-end h-32 gap-2 pt-2 relative z-10">
             {weeklyStats.map((day, index) => {
                 const isToday = index === 6; 
-                const heightPercent = (day.coins / maxCoins) * 100;
+                const dayEarned = day.earned ?? day.coins ?? 0;
+                const daySpent = day.spent ?? 0;
+                const dayNet = day.coins ?? 0;
+                const heightPercent = (dayEarned / maxEarned) * 100;
                 const { day: weekDay, date: dateNum } = getFormattedDate(day.date);
                 
                 return (
                     <div key={day.date} className="flex flex-col items-center gap-2 flex-1 group cursor-default">
                         {/* Bar */}
                         <div className="relative w-full flex justify-center items-end h-full">
-                             {/* Tooltip */}
+                             {/* Tooltip - 显示收支详情 */}
                             <div className="absolute -top-8 bg-white text-indigo-900 font-bold text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap z-20 scale-90 group-hover:scale-100 pointer-events-none transform translate-y-2 group-hover:translate-y-0">
-                                {day.coins}
+                                {daySpent > 0 ? `+${dayEarned} -${daySpent}` : `+${dayEarned}`}
                             </div>
                             
                             <div 
@@ -442,7 +471,8 @@ export default function ChildTasks() {
           ))}
         </div>
       </div>
-      </div>
-    </PullToRefresh>
+        </div>
+      </PullToRefresh>
+    </>
   );
 }

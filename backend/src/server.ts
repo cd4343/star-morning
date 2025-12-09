@@ -925,9 +925,11 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
     for (let i = 6; i >= 0; i--) {
         const d = new Date(today); d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split('T')[0];
-        // 统计包含所有任务记录（包括已删除任务的完成记录）
-        const dayCoins = (await db.get(`SELECT sum(earnedCoins) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt) = ?`, childId, dateStr)).s || 0;
-        last7Days.push({ date: dateStr, coins: dayCoins });
+        // 统计当日收入（任务奖励）
+        const dayEarned = (await db.get(`SELECT COALESCE(sum(earnedCoins), 0) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt) = ?`, childId, dateStr)).s || 0;
+        // 统计当日消耗（商店购买，只统计金币购买的）
+        const daySpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt) = ?`, childId, dateStr)).s || 0;
+        last7Days.push({ date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent });
     }
     res.json({ child: await db.get('SELECT * FROM users WHERE id = ?', childId), tasks: tasks.map(t => ({...t, status: entries.find(e => e.taskId === t.id)?.status || 'todo'})), weeklyStats: last7Days });
 });
