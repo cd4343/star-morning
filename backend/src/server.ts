@@ -67,6 +67,66 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// --- 常用任务自动生成函数 ---
+/**
+ * 为指定家庭生成今天的常用任务实例
+ * @param db 数据库连接
+ * @param familyId 家庭ID
+ */
+const generateRecurringTasksForToday = async (db: any, familyId: string) => {
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const dayOfWeek = today.getDay(); // 0=周日, 1=周一, ..., 6=周六
+  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  
+  // 查询所有常用任务模板（isRecurring=1 且 isEnabled=1）
+  const templates = await db.all(`
+    SELECT * FROM tasks 
+    WHERE familyId = ? AND isEnabled = 1 AND isRecurring = 1
+  `, familyId);
+  
+  for (const template of templates) {
+    // 检查周期是否匹配今天
+    let shouldGenerate = false;
+    if (template.recurringSchedule === 'daily') {
+      shouldGenerate = true;
+    } else if (template.recurringSchedule === 'weekday' && isWeekday) {
+      shouldGenerate = true;
+    } else if (template.recurringSchedule === 'weekend' && isWeekend) {
+      shouldGenerate = true;
+    }
+    
+    if (!shouldGenerate) continue;
+    
+    // 检查今天是否已生成过该模板的实例
+    const existing = await db.get(`
+      SELECT id FROM tasks 
+      WHERE recurringTaskTemplateId = ? 
+      AND familyId = ? 
+      AND date(createdAt) = date('now', 'localtime')
+      AND isEnabled = 1
+    `, template.id, familyId);
+    
+    if (!existing) {
+      // 生成今天的任务实例
+      await db.run(`
+        INSERT INTO tasks (
+          id, familyId, title, coinReward, xpReward, durationMinutes, 
+          category, icon, isEnabled, isRecurring, recurringTaskTemplateId, createdAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, datetime('now', 'localtime'))
+      `, 
+        randomUUID(), familyId, template.title, template.coinReward, 
+        template.xpReward, template.durationMinutes, template.category, 
+        template.icon, template.id
+      );
+      
+      // 更新模板的最后生成日期
+      await db.run(`UPDATE tasks SET lastGeneratedDate = ? WHERE id = ?`, todayStr, template.id);
+    }
+  }
+};
+
 // --- MIDDLEWARE ---
 const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -767,14 +827,36 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     });
 });
 
-// 家长端查询任务：显示所有启用的任务（isEnabled = 1）
+// 家长端查询任务：显示所有启用的任务（isEnabled = 1），排除实例任务（只显示普通任务和常用任务模板）
 app.get('/api/parent/tasks', protect, async (req: any, res) => { 
     const request = req as AuthRequest; 
-    res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1', request.user!.familyId)); 
+    // recurringTaskTemplateId 为 NULL 表示是普通任务或模板，不是自动生成的实例
+    res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1 AND recurringTaskTemplateId IS NULL', request.user!.familyId)); 
 });
-app.post('/api/parent/tasks', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run(`INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, icon, isEnabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, randomUUID(), request.user!.familyId, request.body.title, request.body.coinReward, request.body.xpReward, request.body.durationMinutes, request.body.category, request.body.icon || '📋'); res.json({message:'ok'}); });
 
-// 更新任务
+// 创建任务（支持常用任务设置）
+app.post('/api/parent/tasks', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    const { title, coinReward, xpReward, durationMinutes, category, icon, isRecurring, recurringSchedule } = request.body;
+    
+    await getDb().run(
+        `INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, icon, isEnabled, isRecurring, recurringSchedule) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, 
+        randomUUID(), 
+        request.user!.familyId, 
+        title, 
+        coinReward, 
+        xpReward, 
+        durationMinutes, 
+        category, 
+        icon || '📋',
+        isRecurring ? 1 : 0,
+        isRecurring ? (recurringSchedule || 'daily') : null
+    ); 
+    res.json({message:'ok'}); 
+});
+
+// 更新任务（支持常用任务设置）
 app.put('/api/parent/tasks/:id', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
@@ -782,15 +864,18 @@ app.put('/api/parent/tasks/:id', protect, async (req: any, res) => {
     if (!task) {
         return res.status(404).json({ message: '任务不存在' });
     }
-    const { title, coinReward, xpReward, durationMinutes, category, icon } = req.body;
+    const { title, coinReward, xpReward, durationMinutes, category, icon, isRecurring, recurringSchedule } = req.body;
     await db.run(
-        'UPDATE tasks SET title = ?, coinReward = ?, xpReward = ?, durationMinutes = ?, category = ?, icon = ? WHERE id = ?',
+        `UPDATE tasks SET title = ?, coinReward = ?, xpReward = ?, durationMinutes = ?, category = ?, icon = ?, 
+         isRecurring = ?, recurringSchedule = ? WHERE id = ?`,
         title || task.title,
         coinReward ?? task.coinReward,
         xpReward ?? task.xpReward,
         durationMinutes ?? task.durationMinutes,
         category || task.category,
         icon || task.icon || '📋',
+        isRecurring !== undefined ? (isRecurring ? 1 : 0) : task.isRecurring,
+        isRecurring ? (recurringSchedule || task.recurringSchedule || 'daily') : null,
         req.params.id
     );
     res.json({ message: '更新成功' });
@@ -918,9 +1003,24 @@ app.delete('/api/parent/achievements/:id', protect, async (req, res) => { await 
 app.get('/api/child/dashboard', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb(); const childId = request.user!.id;
-    // 只显示启用的任务（isEnabled = 1），已删除的任务不显示给孩子
-    const tasks = await db.all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1', request.user!.familyId);
-    const entries = await db.all(`SELECT taskId, status FROM task_entries WHERE childId = ?`, childId);
+    
+    // 自动生成今天的常用任务实例
+    await generateRecurringTasksForToday(db, request.user!.familyId);
+    
+    // 查询今天的任务：
+    // 1. 普通任务（isRecurring=0 且 recurringTaskTemplateId 为 NULL）
+    // 2. 今天生成的常用任务实例（recurringTaskTemplateId 不为 NULL 且是今天创建的）
+    // 排除常用任务模板本身（isRecurring=1）
+    const tasks = await db.all(`
+        SELECT * FROM tasks 
+        WHERE familyId = ? AND isEnabled = 1 
+        AND (
+            (isRecurring = 0 AND recurringTaskTemplateId IS NULL)
+            OR (recurringTaskTemplateId IS NOT NULL AND date(createdAt) = date('now', 'localtime'))
+        )
+    `, request.user!.familyId);
+    
+    const entries = await db.all(`SELECT taskId, status FROM task_entries WHERE childId = ? AND date(submittedAt) = date('now', 'localtime')`, childId);
     const today = new Date(); const last7Days = [];
     for (let i = 6; i >= 0; i--) {
         const d = new Date(today); d.setDate(d.getDate() - i);

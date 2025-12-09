@@ -30,6 +30,12 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE wishes ADD COLUMN isActive INTEGER DEFAULT 0'); } catch (e) {} // 抽奖奖品是否上架
   try { await db.run('ALTER TABLE wishes ADD COLUMN weight INTEGER DEFAULT 10'); } catch (e) {} // 抽奖权重 (1-100)
   try { await db.run('ALTER TABLE tasks ADD COLUMN icon TEXT'); } catch (e) {} // 任务图标
+  
+  // 常用任务字段
+  try { await db.run('ALTER TABLE tasks ADD COLUMN isRecurring INTEGER DEFAULT 0'); } catch (e) {} // 是否为常用任务模板
+  try { await db.run('ALTER TABLE tasks ADD COLUMN recurringSchedule TEXT'); } catch (e) {} // 周期类型: daily/weekday/weekend
+  try { await db.run('ALTER TABLE tasks ADD COLUMN recurringTaskTemplateId TEXT'); } catch (e) {} // 实例指向的模板ID
+  try { await db.run('ALTER TABLE tasks ADD COLUMN lastGeneratedDate TEXT'); } catch (e) {} // 模板上次生成日期
 
   return db;
 };
