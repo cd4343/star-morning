@@ -116,46 +116,75 @@ const shouldTaskAppearOnDate = (task: any, targetDate: Date): boolean => {
  * @param familyId 家庭ID  
  * @param childId 孩子ID
  * @param targetDate 目标日期（默认今天）
+ * 
+ * 逻辑说明：
+ * - 今天：显示所有符合当前规则的任务（可操作）
+ * - 历史日期：只显示有 task_entries 记录的任务（只读回顾）
+ *   这样避免任务"穿越"到创建之前的日期，也避免修改任务类型后历史显示不准确
  */
 const getTasksForDate = async (db: any, familyId: string, childId: string, targetDate: Date = new Date()) => {
   const dateStr = targetDate.toISOString().split('T')[0];
-  const isToday = dateStr === new Date().toISOString().split('T')[0];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isToday = dateStr === todayStr;
   
-  // 获取所有启用的任务模板（排除实例）
-  const allTasks = await db.all(`
-    SELECT * FROM tasks 
-    WHERE familyId = ? AND isEnabled = 1 
-    AND (recurringTaskTemplateId IS NULL OR recurringTaskTemplateId = '')
-  `, familyId);
-  
-  // 过滤出应该在目标日期出现的任务
-  const tasksForDate = allTasks.filter((task: any) => shouldTaskAppearOnDate(task, targetDate));
-  
-  // 获取该日期的任务完成记录
+  // 获取该日期的任务完成记录（无论今天还是历史都需要）
   const entries = await db.all(`
-    SELECT te.*, t.title as taskTitle, t.icon as taskIcon, t.coinReward, t.xpReward, t.durationMinutes
+    SELECT te.*, t.id as taskId, t.title, t.icon, t.coinReward, t.xpReward, 
+           t.durationMinutes, t.category, t.taskType, t.customDays
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id
     WHERE te.childId = ? AND date(te.submittedAt) = ?
   `, childId, dateStr);
   
-  // 合并任务和完成状态
-  return tasksForDate.map((task: any) => {
-    const entry = entries.find((e: any) => e.taskId === task.id);
-    return {
-      ...task,
-      status: entry?.status || 'todo',
-      // 审核结果信息
-      entryId: entry?.id,
-      earnedCoins: entry?.earnedCoins,
-      earnedXp: entry?.earnedXp,
-      actualDurationMinutes: entry?.actualDurationMinutes,
-      submittedAt: entry?.submittedAt,
-      reviewedAt: entry?.reviewedAt,
-      // 是否可操作（只有今天的任务且未完成才能操作）
-      canOperate: isToday && (!entry || entry.status === 'rejected')
-    };
-  });
+  if (isToday) {
+    // === 今天：显示所有符合规则的任务 ===
+    const allTasks = await db.all(`
+      SELECT * FROM tasks 
+      WHERE familyId = ? AND isEnabled = 1 
+      AND (recurringTaskTemplateId IS NULL OR recurringTaskTemplateId = '')
+    `, familyId);
+    
+    // 过滤出应该在今天出现的任务
+    const tasksForToday = allTasks.filter((task: any) => shouldTaskAppearOnDate(task, targetDate));
+    
+    // 合并任务和完成状态
+    return tasksForToday.map((task: any) => {
+      const entry = entries.find((e: any) => e.taskId === task.id);
+      return {
+        ...task,
+        status: entry?.status || 'todo',
+        entryId: entry?.id,
+        earnedCoins: entry?.earnedCoins,
+        earnedXp: entry?.earnedXp,
+        actualDurationMinutes: entry?.actualDurationMinutes,
+        submittedAt: entry?.submittedAt,
+        reviewedAt: entry?.reviewedAt,
+        canOperate: !entry || entry.status === 'rejected'
+      };
+    });
+  } else {
+    // === 历史日期：只显示有记录的任务 ===
+    // 这样避免任务"穿越"到它创建之前，也避免任务类型修改后历史显示错误
+    return entries.map((entry: any) => ({
+      id: entry.taskId,
+      title: entry.title,
+      icon: entry.icon,
+      coinReward: entry.coinReward,
+      xpReward: entry.xpReward,
+      durationMinutes: entry.durationMinutes,
+      category: entry.category,
+      taskType: entry.taskType,
+      customDays: entry.customDays,
+      status: entry.status,
+      entryId: entry.id,
+      earnedCoins: entry.earnedCoins,
+      earnedXp: entry.earnedXp,
+      actualDurationMinutes: entry.actualDurationMinutes,
+      submittedAt: entry.submittedAt,
+      reviewedAt: entry.reviewedAt,
+      canOperate: false // 历史任务不可操作
+    }));
+  }
 };
 
 // --- MIDDLEWARE ---
@@ -1019,10 +1048,21 @@ app.delete('/api/parent/privileges/:id', protect, async (req, res) => { await ge
 app.get('/api/parent/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId)); });
 app.post('/api/parent/achievements', protect, async (req: any, res) => { 
     const request = req as AuthRequest; 
+    const { title, description, icon, conditionType, conditionValue, conditionCategory } = request.body;
+    
+    // 检查是否已存在同名成就
+    const existing = await getDb().get(
+        'SELECT id FROM achievement_defs WHERE familyId = ? AND title = ?', 
+        request.user!.familyId, title
+    );
+    if (existing) {
+        return res.status(400).json({ message: '已存在同名成就，请使用其他名称' });
+    }
+    
     await getDb().run(
         `INSERT INTO achievement_defs (id, familyId, title, description, icon, conditionType, conditionValue, conditionCategory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, 
-        randomUUID(), request.user!.familyId, request.body.title, request.body.description, request.body.icon, 
-        request.body.conditionType, request.body.conditionValue, request.body.conditionCategory || null
+        randomUUID(), request.user!.familyId, title, description, icon, 
+        conditionType, conditionValue, conditionCategory || null
     ); 
     res.json({message:'ok'}); 
 });

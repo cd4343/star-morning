@@ -421,31 +421,43 @@ export default function ChildTasks() {
         <div className="space-y-3 pb-20">
           {loading && <div className="text-center text-gray-400 py-4">加载中...</div>}
           {!loading && tasks.length === 0 && (
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100 text-center">
-              <div className="text-5xl mb-4">📋</div>
-              <h3 className="font-bold text-lg text-gray-800 mb-2">还没有任务</h3>
-              <p className="text-gray-600 text-sm mb-4">
-                请等待家长为你添加任务哦！
-              </p>
-              <div className="bg-white/60 rounded-xl p-4 text-sm text-left space-y-2">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="text-xl">✅</span>
-                  <span>完成任务可以获得金币</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="text-xl">🛒</span>
-                  <span>用金币在商店兑换心愿</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="text-xl">🎰</span>
-                  <span>参与抽奖赢取惊喜奖品</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="text-xl">🏆</span>
-                  <span>解锁成就成为小达人</span>
+            isToday ? (
+              // 今天没有任务 - 提示家长添加
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100 text-center">
+                <div className="text-5xl mb-4">📋</div>
+                <h3 className="font-bold text-lg text-gray-800 mb-2">还没有任务</h3>
+                <p className="text-gray-600 text-sm mb-4">
+                  请等待家长为你添加任务哦！
+                </p>
+                <div className="bg-white/60 rounded-xl p-4 text-sm text-left space-y-2">
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <span className="text-xl">✅</span>
+                    <span>完成任务可以获得金币</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <span className="text-xl">🛒</span>
+                    <span>用金币在商店兑换心愿</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <span className="text-xl">🎰</span>
+                    <span>参与抽奖赢取惊喜奖品</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <span className="text-xl">🏆</span>
+                    <span>解锁成就成为小达人</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              // 历史日期没有记录
+              <div className="bg-gradient-to-br from-gray-50 to-slate-50 rounded-2xl p-6 border border-gray-200 text-center">
+                <div className="text-5xl mb-4">📅</div>
+                <h3 className="font-bold text-lg text-gray-600 mb-2">当日无任务记录</h3>
+                <p className="text-gray-500 text-sm">
+                  这一天没有完成或提交过任务
+                </p>
+              </div>
+            )
           )}
           
           {tasks.map(task => (
