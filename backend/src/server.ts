@@ -662,28 +662,28 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
   `, ...childIds))?.total || 0;
   
-  // 消耗金币（从背包记录，只统计用金币购买的）
+  // 消耗金币（从背包记录，只统计用金币购买的，排除已撤销的记录）
   const todaySpent = (await db.get(`
     SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
     WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
-    AND DATE(acquiredAt) = DATE('now')
+    AND status != 'cancelled' AND DATE(acquiredAt) = DATE('now')
   `, ...childIds))?.total || 0;
   
   const weekSpent = (await db.get(`
     SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
     WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
-    AND acquiredAt >= DATE('now', '-7 days')
+    AND status != 'cancelled' AND acquiredAt >= DATE('now', '-7 days')
   `, ...childIds))?.total || 0;
   
   const monthSpent = (await db.get(`
     SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
     WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
-    AND acquiredAt >= DATE('now', '-30 days')
+    AND status != 'cancelled' AND acquiredAt >= DATE('now', '-30 days')
   `, ...childIds))?.total || 0;
   
   const totalSpent = (await db.get(`
     SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
-    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins'
+    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' AND status != 'cancelled'
   `, ...childIds))?.total || 0;
   
   // === 4. 分类任务完成比例 ===
@@ -1243,9 +1243,9 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
         }
         
-        // 抽奖奖品添加到背包，status='unused'（未使用/待兑现）
+        // 抽奖奖品添加到背包，status='unused'（未使用/待兑现），cost=10 记录抽奖消耗
         await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'unused')`, 
-            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 0, 'coins');
+            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 10, 'coins');
         await db.run('COMMIT'); 
         res.json({winner: prize});
     } catch (err) {
