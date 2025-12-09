@@ -59,13 +59,13 @@ export default function ParentTasks() {
   const [category, setCategory] = useState('劳动');
   const [icon, setIcon] = useState('📋');
   
-  // 常用任务（周期）状态
-  const [isRecurring, setIsRecurring] = useState(false);
-  const [recurringSchedule, setRecurringSchedule] = useState<'daily' | 'weekday' | 'weekend'>('daily');
+  // 任务类型状态（新版：daily/once/custom）
+  const [taskType, setTaskType] = useState<'daily' | 'once' | 'custom'>('daily');
+  const [customDays, setCustomDays] = useState<number[]>([1, 2, 3, 4, 5]); // 默认工作日
   
-  // 模板批量周期设置
-  const [templateIsRecurring, setTemplateIsRecurring] = useState(false);
-  const [templateSchedule, setTemplateSchedule] = useState<'daily' | 'weekday' | 'weekend'>('daily');
+  // 模板批量任务类型设置
+  const [templateTaskType, setTemplateTaskType] = useState<'daily' | 'once' | 'custom'>('daily');
+  const [templateCustomDays, setTemplateCustomDays] = useState<number[]>([1, 2, 3, 4, 5]);
   
   // 编辑状态
   const [editingTask, setEditingTask] = useState<any>(null);
@@ -82,8 +82,10 @@ export default function ParentTasks() {
     setDuration(String(task.durationMinutes));
     setCategory(task.category);
     setIcon(task.icon || '📋');
-    setIsRecurring(!!task.isRecurring);
-    setRecurringSchedule(task.recurringSchedule || 'daily');
+    setTaskType(task.taskType || 'daily');
+    try {
+      setCustomDays(task.customDays ? JSON.parse(task.customDays) : [1, 2, 3, 4, 5]);
+    } catch { setCustomDays([1, 2, 3, 4, 5]); }
   };
   
   // 取消编辑
@@ -94,8 +96,8 @@ export default function ParentTasks() {
     setXpReward('10');
     setDuration('15');
     setCategory('劳动');
-    setIsRecurring(false);
-    setRecurringSchedule('daily');
+    setTaskType('daily');
+    setCustomDays([1, 2, 3, 4, 5]);
   };
   
   // 保存编辑
@@ -104,7 +106,7 @@ export default function ParentTasks() {
     try {
       await api.put(`/parent/tasks/${editingTask.id}`, {
         title, coinReward: +coinReward, xpReward: +xpReward, durationMinutes: +duration, category, icon,
-        isRecurring, recurringSchedule: isRecurring ? recurringSchedule : null
+        taskType, customDays: taskType === 'custom' ? customDays : null
       });
       cancelEdit();
       fetchTasks();
@@ -117,10 +119,10 @@ export default function ParentTasks() {
     if (!title) return toast.warning('请输入标题');
     await api.post('/parent/tasks', {
       title, coinReward: +coinReward, xpReward: +xpReward, durationMinutes: +duration, category, icon,
-      isRecurring, recurringSchedule: isRecurring ? recurringSchedule : null
+      taskType, customDays: taskType === 'custom' ? customDays : null
     });
     setShowAdd(false); setTitle(''); setIcon('📋');
-    setIsRecurring(false); setRecurringSchedule('daily');
+    setTaskType('daily'); setCustomDays([1, 2, 3, 4, 5]);
     fetchTasks();
   };
 
@@ -156,14 +158,15 @@ export default function ParentTasks() {
           durationMinutes: template.duration,
           category: template.category,
           icon: template.icon,
-          isRecurring: templateIsRecurring,
-          recurringSchedule: templateIsRecurring ? templateSchedule : null
+          taskType: templateTaskType,
+          customDays: templateTaskType === 'custom' ? templateCustomDays : null
         });
       }
-      toast.success(`成功添加 ${selectedCount} 个${templateIsRecurring ? '常用' : ''}任务！`);
+      const typeLabels = { daily: '每日', once: '单次', custom: '自定义' };
+      toast.success(`成功添加 ${selectedCount} 个${typeLabels[templateTaskType]}任务！`);
       closeTemplates();
-      setTemplateIsRecurring(false);
-      setTemplateSchedule('daily');
+      setTemplateTaskType('daily');
+      setTemplateCustomDays([1, 2, 3, 4, 5]);
       fetchTasks();
     } catch {
       toast.error('添加失败');
@@ -229,42 +232,64 @@ export default function ParentTasks() {
             </div>
           </div>
           
-          {/* 常用任务设置 */}
-          <div className={`p-3 rounded-xl border-2 transition-all ${isRecurring ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
-            <label className="flex items-center justify-between cursor-pointer">
-              <span className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                🔄 设为常用任务
-                <span className="text-[10px] font-normal text-gray-400">每天自动生成</span>
-              </span>
-              <input 
-                type="checkbox" 
-                checked={isRecurring} 
-                onChange={e => setIsRecurring(e.target.checked)}
-                className="w-5 h-5 rounded accent-blue-500"
-              />
-            </label>
-            {isRecurring && (
-              <div className="mt-3 flex gap-2">
-                {[
-                  { value: 'daily', label: '每日', desc: '每天' },
-                  { value: 'weekday', label: '工作日', desc: '周一至周五' },
-                  { value: 'weekend', label: '周末', desc: '周六周日' },
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setRecurringSchedule(opt.value as any)}
-                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
-                      recurringSchedule === opt.value 
-                        ? 'bg-blue-500 text-white shadow-md' 
-                        : 'bg-white text-gray-600 border hover:border-blue-300'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+          {/* 任务类型选择 */}
+          <div className="p-3 rounded-xl border-2 border-gray-200 bg-gray-50">
+            <div className="text-sm font-bold text-gray-700 mb-3">🔄 任务类型</div>
+            <div className="flex gap-2 mb-3">
+              {[
+                { value: 'daily', label: '每日', icon: '📅', desc: '每天都要完成' },
+                { value: 'once', label: '单次', icon: '📌', desc: '只在今天' },
+                { value: 'custom', label: '自定义', icon: '⚙️', desc: '选择星期' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setTaskType(opt.value as any)}
+                  className={`flex-1 py-2.5 px-2 rounded-xl text-center transition-all ${
+                    taskType === opt.value 
+                      ? 'bg-blue-500 text-white shadow-lg scale-[1.02]' 
+                      : 'bg-white text-gray-600 border hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-lg">{opt.icon}</div>
+                  <div className="text-xs font-bold mt-1">{opt.label}</div>
+                </button>
+              ))}
+            </div>
+            {/* 自定义周期：选择星期 */}
+            {taskType === 'custom' && (
+              <div className="bg-white rounded-lg p-2 border">
+                <div className="text-[10px] text-gray-400 mb-2">选择任务出现的日期</div>
+                <div className="flex gap-1">
+                  {['日', '一', '二', '三', '四', '五', '六'].map((day, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        if (customDays.includes(i)) {
+                          setCustomDays(customDays.filter(d => d !== i));
+                        } else {
+                          setCustomDays([...customDays, i].sort());
+                        }
+                      }}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                        customDays.includes(i)
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
+            {/* 类型说明 */}
+            <div className="text-[10px] text-gray-400 mt-2">
+              {taskType === 'daily' && '💡 每日任务：每天都会出现，培养好习惯'}
+              {taskType === 'once' && '💡 单次任务：只在今天出现，明天自动消失'}
+              {taskType === 'custom' && '💡 自定义：只在选中的星期出现'}
+            </div>
           </div>
         </div>
       </BottomSheet>
@@ -329,48 +354,58 @@ export default function ParentTasks() {
         
         {/* 模板选择底部操作栏 - 绝对定位 + 安全区域 */}
         {showTemplates && (
-          <div className="absolute bottom-0 left-0 right-0 bg-white py-3 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t shadow-[0_-4px_12px_rgba(0,0,0,0.1)] z-20 space-y-3">
-            {/* 批量周期设置 */}
-            <div className={`p-2.5 rounded-xl border transition-all ${templateIsRecurring ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-gray-50'}`}>
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
-                  🔄 设为常用任务
-                </span>
-                <input 
-                  type="checkbox" 
-                  checked={templateIsRecurring} 
-                  onChange={e => setTemplateIsRecurring(e.target.checked)}
-                  className="w-4 h-4 rounded accent-purple-500"
-                />
-              </label>
-              {templateIsRecurring && (
-                <div className="mt-2 flex gap-1.5">
-                  {[
-                    { value: 'daily', label: '每日' },
-                    { value: 'weekday', label: '工作日' },
-                    { value: 'weekend', label: '周末' },
-                  ].map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setTemplateSchedule(opt.value as any)}
-                      className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${
-                        templateSchedule === opt.value 
-                          ? 'bg-purple-500 text-white' 
-                          : 'bg-white text-gray-600 border'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+          <div className="absolute bottom-0 left-0 right-0 bg-white py-3 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t shadow-[0_-4px_12px_rgba(0,0,0,0.1)] z-20 space-y-2">
+            {/* 批量任务类型设置 */}
+            <div className="flex gap-1.5">
+              {[
+                { value: 'daily', label: '每日', icon: '📅' },
+                { value: 'once', label: '单次', icon: '📌' },
+                { value: 'custom', label: '自定义', icon: '⚙️' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setTemplateTaskType(opt.value as any)}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
+                    templateTaskType === opt.value 
+                      ? 'bg-purple-500 text-white' 
+                      : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  {opt.icon} {opt.label}
+                </button>
+              ))}
             </div>
+            {/* 自定义周期选择 */}
+            {templateTaskType === 'custom' && (
+              <div className="flex gap-1">
+                {['日', '一', '二', '三', '四', '五', '六'].map((day, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      if (templateCustomDays.includes(i)) {
+                        setTemplateCustomDays(templateCustomDays.filter(d => d !== i));
+                      } else {
+                        setTemplateCustomDays([...templateCustomDays, i].sort());
+                      }
+                    }}
+                    className={`flex-1 py-1 rounded text-[10px] font-bold ${
+                      templateCustomDays.includes(i)
+                        ? 'bg-purple-500 text-white'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {day}
+                  </button>
+                ))}
+              </div>
+            )}
             
             <div className="flex gap-2">
-              <Button onClick={() => { closeTemplates(); setTemplateIsRecurring(false); }} variant="ghost" className="flex-1">取消</Button>
+              <Button onClick={() => { closeTemplates(); setTemplateTaskType('daily'); }} variant="ghost" className="flex-1">取消</Button>
               <Button onClick={handleAddTemplates} className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 border-none" disabled={selectedCount === 0}>
-                添加 {selectedCount} 个{templateIsRecurring ? '常用' : ''}任务
+                添加 {selectedCount} 个任务
               </Button>
             </div>
           </div>
@@ -383,41 +418,44 @@ export default function ParentTasks() {
               <Sparkles size={16}/> 从模板快速添加更多任务
             </button>
             
-            {tasks.map(task => (
-              <Card key={task.id} className="flex justify-between items-center">
-                <div className="flex items-center gap-3 flex-1">
-                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-xl relative">
-                    {task.icon || '📋'}
-                    {/* 常用任务标识 */}
-                    {task.isRecurring === 1 && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-[8px] text-white">🔄</div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-bold flex items-center gap-1.5">
-                      {task.title}
-                      {/* 周期标签 */}
-                      {task.isRecurring === 1 && (
+            {tasks.map(task => {
+              // 解析任务类型和自定义天数
+              const type = task.taskType || 'daily';
+              let customDaysArr: number[] = [];
+              try { customDaysArr = task.customDays ? JSON.parse(task.customDays) : []; } catch {}
+              const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+              const customDaysText = customDaysArr.map(d => dayNames[d]).join('');
+              
+              return (
+                <Card key={task.id} className="flex justify-between items-center">
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-xl relative">
+                      {task.icon || '📋'}
+                    </div>
+                    <div>
+                      <div className="font-bold flex items-center gap-1.5">
+                        {task.title}
+                        {/* 任务类型标签 */}
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-normal ${
-                          task.recurringSchedule === 'daily' ? 'bg-blue-100 text-blue-600' :
-                          task.recurringSchedule === 'weekday' ? 'bg-green-100 text-green-600' :
-                          'bg-orange-100 text-orange-600'
+                          type === 'daily' ? 'bg-blue-100 text-blue-600' :
+                          type === 'once' ? 'bg-amber-100 text-amber-600' :
+                          'bg-purple-100 text-purple-600'
                         }`}>
-                          {task.recurringSchedule === 'daily' ? '每日' : task.recurringSchedule === 'weekday' ? '工作日' : '周末'}
+                          {type === 'daily' ? '📅每日' : type === 'once' ? '📌单次' : `⚙️${customDaysText}`}
                         </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {task.category} | 💰{task.coinReward} | ⭐{task.xpReward} | ⏰{task.durationMinutes}分
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {task.category} | 💰{task.coinReward} | ⭐{task.xpReward} | ⏰{task.durationMinutes}分
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => openEdit(task)} className="text-blue-400 hover:text-blue-600 p-1"><Pen size={16}/></button>
-                  <button onClick={() => handleDelete(task.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
-                </div>
-              </Card>
-            ))}
+                  <div className="flex gap-2">
+                    <button onClick={() => openEdit(task)} className="text-blue-400 hover:text-blue-600 p-1"><Pen size={16}/></button>
+                    <button onClick={() => handleDelete(task.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
+                  </div>
+                </Card>
+              );
+            })}
           </>
         )}
         
@@ -464,22 +502,34 @@ export default function ParentTasks() {
                     <input className="w-full p-2 rounded border mt-1" type="number" value={xpReward} onChange={e => setXpReward(e.target.value)} />
                   </div>
                 </div>
-                {/* 周期设置 */}
-                <div className={`p-2.5 rounded-xl border transition-all ${isRecurring ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
-                  <label className="flex items-center justify-between cursor-pointer">
-                    <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">🔄 常用任务</span>
-                    <input type="checkbox" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} className="w-4 h-4 rounded accent-blue-500"/>
-                  </label>
-                  {isRecurring && (
-                    <div className="mt-2 flex gap-1.5">
-                      {[
-                        { value: 'daily', label: '每日' },
-                        { value: 'weekday', label: '工作日' },
-                        { value: 'weekend', label: '周末' },
-                      ].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => setRecurringSchedule(opt.value as any)}
-                          className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${recurringSchedule === opt.value ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 border'}`}>
-                          {opt.label}
+                {/* 任务类型设置 */}
+                <div className="p-2.5 rounded-xl border border-gray-200 bg-gray-50">
+                  <div className="text-xs font-bold text-gray-700 mb-2">🔄 任务类型</div>
+                  <div className="flex gap-1.5 mb-2">
+                    {[
+                      { value: 'daily', label: '每日', icon: '📅' },
+                      { value: 'once', label: '单次', icon: '📌' },
+                      { value: 'custom', label: '自定义', icon: '⚙️' },
+                    ].map(opt => (
+                      <button key={opt.value} type="button" onClick={() => setTaskType(opt.value as any)}
+                        className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${taskType === opt.value ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 border'}`}>
+                        {opt.icon} {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {taskType === 'custom' && (
+                    <div className="flex gap-1">
+                      {['日', '一', '二', '三', '四', '五', '六'].map((day, i) => (
+                        <button key={i} type="button"
+                          onClick={() => {
+                            if (customDays.includes(i)) {
+                              setCustomDays(customDays.filter(d => d !== i));
+                            } else {
+                              setCustomDays([...customDays, i].sort());
+                            }
+                          }}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold ${customDays.includes(i) ? 'bg-blue-500 text-white' : 'bg-white text-gray-500 border'}`}>
+                          {day}
                         </button>
                       ))}
                     </div>

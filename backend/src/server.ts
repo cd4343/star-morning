@@ -67,64 +67,95 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// --- 常用任务自动生成函数 ---
+// --- 任务生成函数 ---
 /**
- * 为指定家庭生成今天的常用任务实例
- * @param db 数据库连接
- * @param familyId 家庭ID
+ * 判断任务是否应该在指定日期出现
+ * @param task 任务对象
+ * @param targetDate 目标日期
  */
-const generateRecurringTasksForToday = async (db: any, familyId: string) => {
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const dayOfWeek = today.getDay(); // 0=周日, 1=周一, ..., 6=周六
-  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+const shouldTaskAppearOnDate = (task: any, targetDate: Date): boolean => {
+  const dayOfWeek = targetDate.getDay(); // 0=周日, 1=周一, ..., 6=周六
+  const dateStr = targetDate.toISOString().split('T')[0];
   
-  // 查询所有常用任务模板（isRecurring=1 且 isEnabled=1）
-  const templates = await db.all(`
-    SELECT * FROM tasks 
-    WHERE familyId = ? AND isEnabled = 1 AND isRecurring = 1
-  `, familyId);
-  
-  for (const template of templates) {
-    // 检查周期是否匹配今天
-    let shouldGenerate = false;
-    if (template.recurringSchedule === 'daily') {
-      shouldGenerate = true;
-    } else if (template.recurringSchedule === 'weekday' && isWeekday) {
-      shouldGenerate = true;
-    } else if (template.recurringSchedule === 'weekend' && isWeekend) {
-      shouldGenerate = true;
-    }
-    
-    if (!shouldGenerate) continue;
-    
-    // 检查今天是否已生成过该模板的实例
-    const existing = await db.get(`
-      SELECT id FROM tasks 
-      WHERE recurringTaskTemplateId = ? 
-      AND familyId = ? 
-      AND date(createdAt) = date('now', 'localtime')
-      AND isEnabled = 1
-    `, template.id, familyId);
-    
-    if (!existing) {
-      // 生成今天的任务实例
-      await db.run(`
-        INSERT INTO tasks (
-          id, familyId, title, coinReward, xpReward, durationMinutes, 
-          category, icon, isEnabled, isRecurring, recurringTaskTemplateId, createdAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, datetime('now', 'localtime'))
-      `, 
-        randomUUID(), familyId, template.title, template.coinReward, 
-        template.xpReward, template.durationMinutes, template.category, 
-        template.icon, template.id
-      );
-      
-      // 更新模板的最后生成日期
-      await db.run(`UPDATE tasks SET lastGeneratedDate = ? WHERE id = ?`, todayStr, template.id);
+  // 新版逻辑：根据 taskType 判断
+  if (task.taskType) {
+    switch (task.taskType) {
+      case 'daily':
+        return true; // 每日任务，每天都出现
+      case 'once':
+        return task.validDate === dateStr; // 单次任务，只在指定日期出现
+      case 'custom':
+        // 自定义周期，检查今天是否在 customDays 中
+        try {
+          const days = JSON.parse(task.customDays || '[]');
+          return days.includes(dayOfWeek);
+        } catch { return false; }
+      default:
+        return true;
     }
   }
+  
+  // 旧版兼容：根据 isRecurring + recurringSchedule 判断
+  if (task.isRecurring === 1) {
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    
+    if (task.recurringSchedule === 'daily') return true;
+    if (task.recurringSchedule === 'weekday' && isWeekday) return true;
+    if (task.recurringSchedule === 'weekend' && isWeekend) return true;
+    return false;
+  }
+  
+  // 默认：普通任务每天都出现
+  return true;
+};
+
+/**
+ * 获取指定日期的任务列表
+ * @param db 数据库连接
+ * @param familyId 家庭ID  
+ * @param childId 孩子ID
+ * @param targetDate 目标日期（默认今天）
+ */
+const getTasksForDate = async (db: any, familyId: string, childId: string, targetDate: Date = new Date()) => {
+  const dateStr = targetDate.toISOString().split('T')[0];
+  const isToday = dateStr === new Date().toISOString().split('T')[0];
+  
+  // 获取所有启用的任务模板（排除实例）
+  const allTasks = await db.all(`
+    SELECT * FROM tasks 
+    WHERE familyId = ? AND isEnabled = 1 
+    AND (recurringTaskTemplateId IS NULL OR recurringTaskTemplateId = '')
+  `, familyId);
+  
+  // 过滤出应该在目标日期出现的任务
+  const tasksForDate = allTasks.filter((task: any) => shouldTaskAppearOnDate(task, targetDate));
+  
+  // 获取该日期的任务完成记录
+  const entries = await db.all(`
+    SELECT te.*, t.title as taskTitle, t.icon as taskIcon, t.coinReward, t.xpReward, t.durationMinutes
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id
+    WHERE te.childId = ? AND date(te.submittedAt) = ?
+  `, childId, dateStr);
+  
+  // 合并任务和完成状态
+  return tasksForDate.map((task: any) => {
+    const entry = entries.find((e: any) => e.taskId === task.id);
+    return {
+      ...task,
+      status: entry?.status || 'todo',
+      // 审核结果信息
+      entryId: entry?.id,
+      earnedCoins: entry?.earnedCoins,
+      earnedXp: entry?.earnedXp,
+      actualDurationMinutes: entry?.actualDurationMinutes,
+      submittedAt: entry?.submittedAt,
+      reviewedAt: entry?.reviewedAt,
+      // 是否可操作（只有今天的任务且未完成才能操作）
+      canOperate: isToday && (!entry || entry.status === 'rejected')
+    };
+  });
 };
 
 // --- MIDDLEWARE ---
@@ -834,14 +865,17 @@ app.get('/api/parent/tasks', protect, async (req: any, res) => {
     res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 1 AND recurringTaskTemplateId IS NULL', request.user!.familyId)); 
 });
 
-// 创建任务（支持常用任务设置）
+// 创建任务（支持三种任务类型：daily/once/custom）
 app.post('/api/parent/tasks', protect, async (req: any, res) => { 
     const request = req as AuthRequest; 
-    const { title, coinReward, xpReward, durationMinutes, category, icon, isRecurring, recurringSchedule } = request.body;
+    const { title, coinReward, xpReward, durationMinutes, category, icon, taskType, customDays } = request.body;
+    
+    // 获取今天日期（用于单次任务）
+    const todayStr = new Date().toISOString().split('T')[0];
     
     await getDb().run(
-        `INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, icon, isEnabled, isRecurring, recurringSchedule) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, 
+        `INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, icon, isEnabled, taskType, customDays, validDate) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`, 
         randomUUID(), 
         request.user!.familyId, 
         title, 
@@ -850,13 +884,14 @@ app.post('/api/parent/tasks', protect, async (req: any, res) => {
         durationMinutes, 
         category, 
         icon || '📋',
-        isRecurring ? 1 : 0,
-        isRecurring ? (recurringSchedule || 'daily') : null
+        taskType || 'daily',
+        taskType === 'custom' ? JSON.stringify(customDays || []) : null,
+        taskType === 'once' ? todayStr : null
     ); 
     res.json({message:'ok'}); 
 });
 
-// 更新任务（支持常用任务设置）
+// 更新任务（支持三种任务类型）
 app.put('/api/parent/tasks/:id', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
@@ -864,18 +899,21 @@ app.put('/api/parent/tasks/:id', protect, async (req: any, res) => {
     if (!task) {
         return res.status(404).json({ message: '任务不存在' });
     }
-    const { title, coinReward, xpReward, durationMinutes, category, icon, isRecurring, recurringSchedule } = req.body;
+    const { title, coinReward, xpReward, durationMinutes, category, icon, taskType, customDays } = req.body;
+    
+    const newTaskType = taskType ?? task.taskType ?? 'daily';
+    
     await db.run(
         `UPDATE tasks SET title = ?, coinReward = ?, xpReward = ?, durationMinutes = ?, category = ?, icon = ?, 
-         isRecurring = ?, recurringSchedule = ? WHERE id = ?`,
+         taskType = ?, customDays = ? WHERE id = ?`,
         title || task.title,
         coinReward ?? task.coinReward,
         xpReward ?? task.xpReward,
         durationMinutes ?? task.durationMinutes,
         category || task.category,
         icon || task.icon || '📋',
-        isRecurring !== undefined ? (isRecurring ? 1 : 0) : task.isRecurring,
-        isRecurring ? (recurringSchedule || task.recurringSchedule || 'daily') : null,
+        newTaskType,
+        newTaskType === 'custom' ? JSON.stringify(customDays || JSON.parse(task.customDays || '[]')) : null,
         req.params.id
     );
     res.json({ message: '更新成功' });
@@ -1004,23 +1042,14 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb(); const childId = request.user!.id;
     
-    // 自动生成今天的常用任务实例
-    await generateRecurringTasksForToday(db, request.user!.familyId);
+    // 支持日期参数，用于历史回看
+    const dateParam = req.query.date as string;
+    const targetDate = dateParam ? new Date(dateParam + 'T00:00:00') : new Date();
     
-    // 查询今天的任务：
-    // 1. 普通任务（isRecurring=0 且 recurringTaskTemplateId 为 NULL）
-    // 2. 今天生成的常用任务实例（recurringTaskTemplateId 不为 NULL 且是今天创建的）
-    // 排除常用任务模板本身（isRecurring=1）
-    const tasks = await db.all(`
-        SELECT * FROM tasks 
-        WHERE familyId = ? AND isEnabled = 1 
-        AND (
-            (isRecurring = 0 AND recurringTaskTemplateId IS NULL)
-            OR (recurringTaskTemplateId IS NOT NULL AND date(createdAt) = date('now', 'localtime'))
-        )
-    `, request.user!.familyId);
+    // 获取指定日期的任务（使用新函数）
+    const tasks = await getTasksForDate(db, request.user!.familyId, childId, targetDate);
     
-    const entries = await db.all(`SELECT taskId, status FROM task_entries WHERE childId = ? AND date(submittedAt) = date('now', 'localtime')`, childId);
+    // 统计过去7天数据
     const today = new Date(); const last7Days = [];
     for (let i = 6; i >= 0; i--) {
         const d = new Date(today); d.setDate(d.getDate() - i);
@@ -1031,7 +1060,15 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         const daySpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt) = ?`, childId, dateStr)).s || 0;
         last7Days.push({ date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent });
     }
-    res.json({ child: await db.get('SELECT * FROM users WHERE id = ?', childId), tasks: tasks.map(t => ({...t, status: entries.find(e => e.taskId === t.id)?.status || 'todo'})), weeklyStats: last7Days });
+    
+    const isToday = targetDate.toISOString().split('T')[0] === today.toISOString().split('T')[0];
+    res.json({ 
+        child: await db.get('SELECT * FROM users WHERE id = ?', childId), 
+        tasks,
+        weeklyStats: last7Days,
+        viewingDate: targetDate.toISOString().split('T')[0],
+        isToday
+    });
 });
 app.post('/api/child/tasks/:taskId/complete', protect, async (req: any, res) => {
     const request = req as AuthRequest;

@@ -192,11 +192,15 @@ export default function ChildTasks() {
   const context = useOutletContext<any>();
   const refreshParent = context?.refresh; // 刷新父组件数据（顶栏金币等）
   
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [activeTaskTimer, setActiveTaskTimer] = useState<number>(0); // 用于列表显示的计时
+  
+  // 日期选择（用于历史回看）
+  const [selectedDate, setSelectedDate] = useState<string>(''); // 空字符串表示今天
+  const [isToday, setIsToday] = useState(true);
 
   // 恢复进行中的任务
   useEffect(() => {
@@ -237,11 +241,13 @@ export default function ChildTasks() {
 
   useEffect(() => {
     fetchTasks();
-  }, []);
+  }, [selectedDate]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (date?: string) => {
     try {
-      const res = await api.get('/child/dashboard');
+      const targetDate = date ?? selectedDate;
+      const url = targetDate ? `/child/dashboard?date=${targetDate}` : '/child/dashboard';
+      const res = await api.get(url);
       const adaptedTasks = res.data.tasks.map((t: any) => ({
         ...t,
         coins: t.coinReward,
@@ -250,10 +256,21 @@ export default function ChildTasks() {
       }));
       setTasks(adaptedTasks);
       setWeeklyStats(res.data.weeklyStats || []);
+      setIsToday(res.data.isToday !== false);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // 选择日期（点击柱状图）
+  const handleSelectDate = (dateStr: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (dateStr === today) {
+      setSelectedDate('');
+    } else {
+      setSelectedDate(dateStr);
     }
   };
 
@@ -337,15 +354,19 @@ export default function ChildTasks() {
         
         <div className="flex justify-between items-end h-32 gap-2 pt-2 relative z-10">
             {weeklyStats.map((day, index) => {
-                const isToday = index === 6; 
+                const isTodayBar = index === 6;
+                const isSelected = selectedDate === day.date || (selectedDate === '' && isTodayBar);
                 const dayEarned = day.earned ?? day.coins ?? 0;
                 const daySpent = day.spent ?? 0;
-                const dayNet = day.coins ?? 0;
                 const heightPercent = (dayEarned / maxEarned) * 100;
                 const { day: weekDay, date: dateNum } = getFormattedDate(day.date);
                 
                 return (
-                    <div key={day.date} className="flex flex-col items-center gap-2 flex-1 group cursor-default">
+                    <div 
+                        key={day.date} 
+                        className="flex flex-col items-center gap-2 flex-1 group cursor-pointer"
+                        onClick={() => handleSelectDate(day.date)}
+                    >
                         {/* Bar */}
                         <div className="relative w-full flex justify-center items-end h-full">
                              {/* Tooltip - 显示收支详情 */}
@@ -355,16 +376,20 @@ export default function ChildTasks() {
                             
                             <div 
                                 style={{ height: `${Math.max(heightPercent, 8)}%` }} 
-                                className={`w-2.5 sm:w-3 rounded-t-md transition-all duration-500 ${isToday ? 'bg-gradient-to-t from-yellow-400 to-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : 'bg-white/20 group-hover:bg-white/40'}`}
+                                className={`w-2.5 sm:w-3 rounded-t-md transition-all duration-500 ${
+                                    isSelected 
+                                        ? 'bg-gradient-to-t from-yellow-400 to-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.5)]' 
+                                        : 'bg-white/20 group-hover:bg-white/40'
+                                }`}
                             ></div>
                         </div>
                         
                         {/* Date Label */}
                         <div className="flex flex-col items-center gap-0.5">
-                            <div className={`text-[10px] font-medium ${isToday ? 'text-yellow-300' : 'text-indigo-200'}`}>
+                            <div className={`text-[10px] font-medium ${isSelected ? 'text-yellow-300' : 'text-indigo-200'}`}>
                                 {weekDay}
                             </div>
-                            <div className={`text-[9px] scale-90 ${isToday ? 'text-white font-bold bg-indigo-500/50 px-1 rounded' : 'text-indigo-300'}`}>
+                            <div className={`text-[9px] scale-90 ${isSelected ? 'text-white font-bold bg-indigo-500/50 px-1 rounded' : 'text-indigo-300'}`}>
                                 {dateNum}
                             </div>
                         </div>
@@ -372,15 +397,24 @@ export default function ChildTasks() {
                 )
             })}
         </div>
+        {/* 返回今天按钮 */}
+        {!isToday && (
+          <button 
+            onClick={() => setSelectedDate('')}
+            className="mt-3 w-full py-2 bg-white/20 rounded-lg text-xs font-bold text-white hover:bg-white/30 transition-all"
+          >
+            ← 返回今天
+          </button>
+        )}
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-3 px-1">
             <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-              ✅ 今日待办 
+              {isToday ? '✅ 今日待办' : `📅 ${selectedDate.slice(5).replace('-', '月')}日`}
             </h2>
             <div className="text-xs font-bold text-gray-500 bg-white px-3 py-1.5 rounded-full border shadow-sm">
-                已完成 <span className="text-blue-600 text-sm mx-1">{completedCount}</span> / {tasks.length}
+                {isToday ? '已完成' : '完成'} <span className="text-blue-600 text-sm mx-1">{completedCount}</span> / {tasks.length}
             </div>
         </div>
         
@@ -415,55 +449,87 @@ export default function ChildTasks() {
           )}
           
           {tasks.map(task => (
-            <Card key={task.id} className={`relative overflow-hidden transition-all border-0 shadow-sm ${task.status === 'approved' ? 'opacity-60 bg-gray-50' : 'bg-white'}`}>
+            <Card key={task.id} className={`relative overflow-hidden transition-all border-0 shadow-sm ${task.status === 'approved' ? 'bg-green-50/50' : task.status === 'todo' && !isToday ? 'bg-red-50/30' : 'bg-white'}`}>
               {/* Status Stripe */}
               <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
                   task.status === 'approved' ? 'bg-green-400' : 
                   task.status === 'pending' ? 'bg-orange-400' : 
-                  task.status === 'completed' ? 'bg-green-400' : 'bg-blue-500'
+                  task.status === 'completed' ? 'bg-green-400' : 
+                  !isToday ? 'bg-red-400' : 'bg-blue-500'
               }`}></div>
 
               <div className="flex justify-between items-center pl-3 py-1">
                 <div className="flex-1">
                   <h3 className={`font-bold text-base text-gray-800 ${task.status === 'approved' && 'line-through text-gray-400'}`}>{task.title}</h3>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mt-2">
-                    <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md text-gray-600"><Clock size={12}/> {task.duration}分</span>
-                    <span className="font-bold text-yellow-700 bg-yellow-100 px-2 py-1 rounded-md">+{task.coins} 💰</span>
-                    <span className="font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-md">+{task.xp} ⭐</span>
+                    {/* 已审核通过：显示实际结果 */}
+                    {task.status === 'approved' && task.earnedCoins !== undefined ? (
+                      <>
+                        <span className="flex items-center gap-1 bg-green-100 px-2 py-1 rounded-md text-green-600">
+                          <Clock size={12}/> {task.actualDurationMinutes || task.duration}分
+                        </span>
+                        <span className="font-bold text-green-700 bg-green-100 px-2 py-1 rounded-md">+{task.earnedCoins} 💰</span>
+                        <span className="font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-md">+{task.earnedXp || task.xp} ⭐</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md text-gray-600"><Clock size={12}/> {task.duration}分</span>
+                        <span className="font-bold text-yellow-700 bg-yellow-100 px-2 py-1 rounded-md">+{task.coins} 💰</span>
+                        <span className="font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-md">+{task.xp} ⭐</span>
+                      </>
+                    )}
                   </div>
                 </div>
                 
                 <div className="ml-4">
-                    {/* 进行中状态 - 显示计时 */}
-                    {activeTask?.id === task.id && (
-                      <button 
-                        onClick={() => setActiveTask(task)} 
-                        className="flex flex-col items-center gap-1 text-blue-600 animate-pulse"
-                      >
-                          <div className="bg-blue-100 p-2 rounded-full">
-                            <Clock size={18} className="animate-spin" style={{ animationDuration: '3s' }}/>
-                          </div>
-                          <span className="text-[10px] font-bold font-mono">{formatTime(activeTaskTimer)}</span>
-                          <span className="text-[8px] text-blue-400">点击查看</span>
-                      </button>
-                    )}
-                    {/* 待开始状态 */}
-                    {task.status === 'todo' && activeTask?.id !== task.id && (
-                      <button onClick={() => setActiveTask(task)} className="bg-blue-600 active:bg-blue-700 text-white rounded-full p-3 shadow-blue-200 shadow-lg transition-transform hover:scale-105 flex items-center justify-center">
-                          <Play size={20} fill="currentColor" className="ml-0.5" />
-                      </button>
-                    )}
-                    {task.status === 'pending' && (
-                      <div className="flex flex-col items-center gap-1 text-orange-500">
-                          <div className="bg-orange-100 p-1.5 rounded-full"><Clock size={18}/></div>
-                          <span className="text-[10px] font-bold">审核中</span>
-                      </div>
-                    )}
-                    {(task.status === 'approved' || task.status === 'completed') && (
-                      <div className="flex flex-col items-center gap-1 text-green-500">
+                    {/* 历史模式 - 不可操作 */}
+                    {!isToday ? (
+                      task.status === 'approved' ? (
+                        <div className="flex flex-col items-center gap-1 text-green-500">
                           <div className="bg-green-100 p-1.5 rounded-full"><Check size={18}/></div>
                           <span className="text-[10px] font-bold">已完成</span>
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1 text-red-400">
+                          <div className="bg-red-100 p-1.5 rounded-full"><X size={18}/></div>
+                          <span className="text-[10px] font-bold">未完成</span>
+                        </div>
+                      )
+                    ) : (
+                      <>
+                        {/* 今日模式 - 可操作 */}
+                        {/* 进行中状态 - 显示计时 */}
+                        {activeTask?.id === task.id && (
+                          <button 
+                            onClick={() => setActiveTask(task)} 
+                            className="flex flex-col items-center gap-1 text-blue-600 animate-pulse"
+                          >
+                              <div className="bg-blue-100 p-2 rounded-full">
+                                <Clock size={18} className="animate-spin" style={{ animationDuration: '3s' }}/>
+                              </div>
+                              <span className="text-[10px] font-bold font-mono">{formatTime(activeTaskTimer)}</span>
+                              <span className="text-[8px] text-blue-400">点击查看</span>
+                          </button>
+                        )}
+                        {/* 待开始状态 */}
+                        {task.status === 'todo' && activeTask?.id !== task.id && (
+                          <button onClick={() => setActiveTask(task)} className="bg-blue-600 active:bg-blue-700 text-white rounded-full p-3 shadow-blue-200 shadow-lg transition-transform hover:scale-105 flex items-center justify-center">
+                              <Play size={20} fill="currentColor" className="ml-0.5" />
+                          </button>
+                        )}
+                        {task.status === 'pending' && (
+                          <div className="flex flex-col items-center gap-1 text-orange-500">
+                              <div className="bg-orange-100 p-1.5 rounded-full"><Clock size={18}/></div>
+                              <span className="text-[10px] font-bold">审核中</span>
+                          </div>
+                        )}
+                        {(task.status === 'approved' || task.status === 'completed') && (
+                          <div className="flex flex-col items-center gap-1 text-green-500">
+                              <div className="bg-green-100 p-1.5 rounded-full"><Check size={18}/></div>
+                              <span className="text-[10px] font-bold">已完成</span>
+                          </div>
+                        )}
+                      </>
                     )}
                 </div>
               </div>
