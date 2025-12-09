@@ -135,36 +135,41 @@ export const StatsPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* 分类进度条 */}
+        {/* 分类任务统计 */}
         {categoryStats.length > 0 && (
           <div className="mt-3 bg-white/70 rounded-xl p-3">
-            <div className="text-xs font-bold text-gray-600 mb-2">任务类型分布</div>
-            <div className="flex h-3 rounded-full overflow-hidden bg-gray-100">
-              {categoryStats.map((cat, i) => (
-                <div 
-                  key={cat.category}
-                  className={`${CATEGORY_COLORS[cat.category]?.fill || 'fill-gray-400'} ${
-                    i === 0 ? 'rounded-l-full' : ''
-                  } ${i === categoryStats.length - 1 ? 'rounded-r-full' : ''}`}
-                  style={{ 
-                    width: `${cat.percent}%`,
-                    backgroundColor: CATEGORY_COLORS[cat.category] 
-                      ? undefined 
-                      : '#9ca3af'
-                  }}
-                  title={`${cat.category}: ${cat.percent}%`}
-                />
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-bold text-gray-600">任务类型分布</div>
+              <div className="text-[10px] text-gray-400">
+                共 {categoryStats.reduce((sum, c) => sum + c.count, 0)} 个任务
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {categoryStats.map(cat => (
-                <span 
-                  key={cat.category} 
-                  className={`text-[10px] px-2 py-0.5 rounded-full ${CATEGORY_COLORS[cat.category]?.bg || 'bg-gray-100'} ${CATEGORY_COLORS[cat.category]?.text || 'text-gray-600'}`}
-                >
-                  {cat.category} {cat.percent}%
-                </span>
-              ))}
+            <div className="space-y-2">
+              {categoryStats.map(cat => {
+                const colors = CATEGORY_COLORS[cat.category] || { bg: 'bg-gray-100', text: 'text-gray-600' };
+                const barColor = {
+                  '劳动': 'bg-orange-400',
+                  '学习': 'bg-blue-400',
+                  '兴趣': 'bg-purple-400',
+                  '运动': 'bg-green-400'
+                }[cat.category] || 'bg-gray-400';
+                return (
+                  <div key={cat.category} className="flex items-center gap-2">
+                    <span className={`text-[10px] w-8 font-bold ${colors.text}`}>
+                      {cat.category}
+                    </span>
+                    <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full ${barColor} rounded-full transition-all`}
+                        style={{ width: `${cat.percent}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-gray-500 w-12 text-right">
+                      {cat.count}次 <span className="text-gray-400">{cat.percent}%</span>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -246,10 +251,18 @@ export const StatsPanel: React.FC = () => {
 
                 {/* 最近7天趋势 */}
                 <div className="bg-white rounded-xl p-3">
-                  <div className="text-xs font-bold text-gray-600 mb-2">最近7天金币获得</div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-bold text-gray-600">最近7天金币获得</div>
+                    <div className="text-sm font-black text-indigo-600">
+                      共 {coinTrend.reduce((sum, d) => sum + d.earned, 0)} 💰
+                    </div>
+                  </div>
                   <div className="flex items-end justify-between h-16 gap-1">
                     {coinTrend.map((day, i) => (
                       <div key={i} className="flex-1 flex flex-col items-center">
+                        <div className="text-[8px] text-indigo-600 font-bold mb-0.5">
+                          {day.earned > 0 ? day.earned : ''}
+                        </div>
                         <div 
                           className="w-full bg-gradient-to-t from-indigo-400 to-indigo-300 rounded-t transition-all"
                           style={{ 
@@ -257,7 +270,17 @@ export const StatsPanel: React.FC = () => {
                             minHeight: day.earned > 0 ? '8px' : '2px'
                           }}
                         />
-                        <div className="text-[8px] text-gray-400 mt-1">{day.dayOfWeek}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 日期和周几 */}
+                  <div className="flex justify-between mt-1.5 border-t border-gray-100 pt-1.5">
+                    {coinTrend.map((day, i) => (
+                      <div key={i} className="flex-1 text-center">
+                        <div className="text-[9px] text-gray-500 font-medium">{day.dayOfWeek}</div>
+                        <div className="text-[8px] text-gray-400">
+                          {day.date.slice(5).replace('-', '/')}
+                        </div>
                       </div>
                     ))}
                   </div>
