@@ -144,4 +144,6 @@ const createTables = async () => {
   // 添加新字段
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN privilegeId TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN costType TEXT CHECK(costType IN (\'coins\', \'privilegePoints\')) DEFAULT \'coins\''); } catch (e) {}
+  // 添加物品来源字段 source: shop(商店购买), lottery(抽奖), privilege(特权兑换), savings(储蓄达成)
+  try { await db.run('ALTER TABLE user_inventory ADD COLUMN source TEXT DEFAULT \'shop\''); } catch (e) {}
 };

@@ -451,7 +451,7 @@ export default function ChildTasks() {
             ) : (
               // 历史日期没有记录
               <div className="bg-gradient-to-br from-gray-50 to-slate-50 rounded-2xl p-6 border border-gray-200 text-center">
-                <div className="text-5xl mb-4">📅</div>
+                <div className="text-5xl mb-4">📭</div>
                 <h3 className="font-bold text-lg text-gray-600 mb-2">当日无任务记录</h3>
                 <p className="text-gray-500 text-sm">
                   这一天没有完成或提交过任务

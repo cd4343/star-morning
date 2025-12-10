@@ -96,7 +96,7 @@ export default function ChildWishes() {
   // 兑换特权
   const handleRedeemPrivilege = async (priv: any) => {
       if ((childData.privilegePoints || 0) < priv.cost) {
-          showTip('特权点不足', `你只有 ${childData.privilegePoints || 0} 特权点，无法兑换 ${priv.title}（需要 ${priv.cost} 特权点）。快去完成任务赚取特权点吧！`, '⭐');
+          showTip('特权点不足', `你只有 ${childData.privilegePoints || 0} 特权点，无法兑换 ${priv.title}（需要 ${priv.cost} 特权点）。快去完成任务赚取特权点吧！`, '💎');
           return;
       }
       const confirmed = await confirm({
@@ -282,7 +282,7 @@ export default function ChildWishes() {
         </div>
         <div className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-3 text-white">
           <div className="text-xs opacity-80">特权点</div>
-          <div className="text-2xl font-black">{childData.privilegePoints || 0} ⭐</div>
+          <div className="text-2xl font-black">{childData.privilegePoints || 0} 💎</div>
         </div>
       </div>
       
@@ -364,7 +364,11 @@ export default function ChildWishes() {
                                       {new Date(item.acquiredAt).toLocaleDateString()} 获得
                                   </div>
                                   <div className="text-xs text-gray-400 mt-0.5">
-                                      {item.costType === 'privilegePoints' ? (
+                                      {item.source === 'lottery' ? (
+                                          <span className="text-purple-600">🎰 抽奖获得 (-10💰)</span>
+                                      ) : item.source === 'savings' ? (
+                                          <span className="text-green-600">🎯 储蓄达成</span>
+                                      ) : item.costType === 'privilegePoints' ? (
                                           <span className="text-purple-600">👑 {item.cost} 特权点兑换</span>
                                       ) : item.cost > 0 ? (
                                           <span className="text-yellow-600">💰 {item.cost} 金币兑换</span>
@@ -386,12 +390,15 @@ export default function ChildWishes() {
                                       >
                                           兑现
                                       </button>
-                                      <button 
-                                          onClick={() => handleCancel(item)} 
-                                          className="px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
-                                      >
-                                          <RotateCcw size={12}/> 撤销
-                                      </button>
+                                      {/* 抽奖和储蓄达成物品不可撤销 */}
+                                      {item.source !== 'lottery' && item.source !== 'savings' && (
+                                          <button 
+                                              onClick={() => handleCancel(item)} 
+                                              className="px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
+                                          >
+                                              <RotateCcw size={12}/> 撤销
+                                          </button>
+                                      )}
                                   </>
                               ) : (
                                   <span className={`text-xs font-bold px-2 py-1 rounded ${statusInfo.color} bg-gray-100`}>

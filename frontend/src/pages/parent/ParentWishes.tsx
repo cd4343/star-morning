@@ -559,7 +559,7 @@ export default function ParentWishes() {
         </div>
       </BottomSheet>
 
-      <div className="p-4 space-y-3 overflow-y-auto flex-1">
+      <div className="p-4 pb-20 space-y-3 overflow-y-auto flex-1">
         {/* 快捷模板入口 - 商品和抽奖 */}
         {(viewType === 'shop' || viewType === 'lottery') && filteredList.length > 0 && !showTemplates && (
           <button 
@@ -873,23 +873,23 @@ export default function ParentWishes() {
               }`}>
                   {w.icon}
               </div>
-              <div>
-                <div className="font-bold text-gray-800 flex items-center gap-2">
-                  {w.title}
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-gray-800 truncate">{w.title}</div>
+                <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
                   {/* 稀有度标签 */}
                   {w.type === 'lottery' && w.rarity && RARITY_CONFIG[w.rarity as RarityType] && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${RARITY_CONFIG[w.rarity as RarityType].bgColor} ${RARITY_CONFIG[w.rarity as RarityType].textColor}`}>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap ${RARITY_CONFIG[w.rarity as RarityType].bgColor} ${RARITY_CONFIG[w.rarity as RarityType].textColor}`}>
                       {RARITY_CONFIG[w.rarity as RarityType].emoji} {RARITY_CONFIG[w.rarity as RarityType].label}
                     </span>
                   )}
                   {/* 显示上架状态标记 */}
                   {w.type === 'lottery' && w.isActive && !lotteryEditMode && (
-                    <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-bold">
+                    <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">
                       已上架
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
+                <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
                   {w.type === 'shop' && <span className="bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full">💰 {w.cost} 金币</span>}
                   {w.type === 'savings' && <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">🎯 目标 {w.targetAmount} 金币</span>}
                   {w.type === 'lottery' && (

@@ -1104,8 +1104,18 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
     }
     
     const isToday = targetDate.toISOString().split('T')[0] === today.toISOString().split('T')[0];
+    
+    // 获取孩子数据并计算真实等级
+    const childInfo = await db.get('SELECT * FROM users WHERE id = ?', childId);
+    if (childInfo) {
+        // 等级根据XP实时计算：每100XP升一级
+        childInfo.level = Math.floor((childInfo.xp || 0) / 100) + 1;
+        // maxXp为下一级所需经验 (当前级别 * 100)
+        childInfo.maxXp = childInfo.level * 100;
+    }
+    
     res.json({ 
-        child: await db.get('SELECT * FROM users WHERE id = ?', childId), 
+        child: childInfo, 
         tasks,
         weeklyStats: last7Days,
         viewingDate: targetDate.toISOString().split('T')[0],
@@ -1162,14 +1172,14 @@ app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
     await db.run('BEGIN'); 
     await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id); 
     if(wish.stock>0) await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', wish.id);
-    // 商店商品添加到背包，记录是用金币兑换的
-    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-        randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost, 'coins');
+    // 商店商品添加到背包，记录是用金币兑换的，来源为shop
+    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
+        randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost, 'coins', 'shop');
     await db.run('COMMIT'); 
     res.json({message:'兑换成功！已放入背包'});
 });
 app.get('/api/child/inventory', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM user_inventory WHERE childId = ? ORDER BY acquiredAt DESC', request.user!.id)); });
-// 撤销兑换（退还金币或特权点）
+// 撤销兑换（退还金币或特权点）- 抽奖物品和储蓄达成物品不可撤销
 app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
     const db = getDb();
@@ -1177,6 +1187,9 @@ app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => {
     if (!item) return res.status(404).json({message: '物品不存在'});
     if (item.status === 'cancelled' || item.status === 'returned') return res.status(400).json({message: '已撤销'});
     if (item.status === 'redeemed' || item.status === 'used') return res.status(400).json({message: '已兑现的物品无法撤销'});
+    // 抽奖物品和储蓄达成物品不可撤销
+    if (item.source === 'lottery') return res.status(400).json({message: '抽奖获得的物品无法撤销'});
+    if (item.source === 'savings') return res.status(400).json({message: '储蓄达成的物品无法撤销'});
     
     await db.run('BEGIN');
     await db.run("UPDATE user_inventory SET status = 'cancelled' WHERE id = ?", req.params.id);
@@ -1237,9 +1250,9 @@ app.post('/api/child/savings/deposit', protect, async (req: any, res) => {
     let goalAchieved = false;
     if (newAmount >= savings.targetAmount && (savings.currentAmount || 0) < savings.targetAmount) {
         goalAchieved = true;
-        // 储蓄目标达成，免费获得，cost=0，costType=coins（但实际是免费）
-        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-            randomUUID(), request.user!.id, savings.id, savings.title, savings.icon, 0, 'coins');
+        // 储蓄目标达成，免费获得，cost=0，source='savings'
+        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
+            randomUUID(), request.user!.id, savings.id, savings.title, savings.icon, 0, 'coins', 'savings');
     }
     
     await db.run('COMMIT');
@@ -1274,9 +1287,9 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
         }
         
-        // 抽奖奖品添加到背包，status='unused'（未使用/待兑现），cost=10 记录抽奖消耗
-        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'unused')`, 
-            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 10, 'coins');
+        // 抽奖奖品添加到背包，status='pending'（待兑现），cost=10 记录抽奖消耗，source='lottery'
+        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
+            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 10, 'coins', 'lottery');
         await db.run('COMMIT'); 
         res.json({winner: prize});
     } catch (err) {
@@ -1412,9 +1425,9 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     
     await db.run('BEGIN');
     await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ?', priv.cost, request.user!.id);
-    // 特权添加到背包，记录是用特权点兑换的
-    await db.run(`INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-        randomUUID(), request.user!.id, priv.id, priv.title, '👑', priv.cost, 'privilegePoints');
+    // 特权添加到背包，记录是用特权点兑换的，来源为privilege
+    await db.run(`INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
+        randomUUID(), request.user!.id, priv.id, priv.title, '👑', priv.cost, 'privilegePoints', 'privilege');
     await db.run('COMMIT');
     res.json({ message: '兑换成功！已放入背包' });
 });
