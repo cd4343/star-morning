@@ -411,7 +411,7 @@ export default function ChildTasks() {
       <div>
         <div className="flex items-center justify-between mb-3 px-1">
             <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-              {isToday ? '✅ 今日待办' : `📅 ${selectedDate.slice(5).replace('-', '月')}日`}
+              {isToday ? '✅ 今日待办' : `📋 ${selectedDate.slice(5).replace('-', '月')}日`}
             </h2>
             <div className="text-xs font-bold text-gray-500 bg-white px-3 py-1.5 rounded-full border shadow-sm">
                 {isToday ? '已完成' : '完成'} <span className="text-blue-600 text-sm mx-1">{completedCount}</span> / {tasks.length}
