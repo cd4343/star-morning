@@ -165,7 +165,7 @@ export default function ParentPrivileges() {
             <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" placeholder="简短描述（可选）" value={desc} onChange={e => setDesc(e.target.value)} />
           </div>
           <div>
-            <label className="text-xs text-gray-500 font-bold block mb-1">⭐ 兑换消耗 (特权点)</label>
+            <label className="text-xs text-gray-500 font-bold block mb-1">💎 兑换消耗 (特权点)</label>
             <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" placeholder="1" value={cost} onChange={e => setCost(e.target.value)} />
           </div>
         </div>
@@ -295,7 +295,7 @@ export default function ParentPrivileges() {
                   <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" placeholder="简短描述（可选）" value={desc} onChange={e => setDesc(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-bold block mb-1">⭐ 兑换消耗 (特权点)</label>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">💎 兑换消耗 (特权点)</label>
                   <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" value={cost} onChange={e => setCost(e.target.value)} />
                 </div>
                 <div className="flex gap-3 pt-2">

@@ -237,7 +237,7 @@ export default function ParentTasks() {
             <div className="text-sm font-bold text-gray-700 mb-3">🔄 任务类型</div>
             <div className="flex gap-2 mb-3">
               {[
-                { value: 'daily', label: '每日', icon: '📅', desc: '每天都要完成' },
+                { value: 'daily', label: '每日', icon: '🔁', desc: '每天都要完成' },
                 { value: 'once', label: '单次', icon: '📌', desc: '只在今天' },
                 { value: 'custom', label: '自定义', icon: '⚙️', desc: '选择星期' },
               ].map(opt => (
@@ -358,7 +358,7 @@ export default function ParentTasks() {
             {/* 批量任务类型设置 */}
             <div className="flex gap-1.5">
               {[
-                { value: 'daily', label: '每日', icon: '📅' },
+                { value: 'daily', label: '每日', icon: '🔁' },
                 { value: 'once', label: '单次', icon: '📌' },
                 { value: 'custom', label: '自定义', icon: '⚙️' },
               ].map(opt => (
@@ -441,7 +441,7 @@ export default function ParentTasks() {
                           type === 'once' ? 'bg-amber-100 text-amber-600' :
                           'bg-purple-100 text-purple-600'
                         }`}>
-                          {type === 'daily' ? '📅每日' : type === 'once' ? '📌单次' : `⚙️${customDaysText}`}
+                          {type === 'daily' ? '🔁每日' : type === 'once' ? '📌单次' : `⚙️${customDaysText}`}
                         </span>
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
@@ -507,7 +507,7 @@ export default function ParentTasks() {
                   <div className="text-xs font-bold text-gray-700 mb-2">🔄 任务类型</div>
                   <div className="flex gap-1.5 mb-2">
                     {[
-                      { value: 'daily', label: '每日', icon: '📅' },
+                      { value: 'daily', label: '每日', icon: '🔁' },
                       { value: 'once', label: '单次', icon: '📌' },
                       { value: 'custom', label: '自定义', icon: '⚙️' },
                     ].map(opt => (
