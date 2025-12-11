@@ -82,6 +82,7 @@ export default function ParentWishes() {
   const [title, setTitle] = useState('');
   const [cost, setCost] = useState('');
   const [target, setTarget] = useState('');
+  const [stock, setStock] = useState('99');
   const [icon, setIcon] = useState('🎁');
   const [rarity, setRarity] = useState<RarityType>('common');
 
@@ -99,6 +100,7 @@ export default function ParentWishes() {
   const [editIcon, setEditIcon] = useState('🎁');
   const [editCost, setEditCost] = useState('');
   const [editTarget, setEditTarget] = useState('');
+  const [editStock, setEditStock] = useState('99');
   const [editRarity, setEditRarity] = useState<RarityType>('common');
 
   useEffect(() => { fetchWishes(); }, []);
@@ -120,6 +122,7 @@ export default function ParentWishes() {
       setTitle('');
       setCost('');
       setTarget('');
+      setStock('99');
       setIcon('🎁');
       setRarity('common');
   };
@@ -167,7 +170,7 @@ export default function ParentWishes() {
       cost: +cost, 
       targetAmount: +target, 
       icon, 
-      stock: viewType === 'shop' ? 99 : -1,
+      stock: viewType === 'shop' ? (+stock || 99) : -1,
       weight,
       rarity: viewType === 'lottery' ? rarity : null
     });
@@ -264,6 +267,7 @@ export default function ParentWishes() {
     setEditWeight(wish.weight || 10);
     setEditCost(String(wish.cost || 0));
     setEditTarget(String(wish.targetAmount || 0));
+    setEditStock(String(wish.stock ?? 99));
     setEditRarity(wish.rarity || 'common');
   };
   
@@ -276,7 +280,7 @@ export default function ParentWishes() {
         icon: editIcon,
         cost: +editCost,
         targetAmount: +editTarget,
-        stock: editingWish.stock,
+        stock: editingWish.type === 'shop' ? (+editStock || 99) : editingWish.stock,
         weight: editWeight,
         rarity: editingWish.type === 'lottery' ? editRarity : null
       });
@@ -499,10 +503,17 @@ export default function ParentWishes() {
           </div>
           
           {viewType === 'shop' && (
-            <div>
-              <label className="text-xs text-gray-500 font-bold block mb-1">💰 兑换价格 (金币)</label>
-              <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="30" value={cost} onChange={e => setCost(e.target.value)} />
-            </div>
+            <>
+              <div>
+                <label className="text-xs text-gray-500 font-bold block mb-1">💰 兑换价格 (金币)</label>
+                <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="30" value={cost} onChange={e => setCost(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-bold block mb-1">📦 库存数量</label>
+                <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="99" value={stock} onChange={e => setStock(e.target.value)} />
+                <p className="text-[11px] text-gray-400 mt-1">💡 输入 -1 表示无限库存</p>
+              </div>
+            </>
           )}
           
           {viewType === 'savings' && (
@@ -968,17 +979,29 @@ export default function ParentWishes() {
                 </div>
               </div>
               
-              {/* 商品价格 */}
+              {/* 商品价格和库存 */}
               {editingWish.type === 'shop' && (
-                <div>
-                  <label className="text-xs text-gray-500 font-bold">兑换价格 (金币)</label>
-                  <input 
-                    className="w-full p-2 rounded-lg border mt-1" 
-                    type="number" 
-                    value={editCost} 
-                    onChange={e => setEditCost(e.target.value)} 
-                  />
-                </div>
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold">兑换价格 (金币)</label>
+                    <input 
+                      className="w-full p-2 rounded-lg border mt-1" 
+                      type="number" 
+                      value={editCost} 
+                      onChange={e => setEditCost(e.target.value)} 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold">库存数量</label>
+                    <input 
+                      className="w-full p-2 rounded-lg border mt-1" 
+                      type="number" 
+                      value={editStock} 
+                      onChange={e => setEditStock(e.target.value)} 
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">输入 -1 表示无限库存</p>
+                  </div>
+                </>
               )}
               
               {/* 储蓄目标 */}
