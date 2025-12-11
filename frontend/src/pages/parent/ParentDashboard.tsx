@@ -4,7 +4,7 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell } from 'lucide-react';
+import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
@@ -53,6 +53,12 @@ export default function ParentDashboard() {
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
   const [weekTasks, setWeekTasks] = useState(0);
   
+  // 审核历史日期选择
+  const [historyDate, setHistoryDate] = useState<string>(''); // 空字符串表示最近7天
+  const [historyRecords, setHistoryRecords] = useState<any[]>([]);
+  const [datesWithRecords, setDatesWithRecords] = useState<{date: string, count: number}[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  
   // 审批弹窗状态
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [currentReview, setCurrentReview] = useState<ReviewItem | null>(null);
@@ -64,6 +70,53 @@ export default function ParentDashboard() {
   useEffect(() => {
     fetchDashboard();
   }, []);
+
+  // 当切换到历史tab或日期改变时，获取历史记录
+  useEffect(() => {
+    if (reviewTab === 'history') {
+      fetchReviewHistory(historyDate);
+    }
+  }, [reviewTab, historyDate]);
+
+  const fetchReviewHistory = async (date: string) => {
+    try {
+      setLoadingHistory(true);
+      const params = date ? { date } : {};
+      const res = await api.get('/parent/review-history', { params });
+      if (res.data) {
+        setHistoryRecords(res.data.records || []);
+        setDatesWithRecords(res.data.datesWithRecords || []);
+      }
+    } catch (err) {
+      console.error("Review history fetch error:", err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // 生成最近7天的日期数组
+  const getRecentDates = () => {
+    const dates = [];
+    const today = new Date();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      dates.push({
+        date: d.toISOString().split('T')[0],
+        weekday: ['日', '一', '二', '三', '四', '五', '六'][d.getDay()],
+        day: d.getDate(),
+        month: d.getMonth() + 1,
+        isToday: i === 0
+      });
+    }
+    return dates;
+  };
+
+  // 检查某日期是否有记录
+  const getRecordCount = (date: string) => {
+    const found = datesWithRecords.find(d => d.date === date);
+    return found?.count || 0;
+  };
 
   const fetchDashboard = async () => {
     try {
@@ -179,7 +232,7 @@ export default function ParentDashboard() {
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              <Clock size={14}/> 审核历史 ({recentReviewed.length})
+              <Clock size={14}/> 审核历史 {historyRecords.length > 0 && `(${historyRecords.length})`}
             </button>
           </div>
           
@@ -235,7 +288,61 @@ export default function ParentDashboard() {
           {/* 审核历史列表 */}
           {reviewTab === 'history' && (
             <>
-              {recentReviewed.length > 0 ? recentReviewed.map((item: any) => (
+              {/* 日期选择器 */}
+              <div className="mb-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar size={14} className="text-gray-500" />
+                  <span className="text-xs text-gray-500">选择日期查看记录：</span>
+                  <button 
+                    onClick={() => setHistoryDate('')}
+                    className={`text-xs px-2 py-1 rounded-lg transition-all ${
+                      historyDate === '' 
+                        ? 'bg-green-500 text-white' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    全部
+                  </button>
+                </div>
+                <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
+                  {getRecentDates().map((d) => {
+                    const count = getRecordCount(d.date);
+                    const isSelected = historyDate === d.date;
+                    return (
+                      <button
+                        key={d.date}
+                        onClick={() => setHistoryDate(d.date)}
+                        className={`flex-shrink-0 flex flex-col items-center py-2 px-3 rounded-lg transition-all min-w-[52px] ${
+                          isSelected
+                            ? 'bg-green-500 text-white shadow-md'
+                            : count > 0
+                              ? 'bg-green-50 text-gray-700 hover:bg-green-100 border border-green-200'
+                              : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span className="text-[10px] font-medium">
+                          {d.isToday ? '今天' : `周${d.weekday}`}
+                        </span>
+                        <span className={`text-sm font-bold ${isSelected ? '' : count > 0 ? 'text-gray-800' : ''}`}>
+                          {d.day}
+                        </span>
+                        {count > 0 && (
+                          <span className={`text-[10px] ${isSelected ? 'text-green-100' : 'text-green-600'}`}>
+                            {count}条
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 历史记录列表 */}
+              {loadingHistory ? (
+                <div className="text-center py-8 text-gray-400">
+                  加载中...
+                </div>
+              ) : historyRecords.length > 0 ? historyRecords.map((item: any) => (
                 <Card key={item.id} className={`mb-2 ${item.status === 'approved' ? 'border-green-100 bg-green-50/30' : 'border-orange-100 bg-orange-50/30'}`}>
                   <div className="flex justify-between items-start">
                     <div>
@@ -260,7 +367,7 @@ export default function ParentDashboard() {
                 </Card>
               )) : (
                 <div className="text-center py-8 text-gray-400 bg-gray-50 rounded-xl border-2 border-dashed">
-                  最近7天没有审核记录
+                  {historyDate ? `${historyDate} 没有审核记录` : '最近7天没有审核记录'}
                 </div>
               )}
             </>

@@ -600,6 +600,53 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   });
 });
 
+// 审核历史查询 API - 支持按日期查询
+app.get('/api/parent/review-history', protect, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const familyId = request.user!.familyId;
+  const { date } = req.query; // 格式: YYYY-MM-DD
+  
+  let query = `
+    SELECT te.id, t.title, te.earnedCoins, te.earnedXp, te.status,
+           u.name as childName, te.submittedAt, te.reviewedAt, 
+           te.actualDurationMinutes as actualDuration,
+           date(te.submittedAt) as submitDate
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    JOIN users u ON te.childId = u.id 
+    WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
+  `;
+  
+  const params: any[] = [familyId];
+  
+  if (date) {
+    // 查询指定日期的记录
+    query += ` AND date(te.submittedAt) = ?`;
+    params.push(date);
+  } else {
+    // 默认返回最近7天
+    query += ` AND te.submittedAt >= date('now', '-7 days')`;
+  }
+  
+  query += ` ORDER BY te.submittedAt DESC LIMIT 50`;
+  
+  const records = await db.all(query, ...params);
+  
+  // 获取有审核记录的日期列表（最近30天）
+  const datesWithRecords = await db.all(`
+    SELECT DISTINCT date(te.submittedAt) as date, COUNT(*) as count
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
+    AND te.submittedAt >= date('now', '-30 days')
+    GROUP BY date(te.submittedAt)
+    ORDER BY date DESC
+  `, familyId);
+  
+  res.json({ records, datesWithRecords });
+});
+
 // 详细统计数据 API
 app.get('/api/parent/stats', protect, async (req: any, res) => {
   const request = req as AuthRequest;
