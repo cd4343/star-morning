@@ -390,8 +390,8 @@ export default function ChildWishes() {
                                       >
                                           兑现
                                       </button>
-                                      {/* 抽奖和储蓄达成物品不可撤销 */}
-                                      {item.source !== 'lottery' && item.source !== 'savings' && (
+                                      {/* 抽奖、储蓄达成、免费获得物品不可撤销；cost=0的老数据也不可撤销 */}
+                                      {item.source !== 'lottery' && item.source !== 'savings' && item.cost > 0 && (
                                           <button 
                                               onClick={() => handleCancel(item)} 
                                               className="px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"

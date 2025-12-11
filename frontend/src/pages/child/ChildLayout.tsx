@@ -88,9 +88,9 @@ export default function ChildLayout() {
                       Lv.{childData?.level || 1}
                     </span>
                   </div>
-                  <div className="text-xs text-gray-500 flex gap-2 font-mono">
-                     <span className="flex items-center gap-1"><span className="text-yellow-500">🪙</span> {childData?.coins || 0}</span>
-                     <span className="flex items-center gap-1"><span className="text-purple-500">⭐</span> {childData?.xp || 0}</span>
+                  <div className="text-xs text-gray-500 flex gap-3 font-mono">
+                     <span className="flex items-center gap-0.5"><span className="text-yellow-500">🪙</span><span className="text-yellow-600 font-bold">{childData?.coins || 0}</span><span className="text-[10px] text-gray-400 ml-0.5">金币</span></span>
+                     <span className="flex items-center gap-0.5"><span className="text-blue-500">💎</span><span className="text-blue-600 font-bold">{childData?.privilegePoints || 0}</span><span className="text-[10px] text-gray-400 ml-0.5">特权点</span></span>
                   </div>
                 </div>
               </div>
@@ -101,6 +101,7 @@ export default function ChildLayout() {
             
             {/* 经验进度条 */}
             <div className="mt-2 flex items-center gap-2">
+              <span className="text-[10px] text-purple-500 font-bold whitespace-nowrap">经验</span>
               <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-gradient-to-r from-purple-400 to-indigo-500 rounded-full transition-all duration-500"
@@ -120,9 +121,9 @@ export default function ChildLayout() {
 
           {/* Bottom Nav - 支持安全区域 */}
           <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full flex justify-around py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
-            <NavLink to="/child/tasks" icon={<CheckSquare size={22}/>} label="任务" active={location.pathname.includes('tasks')} />
-            <NavLink to="/child/wishes" icon={<Gift size={22}/>} label="心愿" active={location.pathname.includes('wishes')} />
-            <NavLink to="/child/me" icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
+            <NavLink onClick={() => navigate('/child/tasks')} icon={<CheckSquare size={22}/>} label="任务" active={location.pathname.includes('tasks')} />
+            <NavLink onClick={() => navigate('/child/wishes')} icon={<Gift size={22}/>} label="心愿" active={location.pathname.includes('wishes')} />
+            <NavLink onClick={() => navigate('/child/me')} icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
           </div>
       </div>
 
@@ -186,8 +187,8 @@ export default function ChildLayout() {
   );
 }
 
-const NavLink = ({ to, icon, label, active }: any) => (
-  <div onClick={() => window.location.href = to} className={`flex flex-col items-center gap-1 cursor-pointer transition-all duration-200 ${active ? 'text-blue-600 scale-110 font-bold' : 'hover:text-gray-600'}`}>
+const NavLink = ({ to, icon, label, active, onClick }: any) => (
+  <div onClick={onClick} className={`flex flex-col items-center gap-1 cursor-pointer transition-all duration-200 ${active ? 'text-blue-600 scale-110 font-bold' : 'hover:text-gray-600'}`}>
     {icon}
     <span>{label}</span>
   </div>

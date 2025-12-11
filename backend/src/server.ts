@@ -483,11 +483,57 @@ app.put('/api/parent/family/members/:id', protect, async (req: any, res) => {
     res.json({ message: 'ok' });
 });
 
+// --- 自动审批过期任务（超过24小时未审批的任务自动按设定奖励通过）---
+const autoApproveExpiredTasks = async (db: any, familyId: string) => {
+  // 查找超过24小时的pending任务
+  const expiredEntries = await db.all(`
+    SELECT te.id, te.childId, t.coinReward, t.xpReward
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    WHERE t.familyId = ? AND te.status = 'pending' 
+    AND datetime(te.submittedAt) < datetime('now', '-24 hours')
+  `, familyId);
+  
+  for (const entry of expiredEntries) {
+    // 自动按设定奖励通过
+    const coinsToAward = entry.coinReward;
+    const xpToAward = entry.xpReward;
+    
+    await db.run(
+      "UPDATE task_entries SET status = 'approved', earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ?",
+      coinsToAward, xpToAward, xpToAward, entry.id
+    );
+    
+    // 更新孩子的金币和经验
+    await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', 
+      coinsToAward, xpToAward, entry.childId);
+    
+    // 更新累计奖励经验并计算特权点
+    if (xpToAward > 0) {
+      const child = await db.get('SELECT accumulatedRewardXp, privilegePoints FROM users WHERE id = ?', entry.childId);
+      const newAccumulatedXp = (child.accumulatedRewardXp || 0) + xpToAward;
+      const newPrivilegePoints = Math.floor(newAccumulatedXp / 100);
+      const oldPrivilegePoints = Math.floor((child.accumulatedRewardXp || 0) / 100);
+      const pointsGained = newPrivilegePoints - oldPrivilegePoints;
+      if (pointsGained > 0) {
+        await db.run('UPDATE users SET accumulatedRewardXp = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+          newAccumulatedXp, pointsGained, entry.childId);
+      } else {
+        await db.run('UPDATE users SET accumulatedRewardXp = ? WHERE id = ?', newAccumulatedXp, entry.childId);
+      }
+    }
+  }
+  
+  return expiredEntries.length;
+};
+
 // Parent Dashboard & Features
 app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb(); const familyId = request.user!.familyId;
-  // 注意：不再自动种子数据，种子数据只在创建家庭时执行一次
+  
+  // 自动审批过期任务（超过24小时未审批的任务）
+  await autoApproveExpiredTasks(db, familyId);
   
   // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
   const pendingReviews = await db.all(`
@@ -1179,7 +1225,7 @@ app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
     res.json({message:'兑换成功！已放入背包'});
 });
 app.get('/api/child/inventory', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM user_inventory WHERE childId = ? ORDER BY acquiredAt DESC', request.user!.id)); });
-// 撤销兑换（退还金币或特权点）- 抽奖物品和储蓄达成物品不可撤销
+// 撤销兑换（退还金币或特权点）- 抽奖物品和储蓄达成物品不可撤销，每类商品最多撤销一次
 app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
     const db = getDb();
@@ -1191,8 +1237,28 @@ app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => {
     if (item.source === 'lottery') return res.status(400).json({message: '抽奖获得的物品无法撤销'});
     if (item.source === 'savings') return res.status(400).json({message: '储蓄达成的物品无法撤销'});
     
+    // 检查同类商品是否已撤销过（每类商品最多只能撤销一次）
+    if (item.wishId) {
+        const cancelledSameItem = await db.get(
+            `SELECT id FROM user_inventory WHERE childId = ? AND wishId = ? AND status = 'cancelled'`,
+            request.user!.id, item.wishId
+        );
+        if (cancelledSameItem) {
+            return res.status(400).json({message: '该商品已撤销过一次，不能重复撤销'});
+        }
+    }
+    if (item.privilegeId) {
+        const cancelledSamePriv = await db.get(
+            `SELECT id FROM user_inventory WHERE childId = ? AND privilegeId = ? AND status = 'cancelled'`,
+            request.user!.id, item.privilegeId
+        );
+        if (cancelledSamePriv) {
+            return res.status(400).json({message: '该特权已撤销过一次，不能重复撤销'});
+        }
+    }
+    
     await db.run('BEGIN');
-    await db.run("UPDATE user_inventory SET status = 'cancelled' WHERE id = ?", req.params.id);
+    await db.run("UPDATE user_inventory SET status = 'cancelled', cancelCount = COALESCE(cancelCount, 0) + 1 WHERE id = ?", req.params.id);
     
     // 根据 costType 退还金币或特权点
     const costType = item.costType || 'coins'; // 兼容旧数据，默认为金币
