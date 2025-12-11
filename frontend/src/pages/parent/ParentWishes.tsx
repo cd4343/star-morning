@@ -280,10 +280,11 @@ export default function ParentWishes() {
         weight: editWeight,
         rarity: editingWish.type === 'lottery' ? editRarity : null
       });
+      toast.success('修改成功！');
       setEditingWish(null);
       fetchWishes();
     } catch (e: any) {
-      toast.error('保存失败');
+      toast.error(e.response?.data?.message || '保存失败');
     }
   };
   

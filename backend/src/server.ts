@@ -1206,23 +1206,38 @@ app.get('/api/child/wishes', protect, async (req: any, res) => {
     res.json({ 
         savings: await getDb().get("SELECT * FROM wishes WHERE familyId = ? AND type='savings'", request.user!.familyId), 
         shop: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='shop'", request.user!.familyId), 
-        // 抽奖奖池只返回已上架且有库存的奖品
-        lottery: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery' AND isActive = 1 AND (stock = -1 OR stock > 0)", request.user!.familyId) 
+        // 抽奖奖池只返回已上架且有库存的奖品 (stock = -1 或 NULL 表示无限库存)
+        lottery: await getDb().all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery' AND isActive = 1 AND (stock IS NULL OR stock = -1 OR stock > 0)", request.user!.familyId) 
     }); 
 });
 app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const db = getDb(); const wish = await db.get('SELECT * FROM wishes WHERE id = ?', req.params.id);
-    if (!wish || (wish.stock===0)) return res.status(400).json({message:'库存不足'});
-    const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); if(user.coins<wish.cost) return res.status(400).json({message:'金币不足'});
-    await db.run('BEGIN'); 
-    await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id); 
-    if(wish.stock>0) await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', wish.id);
-    // 商店商品添加到背包，记录是用金币兑换的，来源为shop
-    await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-        randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost, 'coins', 'shop');
-    await db.run('COMMIT'); 
-    res.json({message:'兑换成功！已放入背包'});
+    const db = getDb(); 
+    const wish = await db.get('SELECT * FROM wishes WHERE id = ?', req.params.id);
+    if (!wish) return res.status(404).json({message:'商品不存在'});
+    // stock: null/undefined/负数 表示无限库存，0 表示无库存
+    if (wish.stock === 0) return res.status(400).json({message:'库存不足'});
+    
+    const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); 
+    if(user.coins < wish.cost) return res.status(400).json({message:'金币不足'});
+    
+    try {
+        await db.run('BEGIN'); 
+        await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id); 
+        // 只有 stock > 0 时才减库存（null/-1 表示无限库存）
+        if(wish.stock !== null && wish.stock !== -1 && wish.stock > 0) {
+            await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', wish.id);
+        }
+        // 商店商品添加到背包，记录是用金币兑换的，来源为shop
+        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
+            randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost, 'coins', 'shop');
+        await db.run('COMMIT'); 
+        res.json({message:'兑换成功！已放入背包'});
+    } catch (err) {
+        await db.run('ROLLBACK');
+        console.error('兑换失败:', err);
+        return res.status(500).json({message: '兑换失败，请重试'});
+    }
 });
 app.get('/api/child/inventory', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM user_inventory WHERE childId = ? ORDER BY acquiredAt DESC', request.user!.id)); });
 // 撤销兑换（退还金币或特权点）- 抽奖物品和储蓄达成物品不可撤销，每类商品最多撤销一次
@@ -1331,8 +1346,8 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); 
     if(user.coins < 10) return res.status(400).json({message:'金币不足'});
     
-    // 只获取已上架且有库存的奖品 (stock = -1 表示无限库存)
-    const prizes = await db.all("SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock = -1 OR stock > 0)", request.user!.familyId);
+    // 只获取已上架且有库存的奖品 (stock = -1 或 NULL 表示无限库存，0 表示无库存)
+    const prizes = await db.all("SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock IS NULL OR stock = -1 OR stock > 0)", request.user!.familyId);
     if(prizes.length === 0) return res.status(400).json({message:'奖池空或奖品已抽完'});
     
     // 加权随机算法
@@ -1348,8 +1363,8 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
         await db.run('BEGIN'); 
         await db.run('UPDATE users SET coins = coins - 10 WHERE id = ?', request.user!.id); 
         
-        // 库存 -1 表示无限，不扣减
-        if (prize.stock !== -1) {
+        // 库存 -1 或 NULL 表示无限，不扣减；stock > 0 时扣减
+        if (prize.stock !== null && prize.stock !== -1 && prize.stock > 0) {
             await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
         }
         
