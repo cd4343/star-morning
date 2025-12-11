@@ -902,7 +902,12 @@ export default function ParentWishes() {
                   )}
                 </div>
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
-                  {w.type === 'shop' && <span className="bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full">💰 {w.cost} 金币</span>}
+                  {w.type === 'shop' && (
+                    <>
+                      <span className="bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full">💰 {w.cost} 金币</span>
+                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">📦 库存: {w.stock === -1 || w.stock === null ? '无限' : w.stock}</span>
+                    </>
+                  )}
                   {w.type === 'savings' && <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">🎯 目标 {w.targetAmount} 金币</span>}
                   {w.type === 'lottery' && (
                     <>

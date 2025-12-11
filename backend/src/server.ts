@@ -575,8 +575,21 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     .filter(e => e.status === 'approved')
     .reduce((sum, e) => sum + (e.earnedCoins || 0), 0);
   
+  // 获取最近已审核的任务（最近7天，最多20条）
+  const recentReviewed = await db.all(`
+    SELECT te.id, t.title, te.earnedCoins, te.earnedXp, te.status,
+           u.name as childName, te.submittedAt, te.reviewedAt, te.actualDurationMinutes as actualDuration
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    JOIN users u ON te.childId = u.id 
+    WHERE t.familyId = ? AND te.status IN ('approved', 'rejected') 
+    AND te.submittedAt >= date('now', '-7 days')
+    ORDER BY te.submittedAt DESC
+    LIMIT 20`, familyId);
+  
   res.json({ 
-    pendingReviews, 
+    pendingReviews,
+    recentReviewed,
     stats: { 
       weekTasks: total, 
       weekCompleted: completed,
