@@ -1573,6 +1573,17 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     res.json({ message: '兑换成功！已放入背包' });
 });
 
+// 全局错误处理中间件
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('❌ Express Error:', err.message || err);
+  res.status(500).json({ message: '服务器内部错误，请稍后重试' });
+});
+
+// 404 处理
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ message: '接口不存在' });
+});
+
 // 启动服务器
 console.log('🚀 Starting server initialization...');
 initializeDatabase()

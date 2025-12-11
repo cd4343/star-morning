@@ -4,7 +4,7 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
@@ -49,7 +49,6 @@ export default function ParentDashboard() {
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
-  const [recentReviewed, setRecentReviewed] = useState<any[]>([]);
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
   const [weekTasks, setWeekTasks] = useState(0);
   
@@ -123,7 +122,6 @@ export default function ParentDashboard() {
       const res = await api.get('/parent/dashboard');
       if (res.data) {
           setReviews(res.data.pendingReviews || []);
-          setRecentReviewed(res.data.recentReviewed || []);
           if (res.data.stats) {
               setWeekTasks(res.data.weekTasks || 0);
           }
