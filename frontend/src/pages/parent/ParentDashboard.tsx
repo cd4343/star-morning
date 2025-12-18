@@ -65,10 +65,43 @@ export default function ParentDashboard() {
   const [qualityScore, setQualityScore] = useState(0);
   const [initiativeScore, setInitiativeScore] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  
+  // 惩罚相关状态
+  const [enablePunishment, setEnablePunishment] = useState(false);
+  const [punishmentLevel, setPunishmentLevel] = useState<'mild' | 'moderate' | 'severe'>('mild');
+  const [punishmentReason, setPunishmentReason] = useState('');
+  const [punishmentSettings, setPunishmentSettings] = useState<any>(null);
+  
+  // 任务详情弹窗状态
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [taskDetail, setTaskDetail] = useState<any>(null);
 
   useEffect(() => {
     fetchDashboard();
+    fetchPunishmentSettings();
   }, []);
+  
+  const fetchPunishmentSettings = async () => {
+    try {
+      const res = await api.get('/parent/punishment-settings');
+      console.log('📋 惩罚设置加载:', res.data);
+      setPunishmentSettings(res.data);
+    } catch (err) {
+      console.error('获取惩罚设置失败:', err);
+      // 即使失败也设置为空对象，避免显示错误
+      setPunishmentSettings({ enabled: false });
+    }
+  };
+  
+  // 打开审核弹窗时，确保惩罚设置已加载
+  const handleOpenReview = (review: ReviewItem) => {
+    setCurrentReview(review);
+    setShowReviewModal(true);
+    // 如果惩罚设置未加载，重新加载
+    if (!punishmentSettings) {
+      fetchPunishmentSettings();
+    }
+  };
 
   // 当切换到历史tab或日期改变时，获取历史记录
   useEffect(() => {
@@ -136,7 +169,28 @@ export default function ParentDashboard() {
     setTimeScore(0);
     setQualityScore(0);
     setInitiativeScore(0);
+    setEnablePunishment(false);
+    setPunishmentReason('');
+    setPunishmentLevel('mild');
     setShowReviewModal(true);
+    // 确保惩罚设置已加载
+    if (!punishmentSettings) {
+      fetchPunishmentSettings();
+    }
+  };
+
+  const getPunishmentDeduction = (): number => {
+    if (!enablePunishment || !punishmentSettings || !currentReview) return 0;
+    const reward = currentReview.coinReward;
+    let deduction = 0;
+    if (punishmentLevel === 'mild') {
+      deduction = Math.max(punishmentSettings.mildMin, Math.min(punishmentSettings.mildMax, Math.round(reward * punishmentSettings.mildRate)));
+    } else if (punishmentLevel === 'moderate') {
+      deduction = Math.max(punishmentSettings.moderateMin, Math.min(punishmentSettings.moderateMax, Math.round(reward * punishmentSettings.moderateRate)));
+    } else {
+      deduction = Math.min(punishmentSettings.severeMax, Math.round(reward * punishmentSettings.severeRate) + punishmentSettings.severeExtra);
+    }
+    return deduction;
   };
 
   const calculateFinalCoins = () => {
@@ -144,13 +198,23 @@ export default function ParentDashboard() {
     const baseCoins = currentReview.coinReward;
     const totalBonus = timeScore + qualityScore + initiativeScore;
     const finalCoins = Math.round(baseCoins * (100 + totalBonus) / 100);
-    return Math.max(0, finalCoins); // 不能为负数
+    const punishmentDeduction = getPunishmentDeduction();
+    return Math.max(0, finalCoins - punishmentDeduction); // 不能为负数
   };
 
   const handleApprove = async () => {
     if (!currentReview) return;
+    
+    // 如果启用惩罚但未填写原因
+    if (enablePunishment && punishmentSettings?.requireReason && !punishmentReason.trim()) {
+      toast.error('请填写惩罚原因');
+      return;
+    }
+    
     try {
       setSubmitting(true);
+      
+      // 1. 先审核通过任务
       const res = await api.post(`/parent/review/${currentReview.id}`, { 
         action: 'approve',
         timeScore,
@@ -158,7 +222,31 @@ export default function ParentDashboard() {
         initiativeScore,
         finalCoins: calculateFinalCoins()
       });
+      
+      // 2. 如果启用了惩罚，执行惩罚
+      let punishmentResult: any = null;
+      if (enablePunishment) {
+        try {
+          const punishRes = await api.post(`/parent/task-entries/${currentReview.id}/punish`, {
+            level: punishmentLevel,
+            reason: punishmentReason
+          });
+          punishmentResult = punishRes.data;
+        } catch (punishErr: any) {
+          console.error('执行惩罚失败:', punishErr);
+          toast.error(punishErr.response?.data?.message || '执行惩罚失败');
+        }
+      }
+      
       setShowReviewModal(false);
+      
+      // 重置惩罚状态
+      const savedPunishmentReason = punishmentReason;
+      const savedPunishmentDeduction = getPunishmentDeduction();
+      setEnablePunishment(false);
+      setPunishmentReason('');
+      setPunishmentLevel('mild');
+      
       fetchDashboard();
       
       // 显示详细的奖励信息
@@ -169,6 +257,11 @@ export default function ParentDashboard() {
       message += `🎯 奖励经验：${rewardXpAwarded}`;
       if (privilegePointsAwarded > 0) {
         message += `\n👑 特权点：+${privilegePointsAwarded}（累计奖励经验达到 ${Math.floor((rewardXpAwarded || 0) / 100) * 100} 点）`;
+      }
+      if (enablePunishment && savedPunishmentDeduction > 0) {
+        message += `\n\n🚨 已执行惩罚\n`;
+        message += `扣除金币：-${savedPunishmentDeduction}\n`;
+        message += `惩罚原因：${savedPunishmentReason}`;
       }
       toast.success(message);
     } catch (err) {
@@ -195,6 +288,7 @@ export default function ParentDashboard() {
     }
   };
 
+  // 综合评分加成（不包含惩罚，惩罚是直接扣金币）
   const totalBonus = timeScore + qualityScore + initiativeScore;
 
   return (
@@ -341,7 +435,19 @@ export default function ParentDashboard() {
                   加载中...
                 </div>
               ) : historyRecords.length > 0 ? historyRecords.map((item: any) => (
-                <Card key={item.id} className={`mb-2 ${item.status === 'approved' ? 'border-green-100 bg-green-50/30' : 'border-orange-100 bg-orange-50/30'}`}>
+                <Card 
+                  key={item.id} 
+                  className={`mb-2 cursor-pointer hover:shadow-md transition-all ${item.status === 'approved' ? 'border-green-100 bg-green-50/30' : 'border-orange-100 bg-orange-50/30'}`}
+                  onClick={async () => {
+                    try {
+                      const res = await api.get(`/task-entries/${item.id}`);
+                      setTaskDetail(res.data);
+                      setShowDetailModal(true);
+                    } catch (err) {
+                      console.error('获取任务详情失败:', err);
+                    }
+                  }}
+                >
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold flex items-center gap-2">
@@ -358,6 +464,11 @@ export default function ParentDashboard() {
                       {item.status === 'approved' && (
                         <div className="text-xs text-green-600 mt-1">
                           奖励: {item.earnedCoins} 💰 · {item.earnedXp} ⭐
+                          {item.punishmentDeduction > 0 && (
+                            <span className="text-red-600 ml-2">
+                              惩罚: -{item.punishmentDeduction} 💰
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -420,9 +531,13 @@ export default function ParentDashboard() {
             <Crown size={28} className="text-purple-600"/>
             <span>特权设置</span>
           </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2 col-span-2" onClick={() => navigate('/parent/achievements')}>
+          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/achievements')}>
             <Trophy size={28} className="text-yellow-600"/>
             <span>成就管理</span>
+          </Button>
+          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/punishment')}>
+            <Lock size={28} className="text-orange-600"/>
+            <span>惩罚设置</span>
           </Button>
         </div>
       </div>
@@ -439,7 +554,7 @@ export default function ParentDashboard() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-5" style={{ maxHeight: 'calc(100vh - 200px)' }}>
               {/* 任务信息 */}
               <div className="bg-gray-50 p-4 rounded-xl">
                 <h4 className="font-bold text-lg text-gray-800">{currentReview.title}</h4>
@@ -538,6 +653,79 @@ export default function ParentDashboard() {
                     ))}
                   </div>
                 </div>
+
+                {/* 惩罚选项 - 移到评分区域内 */}
+                {punishmentSettings?.enabled && (
+                  <div className="border-2 border-orange-300 rounded-xl p-4 bg-orange-50">
+                    <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={enablePunishment}
+                        onChange={(e) => setEnablePunishment(e.target.checked)}
+                        className="w-5 h-5 cursor-pointer"
+                      />
+                      <span className="font-bold text-orange-800">🚨 执行惩罚</span>
+                    </label>
+                    
+                    {enablePunishment && (
+                      <div className="space-y-3 animate-fadeIn">
+                        {/* 惩罚等级选择 */}
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">惩罚等级</label>
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPunishmentLevel('mild')}
+                              className={`py-2 px-3 rounded-lg text-sm font-bold transition-all ${
+                                punishmentLevel === 'mild'
+                                  ? 'bg-yellow-500 text-white shadow-lg'
+                                  : 'bg-white text-gray-600 border border-gray-300'
+                              }`}
+                            >
+                              🟡 {punishmentSettings.mildName}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPunishmentLevel('moderate')}
+                              className={`py-2 px-3 rounded-lg text-sm font-bold transition-all ${
+                                punishmentLevel === 'moderate'
+                                  ? 'bg-orange-500 text-white shadow-lg'
+                                  : 'bg-white text-gray-600 border border-gray-300'
+                              }`}
+                            >
+                              🟠 {punishmentSettings.moderateName}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPunishmentLevel('severe')}
+                              className={`py-2 px-3 rounded-lg text-sm font-bold transition-all ${
+                                punishmentLevel === 'severe'
+                                  ? 'bg-red-500 text-white shadow-lg'
+                                  : 'bg-white text-gray-600 border border-gray-300'
+                              }`}
+                            >
+                              🔴 {punishmentSettings.severeName}
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* 惩罚原因 */}
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">
+                            惩罚原因 {punishmentSettings.requireReason && <span className="text-red-500">*</span>}
+                          </label>
+                          <textarea
+                            value={punishmentReason}
+                            onChange={(e) => setPunishmentReason(e.target.value)}
+                            placeholder="请填写惩罚原因，让孩子明白为什么被扣金币..."
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 最终结算 */}
@@ -548,6 +736,11 @@ export default function ParentDashboard() {
                     <div className={`text-2xl font-black ${totalBonus >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {totalBonus > 0 ? `+${totalBonus}%` : `${totalBonus}%`}
                     </div>
+                    {enablePunishment && (
+                      <div className="text-xs text-red-600 mt-1">
+                        惩罚扣分: -{getPunishmentDeduction()} 金币
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-gray-600">最终奖励</div>
@@ -557,7 +750,15 @@ export default function ParentDashboard() {
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 mt-2 text-center">
-                  计算公式：{currentReview.coinReward} × (100% + {totalBonus}%) = {calculateFinalCoins()} 金币
+                  {enablePunishment ? (
+                    <>
+                      计算公式：{currentReview.coinReward} × (100% + {totalBonus}%) - {getPunishmentDeduction()} = {calculateFinalCoins()} 金币
+                    </>
+                  ) : (
+                    <>
+                      计算公式：{currentReview.coinReward} × (100% + {totalBonus}%) = {calculateFinalCoins()} 金币
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -571,8 +772,8 @@ export default function ParentDashboard() {
                 </button>
                 <button 
                   onClick={handleApprove}
-                  disabled={submitting}
-                  className="flex-1 py-3 bg-green-500 font-bold text-white rounded-xl shadow-lg shadow-green-200 hover:bg-green-600 disabled:opacity-50"
+                  disabled={submitting || (enablePunishment && punishmentSettings?.requireReason && !punishmentReason.trim())}
+                  className="flex-1 py-3 bg-green-500 font-bold text-white rounded-xl shadow-lg shadow-green-200 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? '处理中...' : '确认通过'}
                 </button>
@@ -581,6 +782,100 @@ export default function ParentDashboard() {
           </div>
         </div>
       )}
+
+      {/* 任务详情弹窗 */}
+      {showDetailModal && taskDetail && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100vh - 100px)' }}>
+            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-lg">审批详情</h3>
+              <button onClick={() => setShowDetailModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
+                <X size={20} className="text-gray-500"/>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="bg-gray-50 p-4 rounded-xl">
+                <h4 className="font-bold text-lg">{taskDetail.title}</h4>
+                <div className="text-sm text-gray-500 mt-1">{taskDetail.childName} 提交</div>
+                <div className="text-xs text-gray-400 mt-2">
+                  提交时间：{new Date(taskDetail.submittedAt).toLocaleString('zh-CN')}
+                </div>
+                {taskDetail.reviewedAt && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    审核时间：{new Date(taskDetail.reviewedAt).toLocaleString('zh-CN')}
+                  </div>
+                )}
+              </div>
+              
+              <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                <div className="text-sm font-bold text-gray-700 mb-2">奖励信息</div>
+                <div className="flex gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-yellow-600">{taskDetail.earnedCoins || taskDetail.coinReward}</div>
+                    <div className="text-xs text-gray-500">金币</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-blue-600">{taskDetail.earnedXp || taskDetail.xpReward}</div>
+                    <div className="text-xs text-gray-500">经验</div>
+                  </div>
+                </div>
+                {taskDetail.actualDurationMinutes && (
+                  <div className="text-xs text-gray-600 mt-2">
+                    实际用时：{taskDetail.actualDurationMinutes} 分钟
+                  </div>
+                )}
+              </div>
+              
+              {taskDetail.punishment && (
+                <div className="bg-red-50 p-4 rounded-xl border border-red-200">
+                  <div className="text-sm font-bold text-red-700 mb-2">🚨 惩罚信息</div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600">惩罚等级：</span>
+                      <span className="text-sm font-bold text-red-600">
+                        {taskDetail.punishment.level === 'mild' ? '🟡 轻度警告' : 
+                         taskDetail.punishment.level === 'moderate' ? '🟠 中度惩罚' : 
+                         '🔴 严重惩罚'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600">扣除金币：</span>
+                      <span className="text-lg font-black text-red-600">-{taskDetail.punishment.deductedCoins} 💰</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-600">惩罚原因：</span>
+                      <div className="text-sm text-gray-700 mt-1 bg-white p-2 rounded border">
+                        {taskDetail.punishment.reason}
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      执行人：{taskDetail.punishment.parentName} · {new Date(taskDetail.punishment.createdAt).toLocaleString('zh-CN')}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {taskDetail.proof && (
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                  <div className="text-sm font-bold text-gray-700 mb-2">提交证明</div>
+                  <div className="text-sm text-gray-600">{taskDetail.proof}</div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex-shrink-0 p-4 border-t">
+              <button 
+                onClick={() => setShowDetailModal(false)}
+                className="w-full py-3 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <ConfirmDialog />
     </Layout>
   );

@@ -44,6 +44,11 @@ export default function ChildWishes() {
   const [loading, setLoading] = useState(false);
   const [activeGridIndex, setActiveGridIndex] = useState<number | null>(null);
   
+  // 抽奖费用信息
+  const [lotteryInfo, setLotteryInfo] = useState<{todayDrawCount: number, currentCost: number, nextCost: number}>({
+    todayDrawCount: 0, currentCost: 5, nextCost: 10
+  });
+  
   // 过滤背包物品
   const filteredBagItems = bagFilter === 'all' 
     ? bagItems 
@@ -75,6 +80,10 @@ export default function ChildWishes() {
     }
     if (view === 'bag' && bagItems.length === 0) {
       api.get('/child/inventory').then(res => setBagItems(res.data || [])).catch(() => {});
+    }
+    if (view === 'lottery') {
+      // 获取当前抽奖费用信息
+      api.get('/child/lottery/info').then(res => setLotteryInfo(res.data)).catch(() => {});
     }
   }, [view]);
 
@@ -222,8 +231,9 @@ export default function ChildWishes() {
 
   const handleLottery = async () => {
       if (loading) return;
-      if (childData.coins < 10) {
-        showTip('金币不足', `抽奖需要 10 金币，你目前只有 ${childData.coins} 金币。\n快去完成任务赚取更多金币吧！`, '💰');
+      const cost = lotteryInfo.currentCost;
+      if (childData.coins < cost) {
+        showTip('金币不足', `本次抽奖需要 ${cost} 金币，你目前只有 ${childData.coins} 金币。\n快去完成任务赚取更多金币吧！`, '💰');
         return;
       }
       if (lotteryPrizes.length === 0) {
@@ -246,6 +256,15 @@ export default function ChildWishes() {
           // Call Backend
           const res = await api.post('/child/lottery/play');
           const winner = res.data.winner;
+          
+          // 更新抽奖费用信息
+          if (res.data.nextCost) {
+            setLotteryInfo({
+              todayDrawCount: res.data.todayDrawCount,
+              currentCost: res.data.nextCost,
+              nextCost: res.data.nextCost // 会在下次抽奖后更新
+            });
+          }
           
           const winnerIndexInGrid = gridPrizes.findIndex(p => p?.id === winner.id);
           
@@ -513,11 +532,11 @@ export default function ChildWishes() {
                       {/* CENTER BUTTON */}
                       <button 
                           onClick={handleLottery}
-                          disabled={loading || childData.coins < 10}
+                          disabled={loading || childData.coins < lotteryInfo.currentCost}
                           className="bg-gradient-to-b from-purple-500 to-purple-700 hover:from-purple-400 hover:to-purple-600 active:scale-95 transition-all rounded-xl flex flex-col items-center justify-center shadow-[0_4px_0_#4c1d95] text-white disabled:opacity-80 disabled:grayscale z-20"
                       >
                           <div className="font-black text-xl drop-shadow-md">抽奖</div>
-                          <div className="text-[10px] font-bold bg-black/20 px-2 rounded-full mt-1">10💰</div>
+                          <div className="text-[10px] font-bold bg-black/20 px-2 rounded-full mt-1">{lotteryInfo.currentCost}💰</div>
                       </button>
                       
                       <GridItem item={gridPrizes[3]} active={activeGridIndex === 3} />
@@ -528,7 +547,10 @@ export default function ChildWishes() {
               </div>
               
               <div className="mt-8 text-center text-white/60 text-xs bg-black/20 px-4 py-2 rounded-full backdrop-blur-sm">
-                  每次抽奖消耗 10 金币 · 奖品放入背包
+                  {lotteryInfo.todayDrawCount > 0 
+                    ? `今日已抽 ${lotteryInfo.todayDrawCount} 次 · 本次 ${lotteryInfo.currentCost} 金币`
+                    : `首抽 ${lotteryInfo.currentCost} 金币 · 每日递增`
+                  }
               </div>
           </div>
       )}

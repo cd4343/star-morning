@@ -13,6 +13,7 @@ const ParentWishes = lazy(() => import('./pages/parent/ParentWishes'));
 const ParentPrivileges = lazy(() => import('./pages/parent/ParentPrivileges'));
 const ParentFamily = lazy(() => import('./pages/parent/ParentFamily'));
 const ParentAchievements = lazy(() => import('./pages/parent/ParentAchievements'));
+const ParentPunishment = lazy(() => import('./pages/parent/ParentPunishment'));
 const ChildLayout = lazy(() => import('./pages/child/ChildLayout'));
 const ChildTasks = lazy(() => import('./pages/child/ChildTasks'));
 const ChildWishes = lazy(() => import('./pages/child/ChildWishes'));
@@ -74,6 +75,7 @@ function App() {
         <Route path="/parent/privileges" element={<ProtectedRoute><ParentPrivileges /></ProtectedRoute>} />
         <Route path="/parent/family" element={<ProtectedRoute><ParentFamily /></ProtectedRoute>} />
         <Route path="/parent/achievements" element={<ProtectedRoute><ParentAchievements /></ProtectedRoute>} />
+        <Route path="/parent/punishment" element={<ProtectedRoute><ParentPunishment /></ProtectedRoute>} />
 
         {/* Child Routes */}
         <Route path="/child" element={<ProtectedRoute><ChildLayout /></ProtectedRoute>}>

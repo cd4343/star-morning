@@ -148,4 +148,64 @@ const createTables = async () => {
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN source TEXT DEFAULT \'shop\''); } catch (e) {}
   // 添加撤销次数字段，每个商品最多只能撤销一次
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN cancelCount INTEGER DEFAULT 0'); } catch (e) {}
+  
+  // 惩罚设置表
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS punishment_settings (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL UNIQUE,
+      enabled INTEGER DEFAULT 0,
+      
+      mildName TEXT DEFAULT '轻度警告',
+      mildRate REAL DEFAULT 0.3,
+      mildMin INTEGER DEFAULT 2,
+      mildMax INTEGER DEFAULT 10,
+      
+      moderateName TEXT DEFAULT '中度惩罚',
+      moderateRate REAL DEFAULT 0.5,
+      moderateMin INTEGER DEFAULT 5,
+      moderateMax INTEGER DEFAULT 20,
+      
+      severeName TEXT DEFAULT '严重惩罚',
+      severeRate REAL DEFAULT 1.0,
+      severeExtra INTEGER DEFAULT 5,
+      severeMax INTEGER DEFAULT 50,
+      
+      allowNegative INTEGER DEFAULT 1,
+      negativeLimit INTEGER DEFAULT -10,
+      notifyChild INTEGER DEFAULT 1,
+      requireReason INTEGER DEFAULT 1,
+      
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+    )
+  `);
+  
+  // 惩罚记录表
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS punishment_records (
+      id TEXT PRIMARY KEY,
+      taskEntryId TEXT NOT NULL,
+      taskId TEXT NOT NULL,
+      childId TEXT NOT NULL,
+      parentId TEXT NOT NULL,
+      familyId TEXT NOT NULL,
+      
+      level TEXT CHECK(level IN ('mild', 'moderate', 'severe')) NOT NULL,
+      reason TEXT NOT NULL,
+      
+      taskReward INTEGER NOT NULL,
+      deductedCoins INTEGER NOT NULL,
+      balanceBefore INTEGER NOT NULL,
+      balanceAfter INTEGER NOT NULL,
+      
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (taskEntryId) REFERENCES task_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (parentId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+    )
+  `);
 };

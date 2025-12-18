@@ -67,6 +67,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// --- 本地日期工具函数 ---
+/**
+ * 获取本地日期字符串 (YYYY-MM-DD)
+ * 使用本地时区，确保任务在本地午夜00:00重置，而非UTC时间
+ */
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // --- 任务生成函数 ---
 /**
  * 判断任务是否应该在指定日期出现
@@ -75,7 +87,7 @@ app.get('/api/health', (req, res) => {
  */
 const shouldTaskAppearOnDate = (task: any, targetDate: Date): boolean => {
   const dayOfWeek = targetDate.getDay(); // 0=周日, 1=周一, ..., 6=周六
-  const dateStr = targetDate.toISOString().split('T')[0];
+  const dateStr = getLocalDateString(targetDate);
   
   // 新版逻辑：根据 taskType 判断
   if (task.taskType) {
@@ -123,17 +135,18 @@ const shouldTaskAppearOnDate = (task: any, targetDate: Date): boolean => {
  *   这样避免任务"穿越"到创建之前的日期，也避免修改任务类型后历史显示不准确
  */
 const getTasksForDate = async (db: any, familyId: string, childId: string, targetDate: Date = new Date()) => {
-  const dateStr = targetDate.toISOString().split('T')[0];
-  const todayStr = new Date().toISOString().split('T')[0];
+  const dateStr = getLocalDateString(targetDate);
+  const todayStr = getLocalDateString();
   const isToday = dateStr === todayStr;
   
   // 获取该日期的任务完成记录（无论今天还是历史都需要）
   const entries = await db.all(`
     SELECT te.*, t.id as taskId, t.title, t.icon, t.coinReward, t.xpReward, 
-           t.durationMinutes, t.category, t.taskType, t.customDays
+           t.durationMinutes, t.category, t.taskType, t.customDays,
+           (SELECT SUM(pr.deductedCoins) FROM punishment_records pr WHERE pr.taskEntryId = te.id) as punishmentDeduction
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id
-    WHERE te.childId = ? AND date(te.submittedAt) = ?
+    WHERE te.childId = ? AND date(te.submittedAt, 'localtime') = ?
   `, childId, dateStr);
   
   if (isToday) {
@@ -161,6 +174,7 @@ const getTasksForDate = async (db: any, familyId: string, childId: string, targe
         actualDurationMinutes: entry?.actualDurationMinutes,
         submittedAt: entry?.submittedAt,
         reviewedAt: entry?.reviewedAt,
+        punishmentDeduction: entry?.punishmentDeduction || 0,
         canOperate: !entry || entry.status === 'rejected'
       };
     });
@@ -184,6 +198,7 @@ const getTasksForDate = async (db: any, familyId: string, childId: string, targe
       actualDurationMinutes: entry.actualDurationMinutes,
       submittedAt: entry.submittedAt,
       reviewedAt: entry.reviewedAt,
+      punishmentDeduction: entry.punishmentDeduction || 0,
       canOperate: false // 历史任务不可操作
     }));
   }
@@ -225,8 +240,8 @@ const checkAchievements = async (childId: string, db: any) => {
   // 连续天数统计（按类别）
   const getStreakDays = async (category?: string): Promise<number> => {
     const query = category 
-      ? `SELECT DISTINCT DATE(te.submittedAt) as day FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY day DESC`
-      : `SELECT DISTINCT DATE(submittedAt) as day FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY day DESC`;
+      ? `SELECT DISTINCT date(te.submittedAt, 'localtime') as day FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY day DESC`
+      : `SELECT DISTINCT date(submittedAt, 'localtime') as day FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY day DESC`;
     const days = category 
       ? await db.all(query, childId, category)
       : await db.all(query, childId);
@@ -315,8 +330,29 @@ const seedFamilyData = async (familyId: string, db: any) => {
 // Auth
 app.post('/api/auth/login', async (req, res) => { 
     const db = getDb(); 
-    const user = await db.get('SELECT * FROM users WHERE email = ?', req.body.phone); 
-    if (!user || !(await bcrypt.compare(req.body.password, user.password))) return res.status(400).json({ message: '账号或密码错误' }); 
+    const phone = req.body.phone;
+    
+    // 调试日志
+    console.log('🔐 登录请求:', { phone: phone ? `${phone.substring(0, 3)}****${phone.substring(7)}` : 'null' });
+    
+    if (!phone) {
+      return res.status(400).json({ message: '请输入手机号' });
+    }
+    
+    const user = await db.get('SELECT * FROM users WHERE email = ?', phone); 
+    
+    if (!user) {
+      console.log('❌ 用户不存在:', phone);
+      return res.status(400).json({ message: '账号或密码错误' });
+    }
+    
+    const passwordMatch = await bcrypt.compare(req.body.password, user.password);
+    if (!passwordMatch) {
+      console.log('❌ 密码错误:', phone);
+      return res.status(400).json({ message: '账号或密码错误' });
+    }
+    
+    console.log('✅ 登录成功:', { userId: user.id, name: user.name, role: user.role });
     res.json({ token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET), user: { id: user.id, name: user.name, role: user.role, familyId: user.familyId } }); 
 });
 
@@ -483,21 +519,32 @@ app.put('/api/parent/family/members/:id', protect, async (req: any, res) => {
     res.json({ message: 'ok' });
 });
 
-// --- 自动审批过期任务（超过24小时未审批的任务自动按设定奖励通过）---
+// --- 自动审批过期任务（当天00:00:00-23:59:59未审批的任务，按中间档自动审批）---
+// 注意：只自动审批昨天及之前提交的任务，今天的任务需要家长手动审批
 const autoApproveExpiredTasks = async (db: any, familyId: string) => {
-  // 查找超过24小时的pending任务
+  // 获取今天的日期（本地时间）
+  const today = getLocalDateString();
+  
+  // 查找昨天及之前提交但未审批的pending任务（不处理今天的任务）
+  // 使用 date(te.submittedAt, 'localtime') < date('now', 'localtime') 确保只处理过期任务
   const expiredEntries = await db.all(`
-    SELECT te.id, te.childId, t.coinReward, t.xpReward
+    SELECT te.id, te.childId, t.coinReward, t.xpReward, date(te.submittedAt, 'localtime') as submitDate
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     WHERE t.familyId = ? AND te.status = 'pending' 
-    AND datetime(te.submittedAt) < datetime('now', '-24 hours')
+    AND date(te.submittedAt, 'localtime') < date('now', 'localtime')
   `, familyId);
   
+  if (expiredEntries.length > 0) {
+    console.log(`🔄 发现 ${expiredEntries.length} 个过期待审批任务，开始自动审批...`);
+  }
+  
   for (const entry of expiredEntries) {
-    // 自动按设定奖励通过
+    // 自动按中间档审批（综合评分加成 = 0%，即基础奖励）
     const coinsToAward = entry.coinReward;
     const xpToAward = entry.xpReward;
+    
+    console.log(`  ✅ 自动审批任务 ${entry.id}，提交日期：${entry.submitDate}，奖励：${coinsToAward}金币，${xpToAward}经验`);
     
     await db.run(
       "UPDATE task_entries SET status = 'approved', earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ?",
@@ -524,6 +571,10 @@ const autoApproveExpiredTasks = async (db: any, familyId: string) => {
     }
   }
   
+  if (expiredEntries.length > 0) {
+    console.log(`✅ 自动审批完成，共处理 ${expiredEntries.length} 个任务`);
+  }
+  
   return expiredEntries.length;
 };
 
@@ -538,11 +589,39 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
   const pendingReviews = await db.all(`
     SELECT te.id, t.title, t.coinReward, t.xpReward, t.durationMinutes as expectedDuration,
-           u.name as childName, te.submittedAt, te.proof, te.actualDurationMinutes as actualDuration
+           u.name as childName, te.submittedAt, te.proof, te.actualDurationMinutes as actualDuration,
+           date(te.submittedAt, 'localtime') as submitDate
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     JOIN users u ON te.childId = u.id 
-    WHERE t.familyId = ? AND te.status = 'pending' AND t.isEnabled = 1`, familyId);
+    WHERE t.familyId = ? AND te.status = 'pending' AND t.isEnabled = 1
+    ORDER BY te.submittedAt DESC`, familyId);
+  
+  console.log(`📋 家长端查询待审核任务，找到 ${pendingReviews.length} 条记录`);
+  if (pendingReviews.length > 0) {
+    pendingReviews.forEach((r: any) => {
+      console.log(`  - 任务：${r.title}，提交日期：${r.submitDate}，提交时间：${r.submittedAt}`);
+    });
+  }
+  
+  // 调试日志：如果查询结果为空，检查是否有 pending 状态的记录
+  if (pendingReviews.length === 0) {
+    const allPending = await db.all(`
+      SELECT te.id, te.taskId, te.status, t.title, t.isEnabled, t.familyId, date(te.submittedAt, 'localtime') as submitDate
+      FROM task_entries te 
+      LEFT JOIN tasks t ON te.taskId = t.id 
+      WHERE te.status = 'pending'
+      AND EXISTS (SELECT 1 FROM users u WHERE u.id = te.childId AND u.familyId = ?)
+    `, familyId);
+    if (allPending.length > 0) {
+      console.log(`⚠️ 发现 ${allPending.length} 个pending任务但未显示在待审核列表中:`);
+      allPending.forEach((p: any) => {
+        console.log(`  - 任务ID：${p.taskId}，标题：${p.title}，isEnabled：${p.isEnabled}，familyId：${p.familyId}，提交日期：${p.submitDate}`);
+      });
+    } else {
+      console.log('ℹ️ 当前没有待审核任务');
+    }
+  }
   
   // 本周统计 - 使用 LEFT JOIN 确保包含已删除任务的完成记录
   // 这样即使任务被删除（isEnabled = 0），历史统计数据也会保留
@@ -611,7 +690,8 @@ app.get('/api/parent/review-history', protect, async (req: any, res) => {
     SELECT te.id, t.title, te.earnedCoins, te.earnedXp, te.status,
            u.name as childName, te.submittedAt, te.reviewedAt, 
            te.actualDurationMinutes as actualDuration,
-           date(te.submittedAt) as submitDate
+           date(te.submittedAt, 'localtime') as submitDate,
+           (SELECT SUM(pr.deductedCoins) FROM punishment_records pr WHERE pr.taskEntryId = te.id) as punishmentDeduction
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     JOIN users u ON te.childId = u.id 
@@ -622,11 +702,11 @@ app.get('/api/parent/review-history', protect, async (req: any, res) => {
   
   if (date) {
     // 查询指定日期的记录
-    query += ` AND date(te.submittedAt) = ?`;
+    query += ` AND date(te.submittedAt, 'localtime') = ?`;
     params.push(date);
   } else {
     // 默认返回最近7天
-    query += ` AND te.submittedAt >= date('now', '-7 days')`;
+    query += ` AND te.submittedAt >= date('now', '-7 days', 'localtime')`;
   }
   
   query += ` ORDER BY te.submittedAt DESC LIMIT 50`;
@@ -675,7 +755,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   const todayTasks = (await db.get(`
     SELECT COUNT(*) as count FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND DATE(submittedAt) = DATE('now')
+    AND date(submittedAt, 'localtime') = date('now', 'localtime')
   `, ...childIds))?.count || 0;
   
   const weekTasks = (await db.get(`
@@ -697,7 +777,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   
   // === 2. 连续打卡天数 ===
   const taskDays = await db.all(`
-    SELECT DISTINCT DATE(submittedAt) as day 
+    SELECT DISTINCT date(submittedAt, 'localtime') as day 
     FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
     ORDER BY day DESC
@@ -750,7 +830,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   const todayEarned = (await db.get(`
     SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND DATE(submittedAt) = DATE('now')
+    AND date(submittedAt, 'localtime') = date('now', 'localtime')
   `, ...childIds))?.total || 0;
   
   const weekEarned = (await db.get(`
@@ -812,7 +892,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   
   // === 5. 每日平均任务完成数（最近30天）===
   const activeDays = (await db.get(`
-    SELECT COUNT(DISTINCT DATE(submittedAt)) as days 
+    SELECT COUNT(DISTINCT date(submittedAt, 'localtime')) as days 
     FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
     AND submittedAt >= DATE('now', '-30 days')
@@ -822,11 +902,11 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   
   // === 6. 金币趋势（最近7天）===
   const coinTrend = await db.all(`
-    SELECT DATE(submittedAt) as date, COALESCE(SUM(earnedCoins), 0) as earned
+    SELECT date(submittedAt, 'localtime') as date, COALESCE(SUM(earnedCoins), 0) as earned
     FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND submittedAt >= DATE('now', '-7 days')
-    GROUP BY DATE(submittedAt)
+    AND submittedAt >= date('now', '-7 days', 'localtime')
+    GROUP BY date(submittedAt, 'localtime')
     ORDER BY date ASC
   `, ...childIds);
   
@@ -835,7 +915,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = getLocalDateString(d);
     const existing = coinTrend.find(t => t.date === dateStr);
     last7Days.push({
       date: dateStr,
@@ -1008,7 +1088,7 @@ app.post('/api/parent/tasks', protect, async (req: any, res) => {
     const { title, coinReward, xpReward, durationMinutes, category, icon, taskType, customDays } = request.body;
     
     // 获取今天日期（用于单次任务）
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     
     await getDb().run(
         `INSERT INTO tasks (id, familyId, title, coinReward, xpReward, durationMinutes, category, icon, isEnabled, taskType, customDays, validDate) 
@@ -1201,7 +1281,7 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
     const today = new Date(); const last7Days = [];
     for (let i = 6; i >= 0; i--) {
         const d = new Date(today); d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = getLocalDateString(d);
         // 统计当日收入（任务奖励）
         const dayEarned = (await db.get(`SELECT COALESCE(sum(earnedCoins), 0) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt) = ?`, childId, dateStr)).s || 0;
         // 统计当日消耗（商店购买，只统计金币购买的）
@@ -1209,7 +1289,7 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         last7Days.push({ date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent });
     }
     
-    const isToday = targetDate.toISOString().split('T')[0] === today.toISOString().split('T')[0];
+    const isToday = getLocalDateString(targetDate) === getLocalDateString(today);
     
     // 获取孩子数据并计算真实等级
     const childInfo = await db.get('SELECT * FROM users WHERE id = ?', childId);
@@ -1224,7 +1304,7 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         child: childInfo, 
         tasks,
         weeklyStats: last7Days,
-        viewingDate: targetDate.toISOString().split('T')[0],
+        viewingDate: getLocalDateString(targetDate),
         isToday
     });
 });
@@ -1237,29 +1317,43 @@ app.post('/api/child/tasks/:taskId/complete', protect, async (req: any, res) => 
     const now = new Date().toISOString();
     
     // 检查是否有被退回的记录（今天的），如果有则更新而不是新建
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const existingEntry = await db.get(
         `SELECT id FROM task_entries 
          WHERE taskId = ? AND childId = ? AND status = 'rejected' 
-         AND DATE(submittedAt) = ?`,
+         AND date(submittedAt, 'localtime') = ?`,
         taskId, childId, today
     );
     
+    let entryId: string;
+    
     if (existingEntry) {
         // 更新被退回的记录
+        entryId = existingEntry.id;
         await db.run(
             `UPDATE task_entries SET status = 'pending', submittedAt = ?, actualDurationMinutes = ? WHERE id = ?`,
-            now, duration || 0, existingEntry.id
+            now, duration || 0, entryId
         );
+        console.log(`📝 孩子 ${childId} 重新提交任务 ${taskId}，更新记录 ${entryId}`);
     } else {
         // 创建新记录
+        entryId = randomUUID();
         await db.run(
             `INSERT INTO task_entries (id, taskId, childId, status, submittedAt, actualDurationMinutes) VALUES (?, ?, ?, 'pending', ?, ?)`,
-            randomUUID(), taskId, childId, now, duration || 0
+            entryId, taskId, childId, now, duration || 0
         );
+        console.log(`📝 孩子 ${childId} 提交任务 ${taskId}，创建记录 ${entryId}，状态：pending`);
     }
     
-    res.json({ message: 'submitted' });
+    // 验证记录已创建
+    const verifyEntry = await db.get('SELECT id, status, submittedAt FROM task_entries WHERE id = ?', entryId);
+    if (verifyEntry) {
+        console.log(`✅ 任务提交成功，记录ID：${verifyEntry.id}，状态：${verifyEntry.status}，提交时间：${verifyEntry.submittedAt}`);
+    } else {
+        console.error(`❌ 任务提交失败，记录未找到！`);
+    }
+    
+    res.json({ message: 'submitted', entryId });
 });
 app.get('/api/child/wishes', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
@@ -1400,11 +1494,54 @@ app.post('/api/child/savings/deposit', protect, async (req: any, res) => {
     res.json({ message: goalAchieved ? '🎉 目标达成！已放入背包' : '存入成功', newAmount, goalAchieved });
 });
 
+// --- 抽奖费用计算 ---
+// 规则：第1次5金币，第2次10金币，第3次20金币，第4次35金币...
+// 公式：cost(n) = 5 * (1 + n*(n+1)/2)，其中 n = 今日已抽奖次数（从0开始）
+const getLotteryCost = (todayDrawCount: number): number => {
+    const n = todayDrawCount;
+    return 5 * (1 + (n * (n + 1)) / 2);
+};
+
+// 获取抽奖信息（当前费用、今日次数）
+app.get('/api/child/lottery/info', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const today = getLocalDateString();
+    
+    // 统计今日抽奖次数（通过背包中今日获得的抽奖物品数量）
+    // 使用本地时区进行日期比较
+    const todayCount = (await db.get(
+        `SELECT COUNT(*) as count FROM user_inventory 
+         WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, 'localtime') = ?`,
+        request.user!.id, today
+    ))?.count || 0;
+    
+    const currentCost = getLotteryCost(todayCount);
+    const nextCost = getLotteryCost(todayCount + 1);
+    
+    res.json({
+        todayDrawCount: todayCount,
+        currentCost,
+        nextCost
+    });
+});
+
 app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const db = getDb(); 
+    const db = getDb();
+    const today = getLocalDateString();
+    
+    // 统计今日抽奖次数（使用本地时区进行日期比较）
+    const todayCount = (await db.get(
+        `SELECT COUNT(*) as count FROM user_inventory 
+         WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, 'localtime') = ?`,
+        request.user!.id, today
+    ))?.count || 0;
+    
+    const cost = getLotteryCost(todayCount);
+    
     const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); 
-    if(user.coins < 10) return res.status(400).json({message:'金币不足'});
+    if(user.coins < cost) return res.status(400).json({message: `金币不足，本次抽奖需要 ${cost} 金币`});
     
     // 只获取已上架且有库存的奖品 (stock = -1 或 NULL 表示无限库存，0 表示无库存)
     const prizes = await db.all("SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock IS NULL OR stock = -1 OR stock > 0)", request.user!.familyId);
@@ -1421,18 +1558,21 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     
     try {
         await db.run('BEGIN'); 
-        await db.run('UPDATE users SET coins = coins - 10 WHERE id = ?', request.user!.id); 
+        await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', cost, request.user!.id); 
         
         // 库存 -1 或 NULL 表示无限，不扣减；stock > 0 时扣减
         if (prize.stock !== null && prize.stock !== -1 && prize.stock > 0) {
             await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
         }
         
-        // 抽奖奖品添加到背包，status='pending'（待兑现），cost=10 记录抽奖消耗，source='lottery'
+        // 抽奖奖品添加到背包，记录实际消耗的金币
         await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, 10, 'coins', 'lottery');
-        await db.run('COMMIT'); 
-        res.json({winner: prize});
+            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, cost, 'coins', 'lottery');
+        await db.run('COMMIT');
+        
+        // 返回中奖信息和下次抽奖费用
+        const nextCost = getLotteryCost(todayCount + 1);
+        res.json({ winner: prize, cost, nextCost, todayDrawCount: todayCount + 1 });
     } catch (err) {
         await db.run('ROLLBACK');
         console.error('抽奖失败:', err);
@@ -1571,6 +1711,363 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
         randomUUID(), request.user!.id, priv.id, priv.title, '👑', priv.cost, 'privilegePoints', 'privilege');
     await db.run('COMMIT');
     res.json({ message: '兑换成功！已放入背包' });
+});
+
+// ==================== 惩罚系统 API ====================
+
+// 获取家庭的惩罚设置
+app.get('/api/parent/punishment-settings', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const familyId = request.user!.familyId;
+    
+    let settings = await db.get('SELECT * FROM punishment_settings WHERE familyId = ?', familyId);
+    
+    // 如果不存在，创建默认设置
+    if (!settings) {
+        const id = randomUUID();
+        await db.run(`
+            INSERT INTO punishment_settings (
+                id, familyId, enabled,
+                mildName, mildRate, mildMin, mildMax,
+                moderateName, moderateRate, moderateMin, moderateMax,
+                severeName, severeRate, severeExtra, severeMax,
+                allowNegative, negativeLimit, notifyChild, requireReason
+            ) VALUES (?, ?, 0,
+                '轻度警告', 0.3, 2, 10,
+                '中度惩罚', 0.5, 5, 20,
+                '严重惩罚', 1.0, 5, 50,
+                1, -10, 1, 1)
+        `, id, familyId);
+        settings = await db.get('SELECT * FROM punishment_settings WHERE id = ?', id);
+    }
+    
+    res.json(settings);
+});
+
+// 更新惩罚设置
+app.put('/api/parent/punishment-settings', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const familyId = request.user!.familyId;
+    
+    const {
+        enabled, mildName, mildRate, mildMin, mildMax,
+        moderateName, moderateRate, moderateMin, moderateMax,
+        severeName, severeRate, severeExtra, severeMax,
+        allowNegative, negativeLimit, notifyChild, requireReason
+    } = req.body;
+    
+    // 检查设置是否存在
+    const existing = await db.get('SELECT id FROM punishment_settings WHERE familyId = ?', familyId);
+    
+    if (existing) {
+        // 更新现有设置
+        await db.run(`
+            UPDATE punishment_settings SET
+                enabled = ?, mildName = ?, mildRate = ?, mildMin = ?, mildMax = ?,
+                moderateName = ?, moderateRate = ?, moderateMin = ?, moderateMax = ?,
+                severeName = ?, severeRate = ?, severeExtra = ?, severeMax = ?,
+                allowNegative = ?, negativeLimit = ?, notifyChild = ?, requireReason = ?,
+                updatedAt = CURRENT_TIMESTAMP
+            WHERE familyId = ?
+        `, 
+            enabled, mildName, mildRate, mildMin, mildMax,
+            moderateName, moderateRate, moderateMin, moderateMax,
+            severeName, severeRate, severeExtra, severeMax,
+            allowNegative, negativeLimit, notifyChild, requireReason,
+            familyId
+        );
+    } else {
+        // 创建新设置
+        await db.run(`
+            INSERT INTO punishment_settings (
+                id, familyId, enabled,
+                mildName, mildRate, mildMin, mildMax,
+                moderateName, moderateRate, moderateMin, moderateMax,
+                severeName, severeRate, severeExtra, severeMax,
+                allowNegative, negativeLimit, notifyChild, requireReason
+            ) VALUES (?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?)
+        `,
+            randomUUID(), familyId, enabled,
+            mildName, mildRate, mildMin, mildMax,
+            moderateName, moderateRate, moderateMin, moderateMax,
+            severeName, severeRate, severeExtra, severeMax,
+            allowNegative, negativeLimit, notifyChild, requireReason
+        );
+    }
+    
+    res.json({ message: '设置已保存' });
+});
+
+// 惩罚计算辅助函数
+const calculatePunishment = (taskReward: number, level: string, settings: any): number => {
+    let deduction = 0;
+    
+    switch (level) {
+        case 'mild':
+            deduction = Math.round(taskReward * settings.mildRate);
+            deduction = Math.max(settings.mildMin, Math.min(settings.mildMax, deduction));
+            break;
+        case 'moderate':
+            deduction = Math.round(taskReward * settings.moderateRate);
+            deduction = Math.max(settings.moderateMin, Math.min(settings.moderateMax, deduction));
+            break;
+        case 'severe':
+            deduction = Math.round(taskReward * settings.severeRate) + settings.severeExtra;
+            deduction = Math.min(settings.severeMax, deduction);
+            break;
+    }
+    
+    return deduction;
+};
+
+// 获取任务详情（包含惩罚信息）
+app.get('/api/task-entries/:id', protect, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const entryId = req.params.id;
+  
+  // 获取任务条目详情
+  const entry = await db.get(`
+    SELECT te.*, t.title, t.coinReward, t.xpReward, t.durationMinutes, t.familyId,
+           u.name as childName, u.id as childId
+    FROM task_entries te
+    JOIN tasks t ON te.taskId = t.id
+    JOIN users u ON te.childId = u.id
+    WHERE te.id = ?
+  `, entryId);
+  
+  if (!entry) {
+    return res.status(404).json({ message: '任务记录不存在' });
+  }
+  
+  // 检查权限（家长可以看所有家庭成员的任务，孩子只能看自己的）
+  if (request.user!.role === 'child' && entry.childId !== request.user!.id) {
+    return res.status(403).json({ message: '无权访问' });
+  }
+  
+  if (request.user!.role === 'parent' && entry.familyId !== request.user!.familyId) {
+    return res.status(403).json({ message: '无权访问' });
+  }
+  
+  // 获取惩罚记录
+  const punishment = await db.get(`
+    SELECT pr.*, p.name as parentName
+    FROM punishment_records pr
+    JOIN users p ON pr.parentId = p.id
+    WHERE pr.taskEntryId = ?
+  `, entryId);
+  
+  res.json({
+    ...entry,
+    punishment: punishment || null
+  });
+});
+
+// 执行惩罚（任务审核时调用）
+app.post('/api/parent/task-entries/:id/punish', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const entryId = req.params.id;
+    const { level, reason } = req.body; // level: 'mild' | 'moderate' | 'severe'
+    
+    if (!level || !reason) {
+        return res.status(400).json({ message: '缺少惩罚等级或原因' });
+    }
+    
+    if (!['mild', 'moderate', 'severe'].includes(level)) {
+        return res.status(400).json({ message: '无效的惩罚等级' });
+    }
+    
+    // 获取任务条目
+    const entry = await db.get(`
+        SELECT te.*, t.coinReward, t.familyId 
+        FROM task_entries te 
+        JOIN tasks t ON te.taskId = t.id 
+        WHERE te.id = ?
+    `, entryId);
+    
+    if (!entry) {
+        return res.status(404).json({ message: '任务记录不存在' });
+    }
+    
+    if (entry.familyId !== request.user!.familyId) {
+        return res.status(403).json({ message: '无权操作' });
+    }
+    
+    // 获取惩罚设置
+    const settings = await db.get('SELECT * FROM punishment_settings WHERE familyId = ?', entry.familyId);
+    
+    if (!settings || !settings.enabled) {
+        return res.status(400).json({ message: '惩罚功能未启用' });
+    }
+    
+    if (settings.requireReason && !reason.trim()) {
+        return res.status(400).json({ message: '必须填写惩罚原因' });
+    }
+    
+    // 计算扣除金币数
+    const deduction = calculatePunishment(entry.coinReward, level, settings);
+    
+    // 获取孩子当前金币
+    const child = await db.get('SELECT coins FROM users WHERE id = ?', entry.childId);
+    const balanceBefore = child.coins;
+    
+    // 计算扣除后的余额（考虑保护限制）
+    let balanceAfter = balanceBefore - deduction;
+    if (settings.allowNegative) {
+        balanceAfter = Math.max(settings.negativeLimit, balanceAfter);
+    } else {
+        balanceAfter = Math.max(0, balanceAfter);
+    }
+    
+    const actualDeduction = balanceBefore - balanceAfter;
+    
+    try {
+        await db.run('BEGIN');
+        
+        // 扣除金币
+        await db.run('UPDATE users SET coins = ? WHERE id = ?', balanceAfter, entry.childId);
+        
+        // 记录惩罚
+        await db.run(`
+            INSERT INTO punishment_records (
+                id, taskEntryId, taskId, childId, parentId, familyId,
+                level, reason, taskReward, deductedCoins, balanceBefore, balanceAfter
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+            randomUUID(), entry.id, entry.taskId, entry.childId, request.user!.id, entry.familyId,
+            level, reason, entry.coinReward, actualDeduction, balanceBefore, balanceAfter
+        );
+        
+        await db.run('COMMIT');
+        
+        res.json({
+            message: '惩罚已执行',
+            deducted: actualDeduction,
+            balanceAfter,
+            notified: settings.notifyChild
+        });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        console.error('执行惩罚失败:', err);
+        return res.status(500).json({ message: '执行惩罚失败，请重试' });
+    }
+});
+
+// 查询惩罚记录（家长端）
+app.get('/api/parent/punishment-records', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const familyId = request.user!.familyId;
+    const { childId, startDate, endDate, limit = 50 } = req.query;
+    
+    let query = `
+        SELECT pr.*, 
+               u.name as childName, 
+               p.name as parentName,
+               t.title as taskTitle
+        FROM punishment_records pr
+        JOIN users u ON pr.childId = u.id
+        JOIN users p ON pr.parentId = p.id
+        JOIN tasks t ON pr.taskId = t.id
+        WHERE pr.familyId = ?
+    `;
+    
+    const params: any[] = [familyId];
+    
+    if (childId) {
+        query += ' AND pr.childId = ?';
+        params.push(childId);
+    }
+    
+    if (startDate) {
+        query += ' AND date(pr.createdAt) >= ?';
+        params.push(startDate);
+    }
+    
+    if (endDate) {
+        query += ' AND date(pr.createdAt) <= ?';
+        params.push(endDate);
+    }
+    
+    query += ' ORDER BY pr.createdAt DESC LIMIT ?';
+    params.push(parseInt(limit as string, 10));
+    
+    const records = await db.all(query, ...params);
+    res.json(records);
+});
+
+// 查询惩罚记录（孩子端，只能看自己的）
+app.get('/api/child/punishment-records', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const childId = request.user!.id;
+    const { limit = 20 } = req.query;
+    
+    const records = await db.all(`
+        SELECT pr.*, 
+               p.name as parentName,
+               t.title as taskTitle
+        FROM punishment_records pr
+        JOIN users p ON pr.parentId = p.id
+        JOIN tasks t ON pr.taskId = t.id
+        WHERE pr.childId = ?
+        ORDER BY pr.createdAt DESC
+        LIMIT ?
+    `, childId, parseInt(limit as string, 10));
+    
+    res.json(records);
+});
+
+// 惩罚统计（家长端）
+app.get('/api/parent/punishment-stats', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const familyId = request.user!.familyId;
+    
+    // 总惩罚次数
+    const totalCount = (await db.get(
+        'SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ?', 
+        familyId
+    ))?.count || 0;
+    
+    // 本周惩罚次数
+    const weekCount = (await db.get(
+        'SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ? AND createdAt >= date(\'now\', \'-7 days\')', 
+        familyId
+    ))?.count || 0;
+    
+    // 按等级统计
+    const byLevel = await db.all(`
+        SELECT level, COUNT(*) as count, SUM(deductedCoins) as totalDeducted
+        FROM punishment_records
+        WHERE familyId = ?
+        GROUP BY level
+    `, familyId);
+    
+    // 按孩子统计
+    const byChild = await db.all(`
+        SELECT pr.childId, u.name as childName, 
+               COUNT(*) as count, 
+               SUM(pr.deductedCoins) as totalDeducted
+        FROM punishment_records pr
+        JOIN users u ON pr.childId = u.id
+        WHERE pr.familyId = ?
+        GROUP BY pr.childId
+    `, familyId);
+    
+    res.json({
+        totalCount,
+        weekCount,
+        byLevel,
+        byChild
+    });
 });
 
 // 全局错误处理中间件

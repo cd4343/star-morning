@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Flame, TrendingUp, Trophy, Target } from 'lucide-react';
+import { ChevronDown, ChevronUp, Flame, TrendingUp, Trophy, Target, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 
 interface StatsData {
@@ -54,22 +54,34 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; fill: string }
 export const StatsPanel: React.FC = () => {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'coins' | 'achievements'>('overview');
 
   useEffect(() => {
     fetchStats();
+    // 每60秒自动刷新统计数据，确保家长端看到最新的任务完成情况
+    const refreshInterval = setInterval(fetchStats, 60000);
+    return () => clearInterval(refreshInterval);
   }, []);
 
-  const fetchStats = async () => {
+  const fetchStats = async (showLoading = false) => {
     try {
+      if (showLoading) {
+        setRefreshing(true);
+      }
       const res = await api.get('/parent/stats');
       setStats(res.data);
     } catch (e) {
       console.error('获取统计数据失败', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchStats(true);
   };
 
   if (loading) {
@@ -98,10 +110,27 @@ export const StatsPanel: React.FC = () => {
       {/* 头部 - 简要统计 */}
       <div className="p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-800 flex items-center gap-2">
-            <TrendingUp size={18} className="text-indigo-600"/>
-            成长数据
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2">
+              <TrendingUp size={18} className="text-indigo-600"/>
+              成长数据
+            </h3>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className={`p-1.5 rounded-lg transition-all ${
+                refreshing 
+                  ? 'bg-indigo-200 cursor-not-allowed' 
+                  : 'bg-white hover:bg-indigo-100 active:scale-95'
+              }`}
+              title="刷新数据"
+            >
+              <RefreshCw 
+                size={14} 
+                className={`text-indigo-600 ${refreshing ? 'animate-spin' : ''}`}
+              />
+            </button>
+          </div>
           <button 
             onClick={() => setExpanded(!expanded)}
             className="text-xs bg-white/60 text-indigo-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-white transition-colors"

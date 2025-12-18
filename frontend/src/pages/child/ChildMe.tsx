@@ -17,19 +17,38 @@ interface Achievement {
   progress?: number;
 }
 
+interface PunishmentRecord {
+  id: string;
+  level: string;
+  reason: string;
+  deductedCoins: number;
+  taskTitle: string;
+  parentName: string;
+  createdAt: string;
+}
+
 export default function ChildMe() {
   const context = useOutletContext<any>();
   const childData = context?.childData || { coins: 0, xp: 0, level: 1, privilegePoints: 0 };
   const refresh = context?.refresh || (() => {});
   
   const [allAchievements, setAllAchievements] = useState<Achievement[]>([]);
+  const [punishmentRecords, setPunishmentRecords] = useState<PunishmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const achRes = await api.get('/child/all-achievements'); // 获取所有成就（含未解锁）
+        const achRes = await api.get('/child/all-achievements');
         setAllAchievements(achRes.data || []);
+        
+        // 获取惩罚记录（最近5条）
+        try {
+          const punishRes = await api.get('/child/punishment-records', { params: { limit: 5 } });
+          setPunishmentRecords(punishRes.data || []);
+        } catch (punishErr) {
+          console.error('获取惩罚记录失败:', punishErr);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -64,8 +83,68 @@ export default function ChildMe() {
 
   const unlockedCount = allAchievements.filter(a => a.unlocked).length;
 
+  const getLevelEmoji = (level: string) => {
+    switch (level) {
+      case 'mild': return '🟡';
+      case 'moderate': return '🟠';
+      case 'severe': return '🔴';
+      default: return '⚠️';
+    }
+  };
+  
+  const getLevelName = (level: string) => {
+    switch (level) {
+      case 'mild': return '轻度警告';
+      case 'moderate': return '中度惩罚';
+      case 'severe': return '严重惩罚';
+      default: return '惩罚';
+    }
+  };
+
   return (
     <div className="p-4 space-y-6">
+      {/* 惩罚记录提醒 */}
+      {punishmentRecords.length > 0 && (
+        <div>
+          <h2 className="font-bold text-lg mb-3 flex items-center gap-2">
+            <Lock className="text-orange-500" size={20}/> 
+            惩罚记录
+          </h2>
+          <div className="space-y-2">
+            {punishmentRecords.map((record) => (
+              <Card key={record.id} className="p-3 bg-orange-50 border-l-4 border-orange-500">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">{getLevelEmoji(record.level)}</span>
+                      <span className="font-bold text-gray-800">{getLevelName(record.level)}</span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(record.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="text-sm text-gray-600 mb-1">
+                      任务：<span className="font-semibold">{record.taskTitle}</span>
+                    </div>
+                    <div className="text-sm text-gray-700 bg-white p-2 rounded">
+                      <strong>原因：</strong>{record.reason}
+                    </div>
+                  </div>
+                  <div className="text-right ml-3">
+                    <div className="text-2xl font-black text-red-600">
+                      -{record.deductedCoins}
+                    </div>
+                    <div className="text-xs text-gray-500">金币</div>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  {record.parentName} 执行
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+      
       {/* 成就墙 - 显示所有成就（含未解锁） */}
       <div>
         <div className="flex items-center justify-between mb-3">

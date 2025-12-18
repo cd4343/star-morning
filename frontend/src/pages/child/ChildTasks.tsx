@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { PullToRefresh } from '../../components/PullToRefresh';
-import { Check, Clock, Play, X, Pause, Calendar } from 'lucide-react';
+import { Check, Clock, Play, X, Pause, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../../services/api';
 
 interface Task {
@@ -27,13 +27,14 @@ const formatTime = (totalSeconds: number) => {
     return `${m}:${s}`;
 };
 
-// Timer Modal Component - 使用时间戳方案，支持后台运行
+// Timer Modal Component - 使用时间戳方案，支持后台运行，可最小化
 const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: () => void, onComplete: (duration: number) => void }) => {
     const [displaySeconds, setDisplaySeconds] = useState(0);
     const [isActive, setIsActive] = useState(true);
     const [startTime, setStartTime] = useState<number>(Date.now());
     const [pausedDuration, setPausedDuration] = useState(0); // 累计暂停时长
     const [pauseStartTime, setPauseStartTime] = useState<number | null>(null);
+    const [isMinimized, setIsMinimized] = useState(false); // 是否最小化
     const intervalRef = useRef<any>(null);
 
     // 初始化：从 localStorage 恢复状态
@@ -124,65 +125,136 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
         e.stopPropagation();
     };
 
+    // 最小化模式：显示为顶部小条
+    if (isMinimized) {
+        return (
+            <div 
+                className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg"
+                onClick={() => setIsMinimized(false)}
+            >
+                <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-white/20 p-2 rounded-lg">
+                            <Clock size={20} className={isActive ? 'animate-spin' : ''} style={{ animationDuration: '2s' }}/>
+                        </div>
+                        <div>
+                            <div className="text-sm font-bold">{task.title}</div>
+                            <div className={`text-lg font-mono font-bold ${!isActive ? 'text-yellow-300' : ''}`}>
+                                {formatTime(displaySeconds)}
+                            </div>
+                        </div>
+                        {!isActive && (
+                            <span className="text-xs bg-yellow-500/30 px-2 py-1 rounded-full">已暂停</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                togglePause();
+                            }}
+                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                        >
+                            {isActive ? <Pause size={18} /> : <Play size={18} />}
+                        </button>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsMinimized(false);
+                            }}
+                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                        >
+                            <ChevronUp size={18} />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // 完整模式：显示为浮动窗口
     return (
         <div 
-            className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-200"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
             style={{ touchAction: 'none' }}
-            onTouchStart={handleTouchEvent}
-            onTouchMove={handleTouchEvent}
-            onTouchEnd={handleTouchEvent}
         >
-            <div className="text-center mb-12">
-                <h2 className="text-2xl font-bold mb-2">{task.title}</h2>
-                <p className="text-gray-400">建议时长: {task.duration}分钟</p>
-            </div>
-
-            {/* Timer Display */}
-            <div className={`text-8xl font-mono font-bold mb-4 tracking-wider tabular-nums transition-all ${!isActive ? 'text-yellow-400 animate-pulse' : ''}`}>
-                {formatTime(displaySeconds)}
-            </div>
+            {/* 背景遮罩 - 半透明，可点击关闭 */}
+            <div 
+                className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+                onClick={() => setIsMinimized(true)}
+            />
             
-            {!isActive && (
-                <div className="text-yellow-400 text-sm mb-8 flex items-center gap-2">
-                    <Pause size={16} /> 已暂停
-                </div>
-            )}
-            
-            {isActive && (
-                <div className="text-green-400 text-sm mb-8 flex items-center gap-2">
-                    <Play size={16} /> 计时中...
-                </div>
-            )}
-
-            {/* Controls */}
-            <div className="flex flex-col gap-4 w-full max-w-xs">
-                <button 
-                    onClick={handleSubmit}
-                    className="bg-green-500 hover:bg-green-600 text-white py-4 rounded-2xl font-bold text-xl shadow-lg shadow-green-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+            {/* 计时窗口 */}
+            <div 
+                className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 pointer-events-auto animate-in fade-in slide-in-from-bottom-4 duration-300"
+                onTouchStart={handleTouchEvent}
+                onTouchMove={handleTouchEvent}
+                onTouchEnd={handleTouchEvent}
+            >
+                {/* 最小化按钮 */}
+                <button
+                    onClick={() => setIsMinimized(true)}
+                    className="absolute top-3 right-3 p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
                 >
-                    <Check size={24} /> 完成提交
+                    <ChevronDown size={18} />
                 </button>
 
-                <div className="flex gap-4">
-                    <button 
-                        onClick={togglePause}
-                        className={`flex-1 py-4 rounded-xl font-bold flex items-center justify-center gap-2 ${isActive ? 'bg-gray-800 hover:bg-gray-700' : 'bg-yellow-500 hover:bg-yellow-600 text-black'}`}
-                    >
-                        {isActive ? <><Pause/> 暂停</> : <><Play/> 继续</>}
-                    </button>
-                    
-                    <button 
-                        onClick={handleClose}
-                        className="flex-1 bg-red-500/20 hover:bg-red-500/40 text-red-200 py-4 rounded-xl font-bold flex items-center justify-center gap-2"
-                    >
-                        <X /> 放弃
-                    </button>
+                <div className="text-center mb-6">
+                    <h2 className="text-xl font-bold text-gray-800 mb-1">{task.title}</h2>
+                    <p className="text-sm text-gray-500">建议时长: {task.duration}分钟</p>
                 </div>
-            </div>
-            
-            {/* 提示 */}
-            <div className="mt-8 text-xs text-gray-500 text-center max-w-xs">
-                💡 计时器使用时间戳计算，即使切出应用或刷新页面，时间也会继续累计
+
+                {/* Timer Display */}
+                <div className={`text-6xl font-mono font-bold mb-4 tracking-wider tabular-nums text-center transition-all ${!isActive ? 'text-yellow-500 animate-pulse' : 'text-blue-600'}`}>
+                    {formatTime(displaySeconds)}
+                </div>
+                
+                {!isActive && (
+                    <div className="text-yellow-500 text-sm mb-4 flex items-center justify-center gap-2">
+                        <Pause size={16} /> 已暂停
+                    </div>
+                )}
+                
+                {isActive && (
+                    <div className="text-green-500 text-sm mb-4 flex items-center justify-center gap-2">
+                        <Play size={16} /> 计时中...
+                    </div>
+                )}
+
+                {/* Controls */}
+                <div className="flex flex-col gap-3">
+                    <button 
+                        onClick={handleSubmit}
+                        className="bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-green-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+                    >
+                        <Check size={20} /> 完成提交
+                    </button>
+
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={togglePause}
+                            className={`flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${
+                                isActive 
+                                    ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' 
+                                    : 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                            }`}
+                        >
+                            {isActive ? <><Pause size={18}/> 暂停</> : <><Play size={18}/> 继续</>}
+                        </button>
+                        
+                        <button 
+                            onClick={handleClose}
+                            className="flex-1 bg-red-100 hover:bg-red-200 text-red-600 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all"
+                        >
+                            <X size={18} /> 放弃
+                        </button>
+                    </div>
+                </div>
+                
+                {/* 提示 */}
+                <div className="mt-4 text-xs text-gray-400 text-center">
+                    💡 点击背景可最小化，计时器后台继续运行
+                </div>
             </div>
         </div>
     );
@@ -201,6 +273,10 @@ export default function ChildTasks() {
   // 日期选择（用于历史回看）
   const [selectedDate, setSelectedDate] = useState<string>(''); // 空字符串表示今天
   const [isToday, setIsToday] = useState(true);
+  
+  // 任务详情弹窗状态
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [taskDetail, setTaskDetail] = useState<any>(null);
 
   // 恢复进行中的任务
   useEffect(() => {
@@ -461,7 +537,21 @@ export default function ChildTasks() {
           )}
           
           {tasks.map(task => (
-            <Card key={task.id} className={`relative overflow-hidden transition-all border-0 shadow-sm ${task.status === 'approved' ? 'bg-green-50/50' : task.status === 'todo' && !isToday ? 'bg-red-50/30' : 'bg-white'}`}>
+            <Card 
+              key={task.id} 
+              className={`relative overflow-hidden transition-all border-0 shadow-sm cursor-pointer hover:shadow-md ${task.status === 'approved' ? 'bg-green-50/50' : task.status === 'todo' && !isToday ? 'bg-red-50/30' : 'bg-white'}`}
+              onClick={async () => {
+                if (task.status === 'approved' && task.entryId) {
+                  try {
+                    const res = await api.get(`/task-entries/${task.entryId}`);
+                    setTaskDetail(res.data);
+                    setShowDetailModal(true);
+                  } catch (err) {
+                    console.error('获取任务详情失败:', err);
+                  }
+                }
+              }}
+            >
               {/* Status Stripe */}
               <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
                   task.status === 'approved' ? 'bg-green-400' : 
@@ -482,6 +572,9 @@ export default function ChildTasks() {
                         </span>
                         <span className="font-bold text-green-700 bg-green-100 px-2 py-1 rounded-md">+{task.earnedCoins} 💰</span>
                         <span className="font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-md">+{task.earnedXp || task.xp} ⭐</span>
+                        {task.punishmentDeduction > 0 && (
+                          <span className="font-bold text-red-600 bg-red-100 px-2 py-1 rounded-md">-{task.punishmentDeduction} 💰</span>
+                        )}
                       </>
                     ) : (
                       <>
@@ -549,6 +642,98 @@ export default function ChildTasks() {
           ))}
         </div>
       </div>
+      
+      {/* 任务详情弹窗 */}
+      {showDetailModal && taskDetail && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100vh - 100px)' }}>
+            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-lg">任务详情</h3>
+              <button onClick={() => setShowDetailModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
+                <X size={20} className="text-gray-500"/>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="bg-gray-50 p-4 rounded-xl">
+                <h4 className="font-bold text-lg">{taskDetail.title}</h4>
+                <div className="text-xs text-gray-400 mt-2">
+                  提交时间：{new Date(taskDetail.submittedAt).toLocaleString('zh-CN')}
+                </div>
+                {taskDetail.reviewedAt && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    审核时间：{new Date(taskDetail.reviewedAt).toLocaleString('zh-CN')}
+                  </div>
+                )}
+              </div>
+              
+              <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                <div className="text-sm font-bold text-gray-700 mb-2">奖励信息</div>
+                <div className="flex gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-yellow-600">{taskDetail.earnedCoins || taskDetail.coinReward}</div>
+                    <div className="text-xs text-gray-500">金币</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-blue-600">{taskDetail.earnedXp || taskDetail.xpReward}</div>
+                    <div className="text-xs text-gray-500">经验</div>
+                  </div>
+                </div>
+                {taskDetail.actualDurationMinutes && (
+                  <div className="text-xs text-gray-600 mt-2">
+                    实际用时：{taskDetail.actualDurationMinutes} 分钟
+                  </div>
+                )}
+              </div>
+              
+              {taskDetail.punishment && (
+                <div className="bg-red-50 p-4 rounded-xl border border-red-200">
+                  <div className="text-sm font-bold text-red-700 mb-2">🚨 惩罚信息</div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600">惩罚等级：</span>
+                      <span className="text-sm font-bold text-red-600">
+                        {taskDetail.punishment.level === 'mild' ? '🟡 轻度警告' : 
+                         taskDetail.punishment.level === 'moderate' ? '🟠 中度惩罚' : 
+                         '🔴 严重惩罚'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600">扣除金币：</span>
+                      <span className="text-lg font-black text-red-600">-{taskDetail.punishment.deductedCoins} 💰</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-600">惩罚原因：</span>
+                      <div className="text-sm text-gray-700 mt-1 bg-white p-2 rounded border">
+                        {taskDetail.punishment.reason}
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      {taskDetail.punishment.parentName} · {new Date(taskDetail.punishment.createdAt).toLocaleString('zh-CN')}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {taskDetail.proof && (
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                  <div className="text-sm font-bold text-gray-700 mb-2">提交证明</div>
+                  <div className="text-sm text-gray-600">{taskDetail.proof}</div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex-shrink-0 p-4 border-t">
+              <button 
+                onClick={() => setShowDetailModal(false)}
+                className="w-full py-3 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       </PullToRefresh>
     </>
