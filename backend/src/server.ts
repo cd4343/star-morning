@@ -2008,9 +2008,9 @@ app.get('/api/child/punishment-records', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
     const childId = request.user!.id;
-    const { limit = 20 } = req.query;
+    const { limit = 20, timeFilter } = req.query; // timeFilter: 'today' | 'week' | 'month' | 'all'
     
-    const records = await db.all(`
+    let query = `
         SELECT pr.*, 
                p.name as parentName,
                t.title as taskTitle
@@ -2018,11 +2018,91 @@ app.get('/api/child/punishment-records', protect, async (req: any, res) => {
         JOIN users p ON pr.parentId = p.id
         JOIN tasks t ON pr.taskId = t.id
         WHERE pr.childId = ?
-        ORDER BY pr.createdAt DESC
-        LIMIT ?
-    `, childId, parseInt(limit as string, 10));
+    `;
     
+    const params: any[] = [childId];
+    
+    // 时间筛选
+    if (timeFilter === 'today') {
+        query += ` AND date(pr.createdAt, 'localtime') = date('now', 'localtime')`;
+    } else if (timeFilter === 'week') {
+        query += ` AND pr.createdAt >= date('now', '-7 days', 'localtime')`;
+    } else if (timeFilter === 'month') {
+        query += ` AND pr.createdAt >= date('now', '-30 days', 'localtime')`;
+    }
+    // 'all' 不添加时间限制
+    
+    query += ` ORDER BY pr.createdAt DESC LIMIT ?`;
+    params.push(parseInt(limit as string, 10));
+    
+    const records = await db.all(query, ...params);
     res.json(records);
+});
+
+// 惩罚统计（孩子端）
+app.get('/api/child/punishment-stats', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const childId = request.user!.id;
+    
+    // 总惩罚次数
+    const totalCount = (await db.get(
+        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ?', 
+        childId
+    ))?.count || 0;
+    
+    // 总扣除金币
+    const totalDeducted = (await db.get(
+        'SELECT SUM(deductedCoins) as total FROM punishment_records WHERE childId = ?', 
+        childId
+    ))?.total || 0;
+    
+    // 最近7天惩罚次数
+    const weekCount = (await db.get(
+        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND createdAt >= date(\'now\', \'-7 days\', \'localtime\')', 
+        childId
+    ))?.count || 0;
+    
+    // 前7天（8-14天前）惩罚次数（用于趋势对比）
+    const prevWeekCount = (await db.get(
+        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND createdAt >= date(\'now\', \'-14 days\', \'localtime\') AND createdAt < date(\'now\', \'-7 days\', \'localtime\')', 
+        childId
+    ))?.count || 0;
+    
+    // 按等级统计
+    const byLevel = await db.all(`
+        SELECT level, COUNT(*) as count, SUM(deductedCoins) as totalDeducted
+        FROM punishment_records
+        WHERE childId = ?
+        GROUP BY level
+    `, childId);
+    
+    // 最近一次惩罚时间
+    const lastPunishment = await db.get(`
+        SELECT createdAt FROM punishment_records 
+        WHERE childId = ? 
+        ORDER BY createdAt DESC 
+        LIMIT 1
+    `, childId);
+    
+    // 计算距离上次惩罚的天数
+    let daysSinceLastPunishment = null;
+    if (lastPunishment) {
+        const lastDate = new Date(lastPunishment.createdAt);
+        const today = new Date();
+        const diffTime = today.getTime() - lastDate.getTime();
+        daysSinceLastPunishment = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    }
+    
+    res.json({
+        totalCount,
+        totalDeducted,
+        weekCount,
+        prevWeekCount,
+        byLevel,
+        lastPunishmentDate: lastPunishment?.createdAt || null,
+        daysSinceLastPunishment
+    });
 });
 
 // 惩罚统计（家长端）
