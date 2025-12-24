@@ -786,34 +786,43 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   let streakDays = 0;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayStr = getLocalDateString(today);
   
-  for (let i = 0; i < taskDays.length; i++) {
-    const dayDate = new Date(taskDays[i].day);
-    const expectedDate = new Date(today);
-    expectedDate.setDate(expectedDate.getDate() - i);
-    expectedDate.setHours(0, 0, 0, 0);
+  if (taskDays.length > 0) {
+    // 检查今天是否有完成任务
+    const hasTaskToday = taskDays[0].day === todayStr;
+    // 如果今天没完成任务，从昨天开始算（允许当天还未完成的情况）
+    const startOffset = hasTaskToday ? 0 : 1;
     
-    if (dayDate.getTime() === expectedDate.getTime()) {
-      streakDays++;
-    } else if (i === 0 && dayDate.getTime() === expectedDate.getTime() - 86400000) {
-      // 允许昨天开始（今天还没完成任务）
-      streakDays++;
-    } else {
-      break;
+    for (let i = 0; i < taskDays.length; i++) {
+      // 使用字符串比较，避免时区问题
+      const dayStr = taskDays[i].day;
+      const expectedDate = new Date(today);
+      expectedDate.setDate(expectedDate.getDate() - i - startOffset);
+      const expectedStr = getLocalDateString(expectedDate);
+      
+      if (dayStr === expectedStr) {
+        streakDays++;
+      } else {
+        break;
+      }
     }
   }
   
   // 计算历史最长连续天数
   let maxStreakDays = 0;
   let currentStreak = 0;
-  let prevDate: Date | null = null;
+  let prevDateStr: string | null = null;
   
   for (const row of taskDays) {
-    const dayDate = new Date(row.day);
-    if (prevDate === null) {
+    const dayStr = row.day;
+    if (prevDateStr === null) {
       currentStreak = 1;
     } else {
-      const diff = (prevDate.getTime() - dayDate.getTime()) / 86400000;
+      // 解析日期字符串，计算天数差
+      const prevDate = new Date(prevDateStr + 'T00:00:00');
+      const currDate = new Date(dayStr + 'T00:00:00');
+      const diff = (prevDate.getTime() - currDate.getTime()) / 86400000;
       if (diff === 1) {
         currentStreak++;
       } else {
@@ -821,7 +830,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
         currentStreak = 1;
       }
     }
-    prevDate = dayDate;
+    prevDateStr = dayStr;
   }
   maxStreakDays = Math.max(maxStreakDays, currentStreak);
   
