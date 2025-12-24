@@ -645,7 +645,7 @@ export default function ChildTasks() {
       
       {/* 任务详情弹窗 */}
       {showDetailModal && taskDetail && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100vh - 100px)' }}>
             <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
               <h3 className="font-bold text-lg">任务详情</h3>
