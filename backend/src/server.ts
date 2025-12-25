@@ -67,16 +67,43 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// --- 本地日期工具函数 ---
+// --- 北京时间工具函数 ---
+// 强制使用北京时间 (UTC+8)，不依赖服务器本地时区设置
+const BEIJING_OFFSET = 8 * 60; // 北京时间 UTC+8，单位：分钟
+
 /**
- * 获取本地日期字符串 (YYYY-MM-DD)
- * 使用本地时区，确保任务在本地午夜00:00重置，而非UTC时间
+ * 获取北京时间的 Date 对象
+ */
+const getBeijingDate = (date: Date = new Date()): Date => {
+  // 获取 UTC 时间戳，然后加上北京时间偏移
+  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+  return new Date(utc + (BEIJING_OFFSET * 60000));
+};
+
+/**
+ * 获取北京时间日期字符串 (YYYY-MM-DD)
+ * 强制使用 UTC+8，确保任务在北京时间午夜00:00重置
  */
 const getLocalDateString = (date: Date = new Date()): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const beijingDate = getBeijingDate(date);
+  const year = beijingDate.getFullYear();
+  const month = String(beijingDate.getMonth() + 1).padStart(2, '0');
+  const day = String(beijingDate.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+/**
+ * 获取北京时间完整时间字符串 (YYYY-MM-DD HH:MM:SS)
+ */
+const getBeijingTimeString = (date: Date = new Date()): string => {
+  const beijingDate = getBeijingDate(date);
+  const year = beijingDate.getFullYear();
+  const month = String(beijingDate.getMonth() + 1).padStart(2, '0');
+  const day = String(beijingDate.getDate()).padStart(2, '0');
+  const hours = String(beijingDate.getHours()).padStart(2, '0');
+  const minutes = String(beijingDate.getMinutes()).padStart(2, '0');
+  const seconds = String(beijingDate.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
 // --- 任务生成函数 ---
@@ -520,68 +547,81 @@ app.put('/api/parent/family/members/:id', protect, async (req: any, res) => {
 });
 
 // --- 自动审批过期任务（当天00:00:00-23:59:59未审批的任务，按中间档自动审批）---
-// 注意：只自动审批昨天及之前提交的任务，今天的任务需要家长手动审批
+// 注意：只自动审批昨天及之前提交的任务（按北京时间），今天的任务需要家长手动审批
 const autoApproveExpiredTasks = async (db: any, familyId: string) => {
-  // 获取今天的日期（本地时间）
-  const today = getLocalDateString();
-  console.log(`🔄 自动审批检查，今天日期：${today}`);
+  // 获取今天的日期（强制使用北京时间 UTC+8）
+  const todayBeijing = getLocalDateString();
+  const beijingTimeStr = getBeijingTimeString();
+  console.log(`🔄 自动审批检查，北京时间：${beijingTimeStr}，今天日期：${todayBeijing}`);
   
-  // 查找昨天及之前提交但未审批的pending任务（不处理今天的任务）
-  // 使用 date(te.submittedAt, 'localtime') < date('now', 'localtime') 确保只处理过期任务
-  const expiredEntries = await db.all(`
-    SELECT te.id, te.childId, t.coinReward, t.xpReward, te.submittedAt, date(te.submittedAt, 'localtime') as submitDate
-    FROM task_entries te 
-    JOIN tasks t ON te.taskId = t.id 
-    WHERE t.familyId = ? AND te.status = 'pending' 
-    AND date(te.submittedAt, 'localtime') < date('now', 'localtime')
-  `, familyId);
-  
-  // 调试：显示所有 pending 任务
-  const allPendingForDebug = await db.all(`
-    SELECT te.id, te.submittedAt, date(te.submittedAt, 'localtime') as submitDate, t.title
+  // 获取所有待审核任务，然后在 Node.js 中判断是否过期
+  // 这样可以避免依赖 SQLite 的 localtime 设置
+  const allPendingEntries = await db.all(`
+    SELECT te.id, te.childId, t.coinReward, t.xpReward, te.submittedAt, t.title
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     WHERE t.familyId = ? AND te.status = 'pending'
   `, familyId);
-  console.log(`📊 当前所有 pending 任务 (${allPendingForDebug.length} 个):`);
-  allPendingForDebug.forEach((p: any) => {
-    const isExpired = p.submitDate < today;
-    console.log(`  - ID:${p.id.substring(0,8)}，标题:${p.title}，提交时间:${p.submittedAt}，提交日期:${p.submitDate}，${isExpired ? '将被自动审批' : '今天的任务，保留'}`);
+  
+  console.log(`📊 当前所有 pending 任务 (${allPendingEntries.length} 个):`);
+  
+  // 筛选出需要自动审批的过期任务（提交日期在今天之前的）
+  const expiredEntries = allPendingEntries.filter((p: any) => {
+    // 解析 ISO 时间字符串，获取北京时间日期
+    const submitDate = new Date(p.submittedAt);
+    const submitDateBeijing = getLocalDateString(submitDate);
+    const isExpired = submitDateBeijing < todayBeijing;
+    console.log(`  - ID:${p.id.substring(0,8)}，标题:${p.title}，提交时间(UTC):${p.submittedAt}，北京日期:${submitDateBeijing}，${isExpired ? '【过期-将自动审批】' : '【今天-保留待审】'}`);
+    return isExpired;
   });
   
   if (expiredEntries.length > 0) {
     console.log(`🔄 发现 ${expiredEntries.length} 个过期待审批任务，开始自动审批...`);
+  } else {
+    console.log(`✅ 没有过期任务需要自动审批`);
   }
   
   for (const entry of expiredEntries) {
     // 自动按中间档审批（综合评分加成 = 0%，即基础奖励）
     const coinsToAward = entry.coinReward;
     const xpToAward = entry.xpReward;
+    const submitDateBeijing = getLocalDateString(new Date(entry.submittedAt));
     
-    console.log(`  ✅ 自动审批任务 ${entry.id}，提交日期：${entry.submitDate}，奖励：${coinsToAward}金币，${xpToAward}经验`);
+    console.log(`  ✅ 自动审批任务 ${entry.id}，提交日期(北京时间)：${submitDateBeijing}，奖励：${coinsToAward}金币，${xpToAward}经验`);
     
-    await db.run(
-      "UPDATE task_entries SET status = 'approved', earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ?",
-      coinsToAward, xpToAward, xpToAward, entry.id
-    );
-    
-    // 更新孩子的金币和经验
-    await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', 
-      coinsToAward, xpToAward, entry.childId);
-    
-    // 更新累计奖励经验并计算特权点
-    if (xpToAward > 0) {
-      const child = await db.get('SELECT accumulatedRewardXp, privilegePoints FROM users WHERE id = ?', entry.childId);
-      const newAccumulatedXp = (child.accumulatedRewardXp || 0) + xpToAward;
-      const newPrivilegePoints = Math.floor(newAccumulatedXp / 100);
-      const oldPrivilegePoints = Math.floor((child.accumulatedRewardXp || 0) / 100);
-      const pointsGained = newPrivilegePoints - oldPrivilegePoints;
-      if (pointsGained > 0) {
-        await db.run('UPDATE users SET accumulatedRewardXp = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-          newAccumulatedXp, pointsGained, entry.childId);
-      } else {
-        await db.run('UPDATE users SET accumulatedRewardXp = ? WHERE id = ?', newAccumulatedXp, entry.childId);
+    try {
+      await db.run(
+        "UPDATE task_entries SET status = 'approved', earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ?",
+        coinsToAward, xpToAward, xpToAward, entry.id
+      );
+      
+      // 更新孩子的金币和经验
+      await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', 
+        coinsToAward, xpToAward, entry.childId);
+      
+      // 更新累计奖励经验并计算特权点（如果列存在）
+      if (xpToAward > 0) {
+        try {
+          const child = await db.get('SELECT rewardXpTotal, privilegePoints FROM users WHERE id = ?', entry.childId);
+          if (child && child.rewardXpTotal !== undefined) {
+            const newAccumulatedXp = (child.rewardXpTotal || 0) + xpToAward;
+            const newPrivilegePoints = Math.floor(newAccumulatedXp / 100);
+            const oldPrivilegePoints = Math.floor((child.rewardXpTotal || 0) / 100);
+            const pointsGained = newPrivilegePoints - oldPrivilegePoints;
+            if (pointsGained > 0) {
+              await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+                newAccumulatedXp, pointsGained, entry.childId);
+            } else {
+              await db.run('UPDATE users SET rewardXpTotal = ? WHERE id = ?', newAccumulatedXp, entry.childId);
+            }
+          }
+        } catch (e) {
+          // rewardXpTotal 列可能不存在，忽略错误
+          console.log(`  ⚠️ 跳过累计经验更新（列可能不存在）`);
+        }
       }
+    } catch (error) {
+      console.error(`  ❌ 自动审批任务 ${entry.id} 失败:`, error);
     }
   }
   
@@ -752,6 +792,9 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   const db = getDb();
   const familyId = request.user!.familyId;
   
+  // 使用北京时间计算日期（不依赖服务器本地时区）
+  const todayBeijing = getLocalDateString();
+  
   // 获取家庭中的所有孩子
   const children = await db.all('SELECT id, name, coins, xp FROM users WHERE familyId = ? AND role = "child"', familyId);
   
@@ -771,54 +814,66 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   const childIdPlaceholders = childIds.map(() => '?').join(',');
   
   // === 1. 任务完成数统计 ===
-  const todayTasks = (await db.get(`
-    SELECT COUNT(*) as count FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND date(submittedAt, 'localtime') = date('now', 'localtime')
-  `, ...childIds))?.count || 0;
-  
-  const weekTasks = (await db.get(`
-    SELECT COUNT(*) as count FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND submittedAt >= DATE('now', '-7 days')
-  `, ...childIds))?.count || 0;
-  
-  const monthTasks = (await db.get(`
-    SELECT COUNT(*) as count FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND submittedAt >= DATE('now', '-30 days')
-  `, ...childIds))?.count || 0;
-  
-  const totalTasks = (await db.get(`
-    SELECT COUNT(*) as count FROM task_entries 
+  // 使用 Node.js 计算的北京时间日期作为参数，避免依赖 SQLite localtime
+  const allApprovedEntries = await db.all(`
+    SELECT submittedAt FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
-  `, ...childIds))?.count || 0;
-  
-  // === 2. 连续打卡天数 ===
-  const taskDays = await db.all(`
-    SELECT DISTINCT date(submittedAt, 'localtime') as day 
-    FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    ORDER BY day DESC
   `, ...childIds);
   
+  // 在 Node.js 中计算各时间段的任务数
+  let todayTasks = 0, weekTasks = 0, monthTasks = 0;
+  const totalTasks = allApprovedEntries.length;
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  
+  for (const entry of allApprovedEntries) {
+    const submitDate = new Date(entry.submittedAt);
+    const submitDateBeijing = getLocalDateString(submitDate);
+    
+    if (submitDateBeijing === todayBeijing) {
+      todayTasks++;
+    }
+    if (submitDate >= weekAgo) {
+      weekTasks++;
+    }
+    if (submitDate >= monthAgo) {
+      monthTasks++;
+    }
+  }
+  
+  // === 2. 连续打卡天数 ===
+  // 使用 Node.js 计算北京时间日期，避免依赖 SQLite localtime
+  const allApprovedEntriesForStreak = await db.all(`
+    SELECT submittedAt FROM task_entries 
+    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
+  `, ...childIds);
+  
+  // 在 Node.js 中计算每个任务的北京时间日期
+  const taskDaysSet = new Set<string>();
+  for (const entry of allApprovedEntriesForStreak) {
+    const submitDate = new Date(entry.submittedAt);
+    const submitDateBeijing = getLocalDateString(submitDate);
+    taskDaysSet.add(submitDateBeijing);
+  }
+  // 转换为数组并排序（降序）
+  const taskDays = Array.from(taskDaysSet).sort((a, b) => b.localeCompare(a));
+  
   let streakDays = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = getLocalDateString(today);
+  const todayStr = todayBeijing;
   
   if (taskDays.length > 0) {
     // 检查今天是否有完成任务
-    const hasTaskToday = taskDays[0].day === todayStr;
+    const hasTaskToday = taskDays[0] === todayStr;
     // 如果今天没完成任务，从昨天开始算（允许当天还未完成的情况）
     const startOffset = hasTaskToday ? 0 : 1;
     
     for (let i = 0; i < taskDays.length; i++) {
-      // 使用字符串比较，避免时区问题
-      const dayStr = taskDays[i].day;
-      const expectedDate = new Date(today);
+      const dayStr = taskDays[i];
+      // 计算期望日期（北京时间）
+      const expectedDate = getBeijingDate();
       expectedDate.setDate(expectedDate.getDate() - i - startOffset);
-      const expectedStr = getLocalDateString(expectedDate);
+      const expectedStr = getLocalDateString(new Date(expectedDate.getTime() - BEIJING_OFFSET * 60000 + new Date().getTimezoneOffset() * 60000));
       
       if (dayStr === expectedStr) {
         streakDays++;
@@ -833,8 +888,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   let currentStreak = 0;
   let prevDateStr: string | null = null;
   
-  for (const row of taskDays) {
-    const dayStr = row.day;
+  for (const dayStr of taskDays) {
     if (prevDateStr === null) {
       currentStreak = 1;
     } else {
@@ -854,53 +908,53 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   maxStreakDays = Math.max(maxStreakDays, currentStreak);
   
   // === 3. 金币获得/消耗统计 ===
-  // 获得金币（从任务奖励）
-  const todayEarned = (await db.get(`
-    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND date(submittedAt, 'localtime') = date('now', 'localtime')
-  `, ...childIds))?.total || 0;
-  
-  const weekEarned = (await db.get(`
-    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND submittedAt >= DATE('now', '-7 days')
-  `, ...childIds))?.total || 0;
-  
-  const monthEarned = (await db.get(`
-    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
-    WHERE childId IN (${childIdPlaceholders}) AND status = 'approved' 
-    AND submittedAt >= DATE('now', '-30 days')
-  `, ...childIds))?.total || 0;
-  
-  const totalEarned = (await db.get(`
-    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries 
+  // 使用已经获取的任务数据计算金币统计
+  const allApprovedEntriesWithCoins = await db.all(`
+    SELECT submittedAt, earnedCoins FROM task_entries 
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
-  `, ...childIds))?.total || 0;
+  `, ...childIds);
   
-  // 消耗金币（从背包记录，只统计用金币购买的，排除已撤销的记录）
-  const todaySpent = (await db.get(`
-    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
-    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
-    AND status != 'cancelled' AND DATE(acquiredAt) = DATE('now')
-  `, ...childIds))?.total || 0;
+  let todayEarned = 0, weekEarned = 0, monthEarned = 0, totalEarned = 0;
+  for (const entry of allApprovedEntriesWithCoins) {
+    const coins = entry.earnedCoins || 0;
+    const submitDate = new Date(entry.submittedAt);
+    const submitDateBeijing = getLocalDateString(submitDate);
+    
+    totalEarned += coins;
+    if (submitDateBeijing === todayBeijing) {
+      todayEarned += coins;
+    }
+    if (submitDate >= weekAgo) {
+      weekEarned += coins;
+    }
+    if (submitDate >= monthAgo) {
+      monthEarned += coins;
+    }
+  }
   
-  const weekSpent = (await db.get(`
-    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
-    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
-    AND status != 'cancelled' AND acquiredAt >= DATE('now', '-7 days')
-  `, ...childIds))?.total || 0;
-  
-  const monthSpent = (await db.get(`
-    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
-    WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' 
-    AND status != 'cancelled' AND acquiredAt >= DATE('now', '-30 days')
-  `, ...childIds))?.total || 0;
-  
-  const totalSpent = (await db.get(`
-    SELECT COALESCE(SUM(cost), 0) as total FROM user_inventory 
+  // 消耗金币统计（使用 Node.js 处理日期）
+  const allInventory = await db.all(`
+    SELECT acquiredAt, cost FROM user_inventory 
     WHERE childId IN (${childIdPlaceholders}) AND costType = 'coins' AND status != 'cancelled'
-  `, ...childIds))?.total || 0;
+  `, ...childIds);
+  
+  let todaySpent = 0, weekSpent = 0, monthSpent = 0, totalSpent = 0;
+  for (const item of allInventory) {
+    const cost = item.cost || 0;
+    const acquiredDate = new Date(item.acquiredAt);
+    const acquiredDateBeijing = getLocalDateString(acquiredDate);
+    
+    totalSpent += cost;
+    if (acquiredDateBeijing === todayBeijing) {
+      todaySpent += cost;
+    }
+    if (acquiredDate >= weekAgo) {
+      weekSpent += cost;
+    }
+    if (acquiredDate >= monthAgo) {
+      monthSpent += cost;
+    }
+  }
   
   // === 4. 分类任务完成比例 ===
   const categoryStats = await db.all(`
