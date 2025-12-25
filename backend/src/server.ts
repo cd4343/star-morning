@@ -524,16 +524,30 @@ app.put('/api/parent/family/members/:id', protect, async (req: any, res) => {
 const autoApproveExpiredTasks = async (db: any, familyId: string) => {
   // 获取今天的日期（本地时间）
   const today = getLocalDateString();
+  console.log(`🔄 自动审批检查，今天日期：${today}`);
   
   // 查找昨天及之前提交但未审批的pending任务（不处理今天的任务）
   // 使用 date(te.submittedAt, 'localtime') < date('now', 'localtime') 确保只处理过期任务
   const expiredEntries = await db.all(`
-    SELECT te.id, te.childId, t.coinReward, t.xpReward, date(te.submittedAt, 'localtime') as submitDate
+    SELECT te.id, te.childId, t.coinReward, t.xpReward, te.submittedAt, date(te.submittedAt, 'localtime') as submitDate
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     WHERE t.familyId = ? AND te.status = 'pending' 
     AND date(te.submittedAt, 'localtime') < date('now', 'localtime')
   `, familyId);
+  
+  // 调试：显示所有 pending 任务
+  const allPendingForDebug = await db.all(`
+    SELECT te.id, te.submittedAt, date(te.submittedAt, 'localtime') as submitDate, t.title
+    FROM task_entries te 
+    JOIN tasks t ON te.taskId = t.id 
+    WHERE t.familyId = ? AND te.status = 'pending'
+  `, familyId);
+  console.log(`📊 当前所有 pending 任务 (${allPendingForDebug.length} 个):`);
+  allPendingForDebug.forEach((p: any) => {
+    const isExpired = p.submitDate < today;
+    console.log(`  - ID:${p.id.substring(0,8)}，标题:${p.title}，提交时间:${p.submittedAt}，提交日期:${p.submitDate}，${isExpired ? '将被自动审批' : '今天的任务，保留'}`);
+  });
   
   if (expiredEntries.length > 0) {
     console.log(`🔄 发现 ${expiredEntries.length} 个过期待审批任务，开始自动审批...`);
@@ -582,6 +596,11 @@ const autoApproveExpiredTasks = async (db: any, familyId: string) => {
 app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb(); const familyId = request.user!.familyId;
+  
+  // 调试：输出当前时间信息
+  const serverNow = new Date();
+  const localDateStr = getLocalDateString();
+  console.log(`🕐 服务器时间：${serverNow.toISOString()}，本地日期：${localDateStr}，familyId：${familyId}`);
   
   // 自动审批过期任务（超过24小时未审批的任务）
   await autoApproveExpiredTasks(db, familyId);
