@@ -264,31 +264,45 @@ const checkAchievements = async (childId: string, db: any) => {
   const categoryCountMap: Record<string, number> = {};
   categoryStats.forEach((s: any) => { categoryCountMap[s.category] = s.count; });
   
-  // 连续天数统计（按类别）
+  // 连续天数统计（按类别）- 使用北京时间
   const getStreakDays = async (category?: string): Promise<number> => {
+    // 获取所有已完成任务的提交时间
     const query = category 
-      ? `SELECT DISTINCT date(te.submittedAt, 'localtime') as day FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY day DESC`
-      : `SELECT DISTINCT date(submittedAt, 'localtime') as day FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY day DESC`;
-    const days = category 
+      ? `SELECT DISTINCT te.submittedAt FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY te.submittedAt DESC`
+      : `SELECT DISTINCT submittedAt FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY submittedAt DESC`;
+    const entries = category 
       ? await db.all(query, childId, category)
       : await db.all(query, childId);
     
+    if (entries.length === 0) return 0;
+    
+    // 转换为北京时间日期字符串并去重
+    const daysSet = new Set<string>();
+    for (const entry of entries) {
+      const submitDate = new Date(entry.submittedAt);
+      const beijingDateStr = getLocalDateString(submitDate);
+      daysSet.add(beijingDateStr);
+    }
+    const days = Array.from(daysSet).sort((a, b) => b.localeCompare(a));
+    
     if (days.length === 0) return 0;
     
+    const todayStr = getLocalDateString();
     let streak = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    
+    // 检查今天是否有任务
+    const hasTaskToday = days[0] === todayStr;
+    const startOffset = hasTaskToday ? 0 : 1;
     
     for (let i = 0; i < days.length; i++) {
-      const dayDate = new Date(days[i].day);
-      const expectedDate = new Date(today);
-      expectedDate.setDate(expectedDate.getDate() - i);
-      expectedDate.setHours(0, 0, 0, 0);
+      const dayStr = days[i];
+      // 计算期望日期（北京时间）
+      const beijingNow = getBeijingDate();
+      const expectedDate = new Date(beijingNow.getTime());
+      expectedDate.setDate(beijingNow.getDate() - i - startOffset);
+      const expectedStr = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
       
-      if (dayDate.getTime() === expectedDate.getTime()) {
-        streak++;
-      } else if (i === 0 && dayDate.getTime() === expectedDate.getTime() - 86400000) {
-        // 允许昨天开始（今天还没完成任务的情况）
+      if (dayStr === expectedStr) {
         streak++;
       } else {
         break;
@@ -870,10 +884,12 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     
     for (let i = 0; i < taskDays.length; i++) {
       const dayStr = taskDays[i];
-      // 计算期望日期（北京时间）
-      const expectedDate = getBeijingDate();
-      expectedDate.setDate(expectedDate.getDate() - i - startOffset);
-      const expectedStr = getLocalDateString(new Date(expectedDate.getTime() - BEIJING_OFFSET * 60000 + new Date().getTimezoneOffset() * 60000));
+      // 计算期望日期（北京时间）- 直接从北京时间计算，不需要二次转换
+      const beijingNow = getBeijingDate();
+      const expectedDate = new Date(beijingNow.getTime());
+      expectedDate.setDate(beijingNow.getDate() - i - startOffset);
+      // 直接提取年月日，因为 expectedDate 已经是北京时间
+      const expectedStr = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
       
       if (dayStr === expectedStr) {
         streakDays++;
@@ -1695,30 +1711,45 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
     const categoryCountMap: Record<string, number> = {};
     categoryStats.forEach((s: any) => { categoryCountMap[s.category] = s.count; });
     
-    // 连续天数计算函数
+    // 连续天数计算函数 - 使用北京时间
     const getStreakDays = async (category?: string): Promise<number> => {
+      // 获取所有已完成任务的提交时间
       const query = category 
-        ? `SELECT DISTINCT DATE(te.submittedAt) as day FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY day DESC`
-        : `SELECT DISTINCT DATE(submittedAt) as day FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY day DESC`;
-      const days = category 
+        ? `SELECT DISTINCT te.submittedAt FROM task_entries te JOIN tasks t ON te.taskId = t.id WHERE te.childId = ? AND te.status = 'approved' AND t.category = ? ORDER BY te.submittedAt DESC`
+        : `SELECT DISTINCT submittedAt FROM task_entries WHERE childId = ? AND status = 'approved' ORDER BY submittedAt DESC`;
+      const entries = category 
         ? await db.all(query, childId, category)
         : await db.all(query, childId);
       
+      if (entries.length === 0) return 0;
+      
+      // 转换为北京时间日期字符串并去重
+      const daysSet = new Set<string>();
+      for (const entry of entries) {
+        const submitDate = new Date(entry.submittedAt);
+        const beijingDateStr = getLocalDateString(submitDate);
+        daysSet.add(beijingDateStr);
+      }
+      const days = Array.from(daysSet).sort((a, b) => b.localeCompare(a));
+      
       if (days.length === 0) return 0;
       
+      const todayStr = getLocalDateString();
       let streak = 0;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      
+      // 检查今天是否有任务
+      const hasTaskToday = days[0] === todayStr;
+      const startOffset = hasTaskToday ? 0 : 1;
       
       for (let i = 0; i < days.length; i++) {
-        const dayDate = new Date(days[i].day);
-        const expectedDate = new Date(today);
-        expectedDate.setDate(expectedDate.getDate() - i);
-        expectedDate.setHours(0, 0, 0, 0);
+        const dayStr = days[i];
+        // 计算期望日期（北京时间）
+        const beijingNow = getBeijingDate();
+        const expectedDate = new Date(beijingNow.getTime());
+        expectedDate.setDate(beijingNow.getDate() - i - startOffset);
+        const expectedStr = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
         
-        if (dayDate.getTime() === expectedDate.getTime()) {
-          streak++;
-        } else if (i === 0 && dayDate.getTime() === expectedDate.getTime() - 86400000) {
+        if (dayStr === expectedStr) {
           streak++;
         } else {
           break;
