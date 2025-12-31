@@ -36,6 +36,111 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
     const [pauseStartTime, setPauseStartTime] = useState<number | null>(null);
     const [isMinimized, setIsMinimized] = useState(false); // 是否最小化
     const intervalRef = useRef<any>(null);
+    
+    // 拖拽相关状态
+    const [position, setPosition] = useState({ x: 0, y: 60 }); // 默认在顶部导航栏下方
+    const [isDragging, setIsDragging] = useState(false);
+    const dragOffsetRef = useRef({ x: 0, y: 0 });
+    const isDraggingRef = useRef(false);
+    const timerRef = useRef<HTMLDivElement>(null);
+    
+    // 从 localStorage 恢复位置
+    useEffect(() => {
+        const savedPos = localStorage.getItem('stellar_timer_position');
+        if (savedPos) {
+            try {
+                const pos = JSON.parse(savedPos);
+                // 确保位置在可见区域内
+                const safeX = Math.max(0, Math.min(window.innerWidth - 280, pos.x));
+                const safeY = Math.max(60, Math.min(window.innerHeight - 80, pos.y));
+                setPosition({ x: safeX, y: safeY });
+            } catch (e) {
+                // 忽略解析错误
+            }
+        }
+    }, []);
+    
+    // 窗口大小改变时，确保位置仍然在可见区域内
+    useEffect(() => {
+        const handleResize = () => {
+            setPosition(prev => {
+                const safeX = Math.max(0, Math.min(window.innerWidth - 280, prev.x));
+                const safeY = Math.max(60, Math.min(window.innerHeight - 80, prev.y));
+                return { x: safeX, y: safeY };
+            });
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+    
+    // 保存位置到 localStorage
+    const savePosition = (pos: { x: number, y: number }) => {
+        localStorage.setItem('stellar_timer_position', JSON.stringify(pos));
+    };
+    
+    // 拖拽开始
+    const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+        if (!timerRef.current) return;
+        setIsDragging(true);
+        isDraggingRef.current = true;
+        const rect = timerRef.current.getBoundingClientRect();
+        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+        dragOffsetRef.current = {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        };
+    };
+    
+    // 拖拽中
+    const handleDrag = (e: MouseEvent | TouchEvent) => {
+        if (!isDraggingRef.current || !timerRef.current) return;
+        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+        
+        const rect = timerRef.current.getBoundingClientRect();
+        const newX = Math.max(0, Math.min(window.innerWidth - rect.width, clientX - dragOffsetRef.current.x));
+        const newY = Math.max(60, Math.min(window.innerHeight - rect.height, clientY - dragOffsetRef.current.y)); // 至少距离顶部60px，避免遮挡导航栏
+        
+        setPosition({ x: newX, y: newY });
+    };
+    
+    // 拖拽结束
+    const handleDragEnd = () => {
+        if (isDraggingRef.current) {
+            setIsDragging(false);
+            isDraggingRef.current = false;
+            setPosition(prev => {
+                savePosition(prev);
+                return prev;
+            });
+        }
+    };
+    
+    // 监听拖拽事件
+    useEffect(() => {
+        if (isDragging) {
+            const handleMouseMove = (e: MouseEvent) => handleDrag(e);
+            const handleTouchMove = (e: TouchEvent) => {
+                e.preventDefault(); // 防止页面滚动
+                handleDrag(e);
+            };
+            const handleMouseUp = () => handleDragEnd();
+            const handleTouchEnd = () => handleDragEnd();
+            
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('touchmove', handleTouchMove, { passive: false });
+            document.addEventListener('mouseup', handleMouseUp);
+            document.addEventListener('touchend', handleTouchEnd);
+            
+            return () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('touchmove', handleTouchMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener('touchend', handleTouchEnd);
+            };
+        }
+    }, [isDragging]);
 
     // 初始化：从 localStorage 恢复状态
     useEffect(() => {
@@ -125,35 +230,51 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
         e.stopPropagation();
     };
 
-    // 最小化模式：显示为顶部小条
+    // 最小化模式：显示为可拖拽的浮动窗口
     if (isMinimized) {
         return (
             <div 
-                className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg"
-                onClick={() => setIsMinimized(false)}
+                ref={timerRef}
+                className="fixed z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-2xl rounded-xl cursor-move select-none"
+                style={{
+                    left: `${position.x}px`,
+                    top: `${position.y}px`,
+                    transform: isDragging ? 'scale(1.05)' : 'scale(1)',
+                    transition: isDragging ? 'none' : 'transform 0.2s',
+                    touchAction: 'none'
+                }}
+                onMouseDown={handleDragStart}
+                onTouchStart={handleDragStart}
+                onClick={(e) => {
+                    // 如果点击的不是按钮，则展开
+                    if ((e.target as HTMLElement).closest('button') === null) {
+                        setIsMinimized(false);
+                    }
+                }}
             >
-                <div className="flex items-center justify-between px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-white/20 p-2 rounded-lg">
+                <div className="flex items-center justify-between px-4 py-3 gap-3 min-w-[280px]">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="bg-white/20 p-2 rounded-lg flex-shrink-0">
                             <Clock size={20} className={isActive ? 'animate-spin' : ''} style={{ animationDuration: '2s' }}/>
                         </div>
-                        <div>
-                            <div className="text-sm font-bold">{task.title}</div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold truncate">{task.title}</div>
                             <div className={`text-lg font-mono font-bold ${!isActive ? 'text-yellow-300' : ''}`}>
                                 {formatTime(displaySeconds)}
                             </div>
                         </div>
                         {!isActive && (
-                            <span className="text-xs bg-yellow-500/30 px-2 py-1 rounded-full">已暂停</span>
+                            <span className="text-xs bg-yellow-500/30 px-2 py-1 rounded-full flex-shrink-0">已暂停</span>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
                                 togglePause();
                             }}
-                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                            className="p-2 hover:bg-white/20 rounded-lg transition-colors active:bg-white/30"
+                            title={isActive ? '暂停' : '继续'}
                         >
                             {isActive ? <Pause size={18} /> : <Play size={18} />}
                         </button>
@@ -162,7 +283,8 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
                                 e.stopPropagation();
                                 setIsMinimized(false);
                             }}
-                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                            className="p-2 hover:bg-white/20 rounded-lg transition-colors active:bg-white/30"
+                            title="展开"
                         >
                             <ChevronUp size={18} />
                         </button>
@@ -643,10 +765,20 @@ export default function ChildTasks() {
         </div>
       </div>
       
-      {/* 任务详情弹窗 */}
+      {/* 任务详情弹窗 - 固定在视口中心，不受页面滚动影响 */}
       {showDetailModal && taskDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100vh - 100px)' }}>
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowDetailModal(false)}
+        >
+          <div 
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col p-0"
+            style={{ 
+              maxHeight: '90vh',
+              maxWidth: 'calc(100vw - 32px)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
               <h3 className="font-bold text-lg">任务详情</h3>
               <button onClick={() => setShowDetailModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
@@ -654,7 +786,7 @@ export default function ChildTasks() {
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
               <div className="bg-gray-50 p-4 rounded-xl">
                 <h4 className="font-bold text-lg">{taskDetail.title}</h4>
                 <div className="text-xs text-gray-400 mt-2">
