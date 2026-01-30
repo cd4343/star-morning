@@ -11,23 +11,26 @@ import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
 import { IconPicker, ICON_LIBRARY } from '../../components/IconPicker';
 
-// 商品模板
+// 商品模板（带分类）
 const SHOP_TEMPLATES = [
-  { title: '看电视30分钟', icon: '📺', cost: 30, stock: 99 },
-  { title: '看电视1小时', icon: '📺', cost: 50, stock: 99 },
-  { title: '小零食', icon: '🍬', cost: 5, stock: 10 },
-  { title: '冰淇淋', icon: '🍦', cost: 15, stock: 20 },
-  { title: '棒棒糖', icon: '🍭', cost: 3, stock: 30 },
-  { title: '饼干', icon: '🍪', cost: 8, stock: 20 },
-  { title: '蛋糕', icon: '🎂', cost: 40, stock: 5 },
-  { title: '玩手机30分钟', icon: '📱', cost: 25, stock: 99 },
-  { title: '玩游戏1小时', icon: '🎮', cost: 60, stock: 99 },
-  { title: '去公园玩', icon: '🏞️', cost: 30, stock: 10 },
-  { title: '买小玩具', icon: '🧸', cost: 50, stock: 5 },
-  { title: '新书一本', icon: '📚', cost: 80, stock: 10 },
-  { title: '画画工具', icon: '🎨', cost: 40, stock: 5 },
-  { title: '贴纸一套', icon: '🏷️', cost: 10, stock: 20 },
-  { title: '选择晚餐', icon: '🍕', cost: 20, stock: 99 },
+  // 零食类
+  { title: '小零食', icon: '🍬', cost: 5, stock: 10, category: '零食' },
+  { title: '冰淇淋', icon: '🍦', cost: 15, stock: 20, category: '零食' },
+  { title: '棒棒糖', icon: '🍭', cost: 3, stock: 30, category: '零食' },
+  { title: '饼干', icon: '🍪', cost: 8, stock: 20, category: '零食' },
+  { title: '蛋糕', icon: '🎂', cost: 40, stock: 5, category: '零食' },
+  // 玩乐类
+  { title: '去公园玩', icon: '🏞️', cost: 30, stock: 10, category: '玩乐' },
+  { title: '买小玩具', icon: '🧸', cost: 50, stock: 5, category: '玩乐' },
+  { title: '新书一本', icon: '📚', cost: 80, stock: 10, category: '玩乐' },
+  { title: '画画工具', icon: '🎨', cost: 40, stock: 5, category: '玩乐' },
+  { title: '贴纸一套', icon: '🏷️', cost: 10, stock: 20, category: '玩乐' },
+  // 特权类
+  { title: '看电视30分钟', icon: '📺', cost: 30, stock: 99, category: '特权' },
+  { title: '看电视1小时', icon: '📺', cost: 50, stock: 99, category: '特权' },
+  { title: '玩手机30分钟', icon: '📱', cost: 25, stock: 99, category: '特权' },
+  { title: '玩游戏1小时', icon: '🎮', cost: 60, stock: 99, category: '特权' },
+  { title: '选择晚餐', icon: '🍕', cost: 20, stock: 99, category: '特权' },
 ];
 
 // 稀有度配置
@@ -52,11 +55,10 @@ const LOTTERY_TEMPLATES = [
   { title: '10金币', icon: '🪙', weight: 30, rarity: 'common' as RarityType },
   { title: '贴纸一张', icon: '🏷️', weight: 28, rarity: 'common' as RarityType },
   { title: '小零食', icon: '🍭', weight: 35, rarity: 'common' as RarityType },
-  { title: '再抽一次', icon: '🔄', weight: 25, rarity: 'uncommon' as RarityType },
   { title: '5金币', icon: '🪙', weight: 40, rarity: 'common' as RarityType },
   { title: '惊喜糖果', icon: '🍪', weight: 32, rarity: 'common' as RarityType },
-  { title: '再来一次机会', icon: '✨', weight: 22, rarity: 'uncommon' as RarityType },
   { title: '谢谢参与', icon: '😎', weight: 50, rarity: 'common' as RarityType },
+  // 注意："再抽一次"是默认奖项，不在模板中，系统会自动创建
 ];
 
 // 根据类型获取图标分类
@@ -78,6 +80,12 @@ export default function ParentWishes() {
   // Tabs: shop | savings | lottery
   const [viewType, setViewType] = useState<'shop'|'savings'|'lottery'>('shop');
   
+  // 商品分类常量
+  const SHOP_CATEGORIES = ['全部', '零食', '玩乐', '特权', '其他'];
+  
+  // 商品分类筛选
+  const [filterShopCategory, setFilterShopCategory] = useState('全部');
+  
   // Form
   const [title, setTitle] = useState('');
   const [cost, setCost] = useState('');
@@ -85,6 +93,8 @@ export default function ParentWishes() {
   const [stock, setStock] = useState('99');
   const [icon, setIcon] = useState('🎁');
   const [rarity, setRarity] = useState<RarityType>('common');
+  const [effectType, setEffectType] = useState<'normal' | 'draw_again'>('normal');
+  const [shopCategory, setShopCategory] = useState('其他');
 
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
@@ -102,6 +112,8 @@ export default function ParentWishes() {
   const [editTarget, setEditTarget] = useState('');
   const [editStock, setEditStock] = useState('99');
   const [editRarity, setEditRarity] = useState<RarityType>('common');
+  const [editEffectType, setEditEffectType] = useState<'normal' | 'draw_again'>('normal');
+  const [editCategory, setEditCategory] = useState('其他');
 
   useEffect(() => { fetchWishes(); }, []);
   
@@ -125,6 +137,8 @@ export default function ParentWishes() {
       setStock('99');
       setIcon('🎁');
       setRarity('common');
+      setEffectType('normal');
+      setShopCategory('其他');
   };
   
   // 计算当前各稀有度的数量
@@ -164,6 +178,7 @@ export default function ParentWishes() {
     
     const weight = viewType === 'lottery' ? RARITY_CONFIG[rarity].weight : 10;
     
+    // 手动添加的奖品永远是普通奖品，"再抽一次"只能通过模板添加
     await api.post('/parent/wishes', {
       type: viewType, 
       title, 
@@ -172,7 +187,9 @@ export default function ParentWishes() {
       icon, 
       stock: viewType === 'shop' ? (+stock || 99) : -1,
       weight,
-      rarity: viewType === 'lottery' ? rarity : null
+      rarity: viewType === 'lottery' ? rarity : null,
+      effectType: null,  // 手动添加的永远是普通奖品
+      category: viewType === 'shop' ? shopCategory : null
     });
     
     // 检查抽奖奖池是否达到8个
@@ -236,7 +253,8 @@ export default function ParentWishes() {
             icon: shopTemplate.icon,
             cost: shopTemplate.cost,
             stock: shopTemplate.stock,
-            weight: 10
+            weight: 10,
+            category: shopTemplate.category || '其他'
           });
         } else {
           const lotteryTemplate = template as typeof LOTTERY_TEMPLATES[0];
@@ -246,7 +264,9 @@ export default function ParentWishes() {
             icon: lotteryTemplate.icon,
             cost: 0,
             stock: -1,
-            weight: lotteryTemplate.weight
+            weight: lotteryTemplate.weight,
+            rarity: lotteryTemplate.rarity || null,
+            effectType: null  // 模板中的都是普通奖品，"再抽一次"由系统自动创建
           });
         }
       }
@@ -269,9 +289,11 @@ export default function ParentWishes() {
     setEditTarget(String(wish.targetAmount || 0));
     setEditStock(String(wish.stock ?? 99));
     setEditRarity(wish.rarity || 'common');
+    setEditEffectType(wish.effectType === 'draw_again' ? 'draw_again' : 'normal');
+    setEditCategory(wish.category || '其他');
   };
   
-  // 保存编辑
+  // 保存编辑（effectType 保持原值不变，不允许修改）
   const saveEdit = async () => {
     if (!editingWish) return;
     try {
@@ -282,7 +304,10 @@ export default function ParentWishes() {
         targetAmount: +editTarget,
         stock: editingWish.type === 'shop' ? (+editStock || 99) : editingWish.stock,
         weight: editWeight,
-        rarity: editingWish.type === 'lottery' ? editRarity : null
+        rarity: editingWish.type === 'lottery' ? editRarity : null,
+        // effectType 保持原值，不允许用户修改
+        effectType: editingWish.effectType || null,
+        category: editingWish.type === 'shop' ? editCategory : null
       });
       toast.success('修改成功！');
       setEditingWish(null);
@@ -399,7 +424,8 @@ export default function ParentWishes() {
             targetAmount: prize.targetAmount,
             stock: prize.stock,
             weight: weight,
-            rarity: prize.rarity
+            rarity: prize.rarity,
+            effectType: prize.effectType || null
           });
         }
       }
@@ -440,8 +466,15 @@ export default function ParentWishes() {
     fetchWishes();
   };
 
-  // Filter list
-  const filteredList = wishes.filter(w => w.type === viewType);
+  // Filter list - 商品支持分类筛选
+  const filteredList = wishes.filter(w => {
+    if (w.type !== viewType) return false;
+    // 商品按分类筛选
+    if (viewType === 'shop' && filterShopCategory !== '全部') {
+      return (w.category || '其他') === filterShopCategory;
+    }
+    return true;
+  });
   
   // 统计抽奖奖池
   const lotteryItems = wishes.filter(w => w.type === 'lottery');
@@ -513,6 +546,25 @@ export default function ParentWishes() {
                 <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="99" value={stock} onChange={e => setStock(e.target.value)} />
                 <p className="text-[11px] text-gray-400 mt-1">💡 输入 -1 表示无限库存</p>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 font-bold block mb-1">🏷️ 商品分类</label>
+                <div className="flex gap-2 flex-wrap">
+                  {['零食', '玩乐', '特权', '其他'].map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setShopCategory(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                        shopCategory === cat
+                          ? 'bg-pink-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </>
           )}
           
@@ -566,12 +618,42 @@ export default function ParentWishes() {
                   <span className="text-gray-600 ml-1">{RARITY_CONFIG[rarity].desc}</span>
                 </div>
               </div>
+              {/* 提示：再抽一次由系统自动创建 */}
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                <p className="text-xs text-amber-700">
+                  💡「再抽一次」奖项由系统自动创建，可在管理上架中选择是否上架
+                </p>
+              </div>
             </>
           )}
         </div>
       </BottomSheet>
 
       <div className="p-4 pb-20 space-y-3 overflow-y-auto flex-1">
+        {/* 商品分类筛选标签 */}
+        {viewType === 'shop' && wishes.filter(w => w.type === 'shop').length > 0 && !showTemplates && (
+          <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+            {SHOP_CATEGORIES.map(cat => {
+              const count = cat === '全部' 
+                ? wishes.filter(w => w.type === 'shop').length
+                : wishes.filter(w => w.type === 'shop' && (w.category || '其他') === cat).length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setFilterShopCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                    filterShopCategory === cat
+                      ? 'bg-pink-500 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+        
         {/* 快捷模板入口 - 商品和抽奖 */}
         {(viewType === 'shop' || viewType === 'lottery') && filteredList.length > 0 && !showTemplates && (
           <button 
@@ -886,7 +968,13 @@ export default function ParentWishes() {
                   {w.icon}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-bold text-gray-800 truncate">{w.title}</div>
+                <div className="font-bold text-gray-800 truncate flex items-center gap-1.5">
+                  {w.title}
+                  {/* 系统默认奖项标签 */}
+                  {w.isSystemDefault === 1 && (
+                    <span className="text-[9px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">默认</span>
+                  )}
+                </div>
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
                   {/* 稀有度标签 */}
                   {w.type === 'lottery' && w.rarity && RARITY_CONFIG[w.rarity as RarityType] && (
@@ -905,7 +993,8 @@ export default function ParentWishes() {
                   {w.type === 'shop' && (
                     <>
                       <span className="bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full">💰 {w.cost} 金币</span>
-                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">📦 库存: {w.stock === -1 || w.stock === null ? '无限' : w.stock}</span>
+                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">📦 {w.stock === -1 || w.stock === null ? '无限' : w.stock}</span>
+                      <span className="bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">🏷️ {w.category || '其他'}</span>
                     </>
                   )}
                   {w.type === 'savings' && <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">🎯 目标 {w.targetAmount} 金币</span>}
@@ -939,9 +1028,12 @@ export default function ParentWishes() {
                 >
                   <Edit2 size={16}/>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                    <Trash2 size={18}/>
-                </button>
+                {/* 系统默认奖项不能删除 */}
+                {w.isSystemDefault !== 1 && (
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="删除">
+                      <Trash2 size={18}/>
+                  </button>
+                )}
               </div>
             )}
           </Card>
@@ -962,27 +1054,42 @@ export default function ParentWishes() {
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* 图标和名称 */}
-              <div className="flex gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
-                  <IconPicker 
-                    value={editIcon} 
-                    onChange={setEditIcon} 
-                    categories={editingWish.type === 'shop' ? ['food', 'entertainment', 'daily', 'reward'] : 
-                               editingWish.type === 'lottery' ? ['reward', 'food', 'emoji', 'entertainment'] : 
-                               ['entertainment', 'reward', 'hobby', 'sports']} 
-                  />
+              {/* 系统默认奖项特殊提示 */}
+              {editingWish.isSystemDefault === 1 && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <p className="text-sm text-amber-700 font-bold">🔄 这是「再抽一次」默认奖项</p>
+                  <p className="text-xs text-amber-600 mt-1">只能调整稀有度和中奖权重，不能修改名称和图标</p>
                 </div>
-                <div className="flex-1">
-                  <label className="text-xs text-gray-500 font-bold block mb-1">名称</label>
-                  <input 
-                    className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" 
-                    value={editTitle} 
-                    onChange={e => setEditTitle(e.target.value)} 
-                  />
+              )}
+              
+              {/* 图标和名称 - 系统默认奖项时只读显示 */}
+              {editingWish.isSystemDefault === 1 ? (
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                  <div className="text-4xl">{editIcon}</div>
+                  <div className="font-bold text-lg text-gray-700">{editTitle}</div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+                    <IconPicker 
+                      value={editIcon} 
+                      onChange={setEditIcon} 
+                      categories={editingWish.type === 'shop' ? ['food', 'entertainment', 'daily', 'reward'] : 
+                                 editingWish.type === 'lottery' ? ['reward', 'food', 'emoji', 'entertainment'] : 
+                                 ['entertainment', 'reward', 'hobby', 'sports']} 
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold block mb-1">名称</label>
+                    <input 
+                      className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" 
+                      value={editTitle} 
+                      onChange={e => setEditTitle(e.target.value)} 
+                    />
+                  </div>
+                </div>
+              )}
               
               {/* 商品价格和库存 */}
               {editingWish.type === 'shop' && (
@@ -1005,6 +1112,25 @@ export default function ParentWishes() {
                       onChange={e => setEditStock(e.target.value)} 
                     />
                     <p className="text-[10px] text-gray-400 mt-1">输入 -1 表示无限库存</p>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 font-bold">商品分类</label>
+                    <div className="flex gap-2 flex-wrap mt-1">
+                      {['零食', '玩乐', '特权', '其他'].map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setEditCategory(cat)}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                            editCategory === cat
+                              ? 'bg-pink-500 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </>
               )}

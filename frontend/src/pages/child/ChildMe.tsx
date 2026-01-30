@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Trophy, Lock, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import api from '../../services/api';
 import { useOutletContext } from 'react-router-dom';
+import { useToast } from '../../components/Toast';
 
 interface Achievement {
   id: string;
@@ -42,6 +43,7 @@ export default function ChildMe() {
   const context = useOutletContext<any>();
   const childData = context?.childData || { coins: 0, xp: 0, level: 1, privilegePoints: 0 };
   const refresh = context?.refresh || (() => {});
+  const toast = useToast();
   
   const [allAchievements, setAllAchievements] = useState<Achievement[]>([]);
   const [punishmentRecords, setPunishmentRecords] = useState<PunishmentRecord[]>([]);
@@ -50,6 +52,18 @@ export default function ChildMe() {
   const [expandedRecords, setExpandedRecords] = useState(false);
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [selectedRecord, setSelectedRecord] = useState<PunishmentRecord | null>(null);
+
+  const fetchPunishmentRecords = useCallback(async (limit?: number) => {
+    try {
+      const actualLimit = limit ?? (expandedRecords ? 100 : 3);
+      const punishRes = await api.get('/child/punishment-records', { 
+        params: { limit: actualLimit, timeFilter } 
+      });
+      setPunishmentRecords(punishRes.data || []);
+    } catch (punishErr) {
+      console.error('获取惩罚记录失败:', punishErr);
+    }
+  }, [expandedRecords, timeFilter]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -64,33 +78,19 @@ export default function ChildMe() {
         } catch (statsErr) {
           console.error('获取惩罚统计失败:', statsErr);
         }
-        
-        // 获取惩罚记录
-        await fetchPunishmentRecords();
       } catch (e) {
         console.error(e);
+        toast.error('加载数据失败');
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, []);
-
-  const fetchPunishmentRecords = async () => {
-    try {
-      const limit = expandedRecords ? 100 : 3;
-      const punishRes = await api.get('/child/punishment-records', { 
-        params: { limit, timeFilter } 
-      });
-      setPunishmentRecords(punishRes.data || []);
-    } catch (punishErr) {
-      console.error('获取惩罚记录失败:', punishErr);
-    }
-  };
+  }, [toast]);
 
   useEffect(() => {
     fetchPunishmentRecords();
-  }, [timeFilter, expandedRecords]);
+  }, [fetchPunishmentRecords]);
 
   const getConditionText = (ach: any) => {
     switch (ach.conditionType) {
@@ -122,6 +122,7 @@ export default function ChildMe() {
       case 'mild': return '🟡';
       case 'moderate': return '🟠';
       case 'severe': return '🔴';
+      case 'custom': return '🟣';
       default: return '⚠️';
     }
   };
@@ -131,6 +132,7 @@ export default function ChildMe() {
       case 'mild': return '轻度警告';
       case 'moderate': return '中度惩罚';
       case 'severe': return '严重惩罚';
+      case 'custom': return '自定义扣除';
       default: return '惩罚';
     }
   };

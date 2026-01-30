@@ -32,7 +32,8 @@ function getBeijingDateString(date = new Date()) {
 }
 
 async function main() {
-  const dbPath = path.join(__dirname, 'stellar.db');
+  // Database is in project root folder, which is ../.. from scripts/db-tools
+  const dbPath = path.join(__dirname, '../../stellar.db');
   
   console.log('📂 打开数据库:', dbPath);
   

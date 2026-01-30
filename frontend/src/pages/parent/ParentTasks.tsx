@@ -69,6 +69,13 @@ export default function ParentTasks() {
   
   // 编辑状态
   const [editingTask, setEditingTask] = useState<any>(null);
+  
+  // 分类筛选
+  const [filterCategory, setFilterCategory] = useState<string>('全部');
+  const TASK_CATEGORIES = ['全部', '劳动', '学习', '兴趣', '运动'];
+  const filteredTasks = filterCategory === '全部' 
+    ? tasks 
+    : tasks.filter(t => t.category === filterCategory);
 
   useEffect(() => { fetchTasks(); }, []);
   const fetchTasks = async () => { const res = await api.get('/parent/tasks'); setTasks(res.data); };
@@ -414,11 +421,28 @@ export default function ParentTasks() {
         {/* 已有任务列表 */}
         {tasks.length > 0 && !showTemplates && (
           <>
+            {/* 分类筛选标签 */}
+            <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+              {TASK_CATEGORIES.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                    filterCategory === cat
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {cat === '全部' ? `全部 (${tasks.length})` : `${cat} (${tasks.filter(t => t.category === cat).length})`}
+                </button>
+              ))}
+            </div>
+            
             <button onClick={openTemplates} className="w-full p-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl flex items-center justify-center gap-2 text-purple-600 font-medium text-sm hover:from-purple-100 hover:to-pink-100 transition-all mb-2">
               <Sparkles size={16}/> 从模板快速添加更多任务
             </button>
             
-            {tasks.map(task => {
+            {filteredTasks.map(task => {
               // 解析任务类型和自定义天数
               const type = task.taskType || 'daily';
               let customDaysArr: number[] = [];

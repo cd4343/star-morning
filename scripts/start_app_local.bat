@@ -5,7 +5,8 @@ REM Ports: Frontend 3000, Backend 3001
 REM With Auto-Retry and Port Verification
 REM ========================================
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+REM Change to project root directory (parent of scripts folder)
+cd /d "%~dp0.."
 
 chcp 65001 >nul 2>&1
 title Star Morning - Local Development

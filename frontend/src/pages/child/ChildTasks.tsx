@@ -1,10 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useOutletContext } from 'react-router-dom';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { PullToRefresh } from '../../components/PullToRefresh';
 import { Check, Clock, Play, X, Pause, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../../services/api';
+import { useToast } from '../../components/Toast';
 
 interface Task {
   id: string;
@@ -38,25 +40,83 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
     const intervalRef = useRef<any>(null);
     
     // 拖拽相关状态
-    const [position, setPosition] = useState({ x: 0, y: 60 }); // 默认在顶部导航栏下方
+    // 默认位置：屏幕右下角（会在 useEffect 中根据实际屏幕尺寸调整）
+    const [position, setPosition] = useState({ x: 16, y: 100 });
     const [isDragging, setIsDragging] = useState(false);
     const dragOffsetRef = useRef({ x: 0, y: 0 });
     const isDraggingRef = useRef(false);
     const timerRef = useRef<HTMLDivElement>(null);
     
-    // 从 localStorage 恢复位置
+    // 获取容器边界（考虑手机框架）
+    const getContainerBounds = () => {
+        // 查找手机框架容器（在电脑端）
+        // 查找包含特定特征的容器：宽度在300-500px之间，有圆角，且居中显示
+        let phoneFrame: Element | null = null;
+        
+        // 方法1: 查找所有div，检查是否符合手机框架特征
+        const divs = document.querySelectorAll('div');
+        for (const div of divs) {
+            if (div === document.body) continue;
+            const rect = div.getBoundingClientRect();
+            const style = window.getComputedStyle(div);
+            const borderRadius = style.borderRadius;
+            const hasBorder = parseFloat(style.borderWidth) > 0;
+            
+            // 检查是否是手机框架：宽度在300-500px，有圆角或边框，高度接近视口高度
+            if (rect.width >= 300 && rect.width <= 500 && 
+                rect.height >= 600 &&
+                (borderRadius !== '0px' || hasBorder)) {
+                phoneFrame = div;
+                break;
+            }
+        }
+        
+        if (phoneFrame && phoneFrame !== document.body) {
+            const rect = phoneFrame.getBoundingClientRect();
+            return {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height
+            };
+        }
+        
+        // 如果没有找到框架，使用视口边界
+        return {
+            left: 0,
+            top: 0,
+            right: window.innerWidth,
+            bottom: window.innerHeight,
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+    };
+    
+    // 从 localStorage 恢复位置，或设置初始位置
     useEffect(() => {
+        const bounds = getContainerBounds();
+        const timerWidth = 200; // 计时器最小宽度（已调整）
+        const timerHeight = 60; // 计时器高度（已调整）
+        const minY = bounds.top + 90; // 导航栏高度约70-80px，留10px余量
+        
         const savedPos = localStorage.getItem('stellar_timer_position');
         if (savedPos) {
             try {
                 const pos = JSON.parse(savedPos);
-                // 确保位置在可见区域内
-                const safeX = Math.max(0, Math.min(window.innerWidth - 280, pos.x));
-                const safeY = Math.max(60, Math.min(window.innerHeight - 80, pos.y));
+                // 确保位置在容器内
+                const safeX = Math.max(bounds.left, Math.min(bounds.right - timerWidth, pos.x));
+                const safeY = Math.max(minY, Math.min(bounds.bottom - timerHeight, pos.y));
                 setPosition({ x: safeX, y: safeY });
             } catch (e) {
-                // 忽略解析错误
+                // 忽略解析错误，使用默认位置
             }
+        } else {
+            // 没有保存的位置，设置为屏幕右侧中间
+            const initialX = Math.max(bounds.left + 8, bounds.right - timerWidth - 16);
+            const initialY = minY + 16;
+            setPosition({ x: initialX, y: initialY });
         }
     }, []);
     
@@ -64,8 +124,13 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
     useEffect(() => {
         const handleResize = () => {
             setPosition(prev => {
-                const safeX = Math.max(0, Math.min(window.innerWidth - 280, prev.x));
-                const safeY = Math.max(60, Math.min(window.innerHeight - 80, prev.y));
+                const bounds = getContainerBounds();
+                const timerWidth = 200; // 已调整
+                const timerHeight = 60; // 已调整
+                const minY = bounds.top + 90;
+                
+                const safeX = Math.max(bounds.left, Math.min(bounds.right - timerWidth, prev.x));
+                const safeY = Math.max(minY, Math.min(bounds.bottom - timerHeight, prev.y));
                 return { x: safeX, y: safeY };
             });
         };
@@ -98,9 +163,13 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
         
+        const bounds = getContainerBounds();
         const rect = timerRef.current.getBoundingClientRect();
-        const newX = Math.max(0, Math.min(window.innerWidth - rect.width, clientX - dragOffsetRef.current.x));
-        const newY = Math.max(60, Math.min(window.innerHeight - rect.height, clientY - dragOffsetRef.current.y)); // 至少距离顶部60px，避免遮挡导航栏
+        const minY = bounds.top + 90; // 导航栏高度约70-80px，留10px余量避免遮挡
+        
+        // 计算新位置（相对于视口）
+        const newX = Math.max(bounds.left, Math.min(bounds.right - rect.width, clientX - dragOffsetRef.current.x));
+        const newY = Math.max(minY, Math.min(bounds.bottom - rect.height, clientY - dragOffsetRef.current.y));
         
         setPosition({ x: newX, y: newY });
     };
@@ -252,7 +321,7 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
                     }
                 }}
             >
-                <div className="flex items-center justify-between px-4 py-3 gap-3 min-w-[280px]">
+                <div className="flex items-center justify-between px-3 py-2.5 gap-2 min-w-[200px] max-w-[calc(100vw-32px)]">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="bg-white/20 p-2 rounded-lg flex-shrink-0">
                             <Clock size={20} className={isActive ? 'animate-spin' : ''} style={{ animationDuration: '2s' }}/>
@@ -385,6 +454,7 @@ const TaskTimerModal = ({ task, onClose, onComplete }: { task: Task, onClose: ()
 export default function ChildTasks() {
   const context = useOutletContext<any>();
   const refreshParent = context?.refresh; // 刷新父组件数据（顶栏金币等）
+  const toast = useToast();
   
   const [tasks, setTasks] = useState<any[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<any[]>([]);
@@ -396,9 +466,17 @@ export default function ChildTasks() {
   const [selectedDate, setSelectedDate] = useState<string>(''); // 空字符串表示今天
   const [isToday, setIsToday] = useState(true);
   
+  // 分类筛选
+  const [filterCategory, setFilterCategory] = useState('全部');
+  const TASK_CATEGORIES = ['全部', '劳动', '学习', '兴趣', '运动'];
+  const filteredTasks = filterCategory === '全部' 
+    ? tasks 
+    : tasks.filter(t => t.category === filterCategory);
+  
   // 任务详情弹窗状态
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [taskDetail, setTaskDetail] = useState<any>(null);
+  const [clickPosition, setClickPosition] = useState<{ x: number, y: number } | null>(null);
 
   // 恢复进行中的任务
   useEffect(() => {
@@ -437,11 +515,7 @@ export default function ChildTasks() {
     return () => clearInterval(interval);
   }, [activeTask]);
 
-  useEffect(() => {
-    fetchTasks();
-  }, [selectedDate]);
-
-  const fetchTasks = async (date?: string) => {
+  const fetchTasks = useCallback(async (date?: string) => {
     try {
       const targetDate = date ?? selectedDate;
       const url = targetDate ? `/child/dashboard?date=${targetDate}` : '/child/dashboard';
@@ -460,7 +534,11 @@ export default function ChildTasks() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDate]);
+  
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
   
   // 选择日期（点击柱状图）
   const handleSelectDate = (dateStr: string) => {
@@ -478,8 +556,9 @@ export default function ChildTasks() {
           await api.post(`/child/tasks/${activeTask.id}/complete`, { duration });
           setActiveTask(null);
           fetchTasks(); // Refresh
+          toast.success('任务已提交，等待家长审核');
       } catch (e: any) {
-          alert(e.response?.data?.message || '提交失败');
+          toast.error(e.response?.data?.message || '提交失败');
       }
   };
 
@@ -616,6 +695,39 @@ export default function ChildTasks() {
             </div>
         </div>
         
+        {/* 状态颜色图例 */}
+        <div className="flex gap-3 mb-2 px-1 text-[10px] text-gray-500">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400"></span>已完成</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span>审核中</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span>待开始</span>
+          {!isToday && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400"></span>未完成</span>}
+        </div>
+        
+        {/* 分类筛选标签 */}
+        {tasks.length > 0 && (
+          <div className="flex gap-2 mb-3 overflow-x-auto pb-1 px-1">
+            {TASK_CATEGORIES.map(cat => {
+              const count = cat === '全部' 
+                ? tasks.length 
+                : tasks.filter(t => t.category === cat).length;
+              if (cat !== '全部' && count === 0) return null; // 隐藏没有任务的分类
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                    filterCategory === cat
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-white text-gray-600 border hover:bg-gray-50'
+                  }`}
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+        
         <div className="space-y-3 pb-20">
           {loading && <div className="text-center text-gray-400 py-4">加载中...</div>}
           {!loading && tasks.length === 0 && (
@@ -658,13 +770,20 @@ export default function ChildTasks() {
             )
           )}
           
-          {tasks.map(task => (
+          {filteredTasks.map(task => (
             <Card 
               key={task.id} 
               className={`relative overflow-hidden transition-all border-0 shadow-sm cursor-pointer hover:shadow-md ${task.status === 'approved' ? 'bg-green-50/50' : task.status === 'todo' && !isToday ? 'bg-red-50/30' : 'bg-white'}`}
-              onClick={async () => {
+              onClick={async (e: React.MouseEvent<HTMLDivElement>) => {
                 if (task.status === 'approved' && task.entryId) {
                   try {
+                    // 记录点击位置（相对于视口）
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setClickPosition({
+                      x: rect.left + rect.width / 2, // 任务卡片中心X
+                      y: rect.top + rect.height / 2  // 任务卡片中心Y
+                    });
+                    
                     const res = await api.get(`/task-entries/${task.entryId}`);
                     setTaskDetail(res.data);
                     setShowDetailModal(true);
@@ -765,17 +884,58 @@ export default function ChildTasks() {
         </div>
       </div>
       
-      {/* 任务详情弹窗 - 固定在视口中心，不受页面滚动影响 */}
-      {showDetailModal && taskDetail && (
+      {/* 任务详情弹窗 - 使用 Portal 渲染到 body，确保完全覆盖 */}
+      {showDetailModal && taskDetail && createPortal(
         <div 
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowDetailModal(false)}
+          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            margin: 0,
+            padding: 0
+          }}
+          onClick={() => {
+            setShowDetailModal(false);
+            setClickPosition(null);
+          }}
         >
           <div 
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col p-0"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col p-0"
             style={{ 
+              position: 'fixed',
               maxHeight: '90vh',
-              maxWidth: 'calc(100vw - 32px)'
+              maxWidth: 'calc(100vw - 32px)',
+              // 智能定位：如果有点击位置，弹窗出现在点击位置附近；否则居中
+              left: '50%',
+              top: clickPosition 
+                ? (() => {
+                    const viewportHeight = window.innerHeight;
+                    const clickY = clickPosition.y;
+                    const estimatedModalHeight = 400;
+                    const padding = 20;
+                    
+                    // 计算最佳位置：尽量让弹窗出现在点击位置附近，但不超出屏幕
+                    let topPosition = clickY - estimatedModalHeight / 2;
+                    
+                    // 如果弹窗会超出顶部，调整到顶部
+                    if (topPosition < padding) {
+                      topPosition = padding;
+                    }
+                    // 如果弹窗会超出底部，调整到底部
+                    else if (topPosition + estimatedModalHeight > viewportHeight - padding) {
+                      topPosition = viewportHeight - estimatedModalHeight - padding;
+                    }
+                    
+                    return `${Math.max(padding, Math.min(topPosition, viewportHeight - estimatedModalHeight - padding))}px`;
+                  })()
+                : '50%',
+              transform: clickPosition ? 'translateX(-50%)' : 'translate(-50%, -50%)',
+              zIndex: 10000
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -864,7 +1024,8 @@ export default function ChildTasks() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
         </div>
       </PullToRefresh>

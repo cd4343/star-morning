@@ -4,7 +4,8 @@ REM Production Server Environment Launcher
 REM Port: 80 (Static file server via Python)
 REM ========================================
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+REM Change to project root directory (parent of scripts folder)
+cd /d "%~dp0.."
 
 chcp 65001 >nul 2>&1
 title Star Morning - Production Server
@@ -54,13 +55,13 @@ echo.
 
 REM Check server files
 echo [3/4] Checking server files...
-if not exist "server.py" (
+if not exist "scripts\server.py" (
     color 0C
-    echo [ERROR] server.py not found!
+    echo [ERROR] scripts\server.py not found!
     pause
     exit /b 1
 )
-echo [OK] server.py found
+echo [OK] scripts\server.py found
 
 REM Check built frontend files (no need to build, use pre-built files)
 if not exist "frontend\dist\index.html" (
@@ -160,7 +161,7 @@ echo ========================================
 echo.
 
 REM Start Python server pointing to frontend/dist directory
-python server.py
+python scripts\server.py
 
 pause
 exit /b 0

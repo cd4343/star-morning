@@ -12,8 +12,8 @@ Write-Host "   Star Morning - Development Mode" -ForegroundColor Cyan
 Write-Host "  =================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Change to script directory
-Set-Location $PSScriptRoot
+# Change to project root directory (parent of scripts folder)
+Set-Location (Join-Path $PSScriptRoot "..")
 
 # Function to kill process on port
 function Stop-PortProcess {
@@ -53,11 +53,12 @@ Write-Host "      Done!" -ForegroundColor Green
 
 # Start Backend
 Write-Host "[3/4] Starting Backend (Port 3001)..." -ForegroundColor White
-$backendJob = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$PSScriptRoot\backend`" & npm run dev" -WindowStyle Minimized -PassThru
+$projectRoot = Join-Path $PSScriptRoot ".."
+$backendJob = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$projectRoot\backend`" & npm run dev" -WindowStyle Minimized -PassThru
 
 # Start Frontend  
 Write-Host "[4/4] Starting Frontend (Port 3000)..." -ForegroundColor White
-$frontendJob = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$PSScriptRoot\frontend`" & npm run dev" -WindowStyle Minimized -PassThru
+$frontendJob = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$projectRoot\frontend`" & npm run dev" -WindowStyle Minimized -PassThru
 
 Write-Host ""
 Write-Host "  Waiting for servers to be ready..." -ForegroundColor Gray

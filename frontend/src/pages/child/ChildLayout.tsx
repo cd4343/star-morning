@@ -1,42 +1,52 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import { CheckSquare, Gift, User, ShieldCheck, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
+import { useToast } from '../../components/Toast';
 
 export default function ChildLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, login } = useAuth();
+  const toast = useToast();
   const [childData, setChildData] = useState<any>(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
+  const retryCount = useRef(0);
+  const MAX_RETRIES = 3;
 
-  // 当用户或路径变化时重新获取数据
-  useEffect(() => {
-    // 清除旧数据，避免显示上一个用户的信息
-    setChildData(null);
-    fetchData();
-  }, [location.pathname, user?.id]); 
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const res = await api.get('/child/dashboard');
       // 验证返回的数据是否与当前用户匹配
       if (res.data.child && user && res.data.child.id !== user.id) {
         console.warn('Child data mismatch, refetching...');
-        // 数据不匹配，可能是缓存问题，延迟重试
-        setTimeout(fetchData, 500);
-        return;
+        // 数据不匹配，可能是缓存问题，限制重试次数
+        if (retryCount.current < MAX_RETRIES) {
+          retryCount.current++;
+          setTimeout(fetchData, 500);
+          return;
+        }
       }
+      retryCount.current = 0;
       setChildData(res.data.child);
     } catch (e) {
       console.error(e);
+      toast.error('加载数据失败，请下拉刷新');
     }
-  };
+  }, [user, toast]);
+
+  // 当用户或路径变化时重新获取数据
+  useEffect(() => {
+    // 清除旧数据，避免显示上一个用户的信息
+    setChildData(null);
+    retryCount.current = 0;
+    fetchData();
+  }, [location.pathname, user?.id, fetchData]);
 
   const handleSwitchUser = () => {
       // 先显示默认PIN码提示
@@ -60,7 +70,7 @@ export default function ChildLayout() {
               navigate('/parent/dashboard');
           }
       } catch (e: any) {
-          alert(e.response?.data?.message || 'PIN 码错误');
+          toast.error(e.response?.data?.message || 'PIN 码错误');
       }
   };
   

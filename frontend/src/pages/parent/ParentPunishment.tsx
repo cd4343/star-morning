@@ -18,6 +18,9 @@ interface PunishmentSettings {
   severeRate: number;
   severeExtra: number;
   severeMax: number;
+  customName: string;
+  customMin: number;
+  customMax: number;
   allowNegative: boolean;
   negativeLimit: number;
   notifyChild: boolean;
@@ -86,6 +89,9 @@ const ParentPunishment = () => {
       severeRate: 1.0,
       severeExtra: 5,
       severeMax: 50,
+      customName: '自定义扣除',
+      customMin: 1,
+      customMax: 100,
       allowNegative: true,
       negativeLimit: -10,
       notifyChild: true,
@@ -307,6 +313,52 @@ const ParentPunishment = () => {
           
           <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#fff', borderRadius: '6px' }}>
             <strong>示例：</strong>20金币任务 → 扣 {Math.min(settings.severeMax, Math.round(20 * settings.severeRate) + settings.severeExtra)} 金币
+          </div>
+        </div>
+
+        {/* 自定义扣除 */}
+        <div style={{ 
+          backgroundColor: '#f3e5f5', 
+          padding: '20px', 
+          borderRadius: '12px', 
+          marginBottom: '20px',
+          border: '2px solid #9c27b0'
+        }}>
+          <h3 style={{ color: '#7b1fa2', marginTop: 0 }}>🟣 {settings.customName ?? '自定义扣除'}</h3>
+          <p style={{ color: '#666', marginBottom: '15px' }}>适用于：需要按具体金额扣除的情况，审核时手动输入扣除金币数</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>显示名称</label>
+              <input 
+                type="text" 
+                value={settings.customName ?? '自定义扣除'}
+                onChange={(e) => setSettings({...settings, customName: e.target.value})}
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>最小扣除（金币）</label>
+              <input 
+                type="number" 
+                value={settings.customMin ?? 1}
+                onChange={(e) => setSettings({...settings, customMin: parseInt(e.target.value) || 1})}
+                min="0" max="999"
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>最大扣除（金币）</label>
+              <input 
+                type="number" 
+                value={settings.customMax ?? 100}
+                onChange={(e) => setSettings({...settings, customMax: parseInt(e.target.value) || 100})}
+                min="1" max="999"
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
+              />
+            </div>
+          </div>
+          <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#fff', borderRadius: '6px' }}>
+            <strong>说明：</strong>审核时选择「自定义」后，输入扣除金额（{settings.customMin ?? 1}～{settings.customMax ?? 100} 金币）
           </div>
         </div>
 

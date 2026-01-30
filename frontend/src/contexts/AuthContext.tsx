@@ -28,8 +28,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // 直接从 localStorage 初始化状态（无需等待）
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
   const [user, setUser] = useState<User | null>(() => {
-    const storedUser = localStorage.getItem('user');
-    return storedUser ? JSON.parse(storedUser) : null;
+    try {
+      const storedUser = localStorage.getItem('user');
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch {
+      // JSON 解析失败，清除损坏的数据
+      localStorage.removeItem('user');
+      return null;
+    }
   });
   
   // isLoading 仅用于首次加载时的短暂验证

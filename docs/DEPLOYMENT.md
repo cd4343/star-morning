@@ -20,9 +20,8 @@ npm run build
 **必需文件/目录：**
 - `frontend/dist/` - 整个目录（包含所有构建后的静态文件）
 - `backend/` - 整个后端目录
-- `server.py` - Python HTTP 服务器
-- `start_app_production.bat` - 生产服务器启动脚本
-- `stellar.db` - 数据库文件（如果已有数据）
+- `scripts/` - 整个脚本目录（包含 server.py 和启动脚本）
+- `stellar.db` - 数据库文件（如果已有数据，位于项目根目录）
 
 **可选文件：**
 - `README.md` - 项目说明
@@ -38,7 +37,7 @@ npm run build
 
 2. 运行启动脚本：
    ```bash
-   start_app_production.bat
+   scripts\start_app_production.bat
    ```
 
 3. 脚本会自动：
@@ -59,6 +58,11 @@ npm run build
 2. **防火墙设置**：确保端口 80 和 3001 未被防火墙阻止
 3. **数据库文件**：首次部署时，数据库会自动创建。如需保留数据，请备份 `stellar.db` 文件
 4. **更新部署**：更新时只需替换 `frontend/dist` 目录和 `backend` 目录即可
+
+### 更新时建议替换的文件（保持数据一致）
+- **前端**：`frontend/dist/` 整个目录（先本地 `npm run build`）
+- **后端**：`backend/src/` 下所有 TS 文件及 `backend/package.json` 等；服务器上执行 `npm install` 后重启 Node 进程。若使用编译产物，则替换 `backend/dist/` 或对应运行目录。
+- **数据库**：不替换 `stellar.db` 可保留数据；若表结构有迁移（如惩罚自定义、再抽一次），首次启动新版本时会自动执行迁移。
 
 ## 快速部署命令（本地）
 

@@ -68,7 +68,8 @@ export default function ParentDashboard() {
   
   // 惩罚相关状态
   const [enablePunishment, setEnablePunishment] = useState(false);
-  const [punishmentLevel, setPunishmentLevel] = useState<'mild' | 'moderate' | 'severe'>('mild');
+  const [punishmentLevel, setPunishmentLevel] = useState<'mild' | 'moderate' | 'severe' | 'custom'>('mild');
+  const [punishmentCustomAmount, setPunishmentCustomAmount] = useState<number>(5);
   const [punishmentReason, setPunishmentReason] = useState('');
   const [punishmentSettings, setPunishmentSettings] = useState<any>(null);
   
@@ -172,6 +173,7 @@ export default function ParentDashboard() {
     setEnablePunishment(false);
     setPunishmentReason('');
     setPunishmentLevel('mild');
+    setPunishmentCustomAmount(5);
     setShowReviewModal(true);
     // 确保惩罚设置已加载
     if (!punishmentSettings) {
@@ -187,8 +189,13 @@ export default function ParentDashboard() {
       deduction = Math.max(punishmentSettings.mildMin, Math.min(punishmentSettings.mildMax, Math.round(reward * punishmentSettings.mildRate)));
     } else if (punishmentLevel === 'moderate') {
       deduction = Math.max(punishmentSettings.moderateMin, Math.min(punishmentSettings.moderateMax, Math.round(reward * punishmentSettings.moderateRate)));
-    } else {
+    } else if (punishmentLevel === 'severe') {
       deduction = Math.min(punishmentSettings.severeMax, Math.round(reward * punishmentSettings.severeRate) + punishmentSettings.severeExtra);
+    } else {
+      const min = punishmentSettings.customMin ?? 1;
+      const max = punishmentSettings.customMax ?? 100;
+      const amount = isNaN(punishmentCustomAmount) || punishmentCustomAmount < 0 ? min : punishmentCustomAmount;
+      deduction = Math.max(min, Math.min(max, Math.round(amount)));
     }
     return deduction;
   };
@@ -199,7 +206,7 @@ export default function ParentDashboard() {
     const totalBonus = timeScore + qualityScore + initiativeScore;
     const finalCoins = Math.round(baseCoins * (100 + totalBonus) / 100);
     const punishmentDeduction = getPunishmentDeduction();
-    return Math.max(0, finalCoins - punishmentDeduction); // 不能为负数
+    return finalCoins - punishmentDeduction; // 允许为负数，惩罚可能超过奖励
   };
 
   const handleApprove = async () => {
@@ -229,7 +236,8 @@ export default function ParentDashboard() {
         try {
           const punishRes = await api.post(`/parent/task-entries/${currentReview.id}/punish`, {
             level: punishmentLevel,
-            reason: punishmentReason
+            reason: punishmentReason,
+            ...(punishmentLevel === 'custom' ? { customAmount: punishmentCustomAmount } : {})
           });
           punishmentResult = punishRes.data;
         } catch (punishErr: any) {
@@ -246,6 +254,7 @@ export default function ParentDashboard() {
       setEnablePunishment(false);
       setPunishmentReason('');
       setPunishmentLevel('mild');
+      setPunishmentCustomAmount(5);
       
       fetchDashboard();
       
@@ -672,7 +681,7 @@ export default function ParentDashboard() {
                         {/* 惩罚等级选择 */}
                         <div>
                           <label className="block text-sm font-bold text-gray-700 mb-2">惩罚等级</label>
-                          <div className="grid grid-cols-3 gap-2">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             <button
                               type="button"
                               onClick={() => setPunishmentLevel('mild')}
@@ -706,7 +715,32 @@ export default function ParentDashboard() {
                             >
                               🔴 {punishmentSettings.severeName}
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => setPunishmentLevel('custom')}
+                              className={`py-2 px-3 rounded-lg text-sm font-bold transition-all ${
+                                punishmentLevel === 'custom'
+                                  ? 'bg-purple-500 text-white shadow-lg'
+                                  : 'bg-white text-gray-600 border border-gray-300'
+                              }`}
+                            >
+                              🟣 {punishmentSettings.customName ?? '自定义'}
+                            </button>
                           </div>
+                          {punishmentLevel === 'custom' && (
+                            <div className="mt-3">
+                              <label className="block text-sm font-bold text-gray-700 mb-1">扣除金币数</label>
+                              <input
+                                type="number"
+                                min={punishmentSettings.customMin ?? 1}
+                                max={punishmentSettings.customMax ?? 100}
+                                value={punishmentCustomAmount}
+                                onChange={(e) => setPunishmentCustomAmount(Math.max(0, Math.min(punishmentSettings.customMax ?? 100, parseInt(e.target.value) || 0)))}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">范围：{punishmentSettings.customMin ?? 1}～{punishmentSettings.customMax ?? 100} 金币</p>
+                            </div>
+                          )}
                         </div>
                         
                         {/* 惩罚原因 */}
@@ -744,7 +778,7 @@ export default function ParentDashboard() {
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-gray-600">最终奖励</div>
-                    <div className="text-3xl font-black text-yellow-600">
+                    <div className={`text-3xl font-black ${calculateFinalCoins() < 0 ? 'text-red-600' : 'text-yellow-600'}`}>
                       {calculateFinalCoins()} 💰
                     </div>
                   </div>
@@ -836,6 +870,7 @@ export default function ParentDashboard() {
                       <span className="text-sm font-bold text-red-600">
                         {taskDetail.punishment.level === 'mild' ? '🟡 轻度警告' : 
                          taskDetail.punishment.level === 'moderate' ? '🟠 中度惩罚' : 
+                         taskDetail.punishment.level === 'custom' ? '🟣 自定义扣除' : 
                          '🔴 严重惩罚'}
                       </span>
                     </div>

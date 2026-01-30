@@ -3,6 +3,7 @@ REM ========================================
 REM Smart Launcher - Auto-detect Environment
 REM ========================================
 setlocal enabledelayedexpansion
+REM Stay in scripts folder for calling other scripts
 cd /d "%~dp0"
 
 chcp 65001 >nul 2>&1

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { useOutletContext } from 'react-router-dom';
@@ -69,25 +69,8 @@ export default function ChildWishes() {
     setTipModal({ isOpen: true, title, message, icon });
   };
 
-  useEffect(() => { 
-    fetchAll(); 
-  }, [view]);
-  
-  // 当切换到特权或背包视图时，确保数据已加载
-  useEffect(() => {
-    if (view === 'privileges' && privileges.length === 0) {
-      api.get('/child/privileges').then(res => setPrivileges(res.data || [])).catch(() => {});
-    }
-    if (view === 'bag' && bagItems.length === 0) {
-      api.get('/child/inventory').then(res => setBagItems(res.data || [])).catch(() => {});
-    }
-    if (view === 'lottery') {
-      // 获取当前抽奖费用信息
-      api.get('/child/lottery/info').then(res => setLotteryInfo(res.data)).catch(() => {});
-    }
-  }, [view]);
-
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
+    try {
       const res = await api.get('/child/wishes');
       setShopItems(res.data.shop || []);
       setSavingsGoal(res.data.savings);
@@ -100,7 +83,28 @@ export default function ChildWishes() {
           const priv = await api.get('/child/privileges');
           setPrivileges(priv.data || []);
       }
-  };
+    } catch (e) {
+      console.error('获取数据失败:', e);
+    }
+  }, [view]);
+  
+  useEffect(() => { 
+    fetchAll(); 
+  }, [fetchAll]);
+  
+  // 当切换到特权或背包视图时，确保数据已加载
+  useEffect(() => {
+    if (view === 'privileges' && privileges.length === 0) {
+      api.get('/child/privileges').then(res => setPrivileges(res.data || [])).catch(e => console.error(e));
+    }
+    if (view === 'bag' && bagItems.length === 0) {
+      api.get('/child/inventory').then(res => setBagItems(res.data || [])).catch(e => console.error(e));
+    }
+    if (view === 'lottery') {
+      // 获取当前抽奖费用信息
+      api.get('/child/lottery/info').then(res => setLotteryInfo(res.data)).catch(e => console.error(e));
+    }
+  }, [view, privileges.length, bagItems.length]);
   
   // 兑换特权
   const handleRedeemPrivilege = async (priv: any) => {
@@ -199,6 +203,50 @@ export default function ChildWishes() {
   };
   
   // 兑现物品/服务
+  // 使用历史「再抽一次」道具（兼容旧数据）：标记为已使用，然后免费再抽
+  const handleUseDrawAgain = async (item: any) => {
+    const confirmed = await confirm({
+      title: '使用再抽一次',
+      message: `确定使用「${item.title}」吗？将立即获得一次免费抽奖机会！`,
+      type: 'info',
+      confirmText: '🎲 使用并抽奖',
+    });
+    if (!confirmed) return;
+    setLoading(true);
+    try {
+      // 先标记道具已使用
+      await api.post(`/child/inventory/${item.id}/redeem`);
+      
+      // 然后执行免费抽奖
+      let result = await runLotteryAnimation(() => api.post('/child/lottery/redraw'));
+      
+      // 如果连续抽到"再抽一次"，继续循环
+      while (result?.isDrawAgain) {
+        const continueConfirmed = await confirm({
+          title: '🎉 又抽到再抽一次！',
+          message: `你抽中了「${result.winner.title}」！\n点击"立即再抽"继续免费再抽！`,
+          type: 'info',
+          confirmText: '🎲 立即再抽',
+          cancelText: '知道了',
+        });
+        if (!continueConfirmed) break;
+        result = await runLotteryAnimation(() => api.post('/child/lottery/redraw'));
+        if (!result) break;
+      }
+      
+      if (result && !result.isDrawAgain) {
+        showTip('🎉 恭喜中奖！', `你抽中了：${result.winner.title}！已放入背包，快去查看吧~`, '🎊');
+      }
+      
+      refresh();
+      fetchAll();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '使用失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRedeemItem = async (item: any) => {
       const confirmed = await confirm({
         title: '兑现确认',
@@ -229,6 +277,51 @@ export default function ChildWishes() {
   };
   const gridPrizes = getGridPrizes();
 
+  // 执行抽奖动画并返回中奖结果
+  const runLotteryAnimation = async (apiCall: () => Promise<any>): Promise<{winner: any, isDrawAgain: boolean} | null> => {
+      return new Promise(async (resolve) => {
+          let spinInterval: ReturnType<typeof setInterval> | null = null;
+          let currentStep = 0;
+          
+          try {
+              spinInterval = setInterval(() => {
+                  setActiveGridIndex(GRID_PATH[currentStep % 8]);
+                  currentStep++;
+              }, 80);
+
+              const res = await apiCall();
+              const winner = res.data.winner;
+              const isDrawAgain = res.data.isDrawAgain || false;
+              
+              // 更新抽奖费用信息
+              if (res.data.nextCost !== undefined) {
+                setLotteryInfo({
+                  todayDrawCount: res.data.todayDrawCount,
+                  currentCost: res.data.nextCost,
+                  nextCost: res.data.nextCost
+                });
+              }
+              
+              const winnerIndexInGrid = gridPrizes.findIndex(p => p?.id === winner.id);
+              
+              setTimeout(() => {
+                  if (spinInterval) clearInterval(spinInterval);
+                  setActiveGridIndex(winnerIndexInGrid !== -1 ? winnerIndexInGrid : 0);
+                  
+                  setTimeout(() => {
+                      setActiveGridIndex(null);
+                      resolve({ winner, isDrawAgain });
+                  }, 800);
+              }, 2500);
+          } catch (e: any) {
+              if (spinInterval) clearInterval(spinInterval);
+              setActiveGridIndex(null);
+              toast.error(e.response?.data?.message || '抽奖失败');
+              resolve(null);
+          }
+      });
+  };
+
   const handleLottery = async () => {
       if (loading) return;
       const cost = lotteryInfo.currentCost;
@@ -241,53 +334,48 @@ export default function ChildWishes() {
         return;
       }
       
-      // 将 spinInterval 提升到外部，以便在 catch 中也能清除
-      let spinInterval: ReturnType<typeof setInterval> | null = null;
+      setLoading(true);
       
       try {
-          setLoading(true);
-          // Start fake spin
-          let currentStep = 0;
-          spinInterval = setInterval(() => {
-              setActiveGridIndex(GRID_PATH[currentStep % 8]);
-              currentStep++;
-          }, 80); // Faster spin
-
-          // Call Backend
-          const res = await api.post('/child/lottery/play');
-          const winner = res.data.winner;
-          
-          // 更新抽奖费用信息
-          if (res.data.nextCost) {
-            setLotteryInfo({
-              todayDrawCount: res.data.todayDrawCount,
-              currentCost: res.data.nextCost,
-              nextCost: res.data.nextCost // 会在下次抽奖后更新
-            });
+          // 第一次抽奖（花金币）
+          let result = await runLotteryAnimation(() => api.post('/child/lottery/play'));
+          if (!result) {
+              setLoading(false);
+              return;
           }
           
-          const winnerIndexInGrid = gridPrizes.findIndex(p => p?.id === winner.id);
-          
-          setTimeout(() => {
-              if (spinInterval) clearInterval(spinInterval);
-              // Land on winner
-              setActiveGridIndex(winnerIndexInGrid !== -1 ? winnerIndexInGrid : 0);
+          // 如果抽到"再抽一次"，弹窗提示并立即免费再抽
+          while (result.isDrawAgain) {
+              const confirmed = await confirm({
+                title: '🎉 恭喜抽到再抽一次！',
+                message: `你抽中了「${result.winner.title}」！\n点击"立即再抽"免费再抽一次！`,
+                type: 'info',
+                confirmText: '🎲 立即再抽',
+                cancelText: '知道了',
+              });
               
-              setTimeout(() => {
-                showTip('🎉 恭喜中奖！', `你抽中了：${winner.title}！已放入背包，快去"背包"查看并兑现吧！`, '🎊');
-                setLoading(false);
-                setActiveGridIndex(null);
-                refresh();
-                fetchAll();
-              }, 800);
-          }, 2500); 
-
-      } catch (e: any) {
-          // 错误时清除转盘动画
-          if (spinInterval) clearInterval(spinInterval);
+              if (!confirmed) {
+                  // 用户选择不再抽，直接退出
+                  break;
+              }
+              
+              // 调用免费再抽API
+              result = await runLotteryAnimation(() => api.post('/child/lottery/redraw'));
+              if (!result) {
+                  break; // 出错了
+              }
+              // 继续循环检查是否又抽到"再抽一次"
+          }
+          
+          // 最终展示中奖结果（非"再抽一次"的奖品）
+          if (result && !result.isDrawAgain) {
+              showTip('🎉 恭喜中奖！', `你抽中了：${result.winner.title}！已放入背包，快去"背包"查看并兑现吧！`, '🎊');
+          }
+          
+          refresh();
+          fetchAll();
+      } finally {
           setLoading(false);
-          setActiveGridIndex(null);
-          toast.error(e.response?.data?.message || '抽奖失败');
       }
   };
 
@@ -403,14 +491,25 @@ export default function ChildWishes() {
                           <div className="flex items-center gap-2">
                               {item.status === 'pending' || item.status === 'unused' ? (
                                   <>
-                                      <button 
-                                          onClick={() => handleRedeemItem(item)} 
-                                          className="px-3 py-1.5 bg-green-500 text-white text-xs font-bold rounded-lg hover:bg-green-600 transition-colors"
-                                      >
-                                          兑现
-                                      </button>
-                                      {/* 抽奖、储蓄达成、免费获得物品不可撤销；cost=0的老数据也不可撤销 */}
-                                      {item.source !== 'lottery' && item.source !== 'savings' && item.cost > 0 && (
+                                      {/* 「再抽一次」类物品：使用 = 免费再抽一次；其他：兑现 */}
+                                      {item.effectType === 'draw_again' ? (
+                                          <button 
+                                              onClick={() => handleUseDrawAgain(item)} 
+                                              disabled={loading}
+                                              className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center gap-1"
+                                          >
+                                              🔄 使用
+                                          </button>
+                                      ) : (
+                                          <button 
+                                              onClick={() => handleRedeemItem(item)} 
+                                              className="px-3 py-1.5 bg-green-500 text-white text-xs font-bold rounded-lg hover:bg-green-600 transition-colors"
+                                          >
+                                              兑现
+                                          </button>
+                                      )}
+                                      {/* 抽奖、储蓄达成、免费获得物品不可撤销；再抽一次不可撤销；cost=0的老数据也不可撤销 */}
+                                      {item.effectType !== 'draw_again' && item.source !== 'lottery' && item.source !== 'savings' && item.cost > 0 && (
                                           <button 
                                               onClick={() => handleCancel(item)} 
                                               className="px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
@@ -616,6 +715,9 @@ export default function ChildWishes() {
 const GridItem = ({ item, active }: { item: any, active: boolean }) => (
     <div className={`bg-white rounded-xl flex flex-col items-center justify-center p-1 shadow-[inset_0_-2px_4px_rgba(0,0,0,0.1)] transition-all duration-100 relative overflow-hidden ${active ? 'ring-4 ring-yellow-300 ring-offset-2 ring-offset-orange-500 bg-yellow-50 scale-105 z-10' : ''}`}>
         {active && <div className="absolute inset-0 bg-yellow-200/30 animate-pulse"/>}
+        {item?.effectType === 'draw_again' && (
+          <div className="absolute top-0 right-0 left-0 text-[9px] font-bold text-amber-600 bg-amber-100/90 rounded-t-xl py-0.5">再抽一次</div>
+        )}
         <div className="text-3xl mb-1 filter drop-shadow-sm">{item?.icon || '❓'}</div>
         <div className="text-[10px] font-bold text-gray-600 truncate w-full text-center leading-tight">{item?.title || '???'}</div>
     </div>

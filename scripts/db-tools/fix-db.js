@@ -1,6 +1,9 @@
 // fix-db.js - 修复 user_inventory 表结构
+// Database is in project root folder, which is ../.. from scripts/db-tools
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('../stellar.db');
+const path = require('path');
+const dbPath = path.join(__dirname, '../../stellar.db');
+const db = new sqlite3.Database(dbPath);
 
 const runSql = (sql, params = []) => new Promise((resolve, reject) => {
   db.run(sql, params, function(err) { if (err) reject(err); else resolve(this); });

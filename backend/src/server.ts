@@ -58,6 +58,80 @@ const dbRunWithRetry = async (sql: string, ...params: any[]) => {
   throw lastError;
 };
 
+// 事务封装：自动处理 BEGIN/COMMIT/ROLLBACK
+const withTransaction = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const db = getDb();
+  await db.run('BEGIN');
+  try {
+    const result = await fn();
+    await db.run('COMMIT');
+    return result;
+  } catch (err) {
+    await db.run('ROLLBACK');
+    throw err;
+  }
+};
+
+// 抽奖核心逻辑：加权随机选择奖品
+interface DrawResult {
+  prize: any;
+  newInventoryId: string | null;  // 再抽一次不放入背包，返回null
+  isDrawAgain: boolean;           // 是否抽到"再抽一次"
+}
+const drawPrizeCore = async (
+  db: any,
+  familyId: string,
+  childId: string,
+  cost: number,
+  source: 'lottery' | 'free_draw'
+): Promise<DrawResult> => {
+  // 获取可抽取的奖品
+  const prizes = await db.all(
+    "SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock IS NULL OR stock = -1 OR stock > 0)",
+    familyId
+  );
+  if (prizes.length === 0) {
+    throw new Error('奖池为空或奖品已抽完');
+  }
+  
+  // 加权随机算法
+  const totalWeight = prizes.reduce((sum: number, p: any) => sum + (p.weight || 10), 0);
+  let random = Math.random() * totalWeight;
+  let prize = prizes[0];
+  for (const p of prizes) {
+    random -= (p.weight || 10);
+    if (random <= 0) { prize = p; break; }
+  }
+  
+  // 扣减库存（无限库存 -1 或 NULL 不扣减）
+  if (prize.stock !== null && prize.stock !== -1 && prize.stock > 0) {
+    await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
+  }
+  
+  // 检查是否是"再抽一次"奖品
+  const isDrawAgain = prize.effectType === 'draw_again';
+  
+  const newInventoryId = randomUUID();
+  
+  if (isDrawAgain) {
+    // "再抽一次"奖品：记录到inventory（用于统计次数），但status='used'表示立即消费
+    await db.run(
+      `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt) 
+       VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
+      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+    );
+    return { prize, newInventoryId, isDrawAgain: true };
+  }
+  
+  // 普通奖品添加到背包
+  await db.run(
+    `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'pending')`,
+    newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source
+  );
+  
+  return { prize, newInventoryId, isDrawAgain: false };
+};
+
 // 健康检查端点 - 用于测试服务器是否正常运行
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -296,11 +370,14 @@ const checkAchievements = async (childId: string, db: any) => {
     
     for (let i = 0; i < days.length; i++) {
       const dayStr = days[i];
-      // 计算期望日期（北京时间）
+      // 计算期望日期（北京时间）- 使用时间戳计算，避免跨年问题
       const beijingNow = getBeijingDate();
-      const expectedDate = new Date(beijingNow.getTime());
-      expectedDate.setDate(beijingNow.getDate() - i - startOffset);
-      const expectedStr = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
+      // 使用时间戳减去天数（毫秒），避免 setDate 跨年问题
+      const daysToSubtract = i + startOffset;
+      const expectedTimestamp = beijingNow.getTime() - (daysToSubtract * 24 * 60 * 60 * 1000);
+      const expectedDate = getBeijingDate(new Date(expectedTimestamp));
+      // 使用 getLocalDateString 确保格式一致
+      const expectedStr = getLocalDateString(expectedDate);
       
       if (dayStr === expectedStr) {
         streak++;
@@ -884,12 +961,14 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     
     for (let i = 0; i < taskDays.length; i++) {
       const dayStr = taskDays[i];
-      // 计算期望日期（北京时间）- 直接从北京时间计算，不需要二次转换
+      // 计算期望日期（北京时间）- 使用时间戳计算，避免跨年问题
       const beijingNow = getBeijingDate();
-      const expectedDate = new Date(beijingNow.getTime());
-      expectedDate.setDate(beijingNow.getDate() - i - startOffset);
-      // 直接提取年月日，因为 expectedDate 已经是北京时间
-      const expectedStr = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
+      // 使用时间戳减去天数（毫秒），避免 setDate 跨年问题
+      const daysToSubtract = i + startOffset;
+      const expectedTimestamp = beijingNow.getTime() - (daysToSubtract * 24 * 60 * 60 * 1000);
+      const expectedDate = getBeijingDate(new Date(expectedTimestamp));
+      // 使用 getLocalDateString 确保格式一致
+      const expectedStr = getLocalDateString(expectedDate);
       
       if (dayStr === expectedStr) {
         streakDays++;
@@ -1269,29 +1348,73 @@ app.get('/api/parent/tasks/deleted', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     res.json(await getDb().all('SELECT * FROM tasks WHERE familyId = ? AND isEnabled = 0', request.user!.familyId));
 });
-app.get('/api/parent/wishes', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM wishes WHERE familyId = ?', request.user!.familyId)); });
+app.get('/api/parent/wishes', protect, async (req: any, res) => { 
+    const request = req as AuthRequest; 
+    const db = getDb();
+    const familyId = request.user!.familyId;
+    
+    // 检查是否存在系统默认的"再抽一次"奖项（isSystemDefault = 1）
+    const systemDrawAgain = await db.get(
+        "SELECT id FROM wishes WHERE familyId = ? AND type = 'lottery' AND isSystemDefault = 1",
+        familyId
+    );
+    
+    if (!systemDrawAgain) {
+        // 自动创建默认的"再抽一次"奖项（标记为系统默认）
+        await db.run(
+            `INSERT INTO wishes (id, familyId, type, title, cost, icon, stock, isActive, weight, rarity, effectType, isSystemDefault) 
+             VALUES (?, ?, 'lottery', '再抽一次', 0, '🔄', -1, 0, 25, 'uncommon', 'draw_again', 1)`,
+            randomUUID(), familyId
+        );
+    }
+    
+    res.json(await db.all('SELECT * FROM wishes WHERE familyId = ?', familyId)); 
+});
 app.post('/api/parent/wishes', protect, async (req: any, res) => { 
     const request = req as AuthRequest; 
     const weight = req.body.weight || 10;
     const rarity = req.body.rarity || null;
+    const category = req.body.category || null;
     await getDb().run(
-        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight, rarity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, 
-        randomUUID(), request.user!.familyId, req.body.type, req.body.title, req.body.cost, req.body.targetAmount, req.body.icon, req.body.stock, weight, rarity
+        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight, rarity, effectType, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`, 
+        randomUUID(), request.user!.familyId, req.body.type, req.body.title, req.body.cost, req.body.targetAmount, req.body.icon, req.body.stock, weight, rarity, req.body.effectType || null, category
     ); 
     res.json({message:'ok'}); 
 });
 
-// 更新奖品（包括权重和稀有度）
+// 更新奖品（包括权重、稀有度、效果类型）
 app.put('/api/parent/wishes/:id', protect, async (req: any, res) => {
-    const { title, cost, icon, stock, weight, rarity, targetAmount } = req.body;
-    await getDb().run(
-        'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ?, rarity = ?, targetAmount = ? WHERE id = ?',
-        title, cost, icon, stock, weight || 10, rarity || null, targetAmount || 0, req.params.id
-    );
+    const db = getDb();
+    const wish = await db.get('SELECT * FROM wishes WHERE id = ?', req.params.id);
+    if (!wish) return res.status(404).json({ message: '奖品不存在' });
+    
+    // 系统默认奖项只能修改权重和稀有度
+    if (wish.isSystemDefault === 1) {
+        const { weight, rarity } = req.body;
+        await db.run(
+            'UPDATE wishes SET weight = ?, rarity = ? WHERE id = ?',
+            weight || 25, rarity || 'uncommon', req.params.id
+        );
+    } else {
+        const { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category } = req.body;
+        await db.run(
+            'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ?, rarity = ?, targetAmount = ?, effectType = ?, category = ? WHERE id = ?',
+            title, cost, icon, stock, weight || 10, rarity || null, targetAmount || 0, effectType || null, category || null, req.params.id
+        );
+    }
     res.json({message:'ok'});
 });
 
-app.delete('/api/parent/wishes/:id', protect, async (req, res) => { await getDb().run('DELETE FROM wishes WHERE id = ?', req.params.id); res.json({message:'ok'}); });
+app.delete('/api/parent/wishes/:id', protect, async (req, res) => { 
+    const db = getDb();
+    // 检查是否是系统默认奖项，不允许删除
+    const wish = await db.get('SELECT isSystemDefault FROM wishes WHERE id = ?', req.params.id);
+    if (wish?.isSystemDefault === 1) {
+        return res.status(400).json({ message: '「再抽一次」是系统默认奖项，不能删除' });
+    }
+    await db.run('DELETE FROM wishes WHERE id = ?', req.params.id); 
+    res.json({message:'ok'}); 
+});
 
 // 抽奖奖池上架管理
 app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) => {
@@ -1383,7 +1506,10 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         // 统计当日收入（任务奖励）
         const dayEarned = (await db.get(`SELECT COALESCE(sum(earnedCoins), 0) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt) = ?`, childId, dateStr)).s || 0;
         // 统计当日消耗（商店购买，只统计金币购买的）
-        const daySpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt) = ?`, childId, dateStr)).s || 0;
+        const dayShopSpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt) = ?`, childId, dateStr)).s || 0;
+        // 统计当日惩罚扣款
+        const dayPunishment = (await db.get(`SELECT COALESCE(sum(deductedCoins), 0) as s FROM punishment_records WHERE childId = ? AND date(createdAt) = ?`, childId, dateStr)).s || 0;
+        const daySpent = dayShopSpent + dayPunishment;
         last7Days.push({ date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent });
     }
     
@@ -1491,7 +1617,21 @@ app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
         return res.status(500).json({message: '兑换失败，请重试'});
     }
 });
-app.get('/api/child/inventory', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM user_inventory WHERE childId = ? ORDER BY acquiredAt DESC', request.user!.id)); });
+// 背包列表（联表 wishes 返回 effectType，用于「再抽一次」等可使用物品）
+// 过滤掉"再抽一次"的即时消费记录（status='used' 且 effectType='draw_again'），它们只用于统计
+app.get('/api/child/inventory', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const rows = await db.all(`
+      SELECT ui.*, w.effectType
+      FROM user_inventory ui
+      LEFT JOIN wishes w ON ui.wishId = w.id
+      WHERE ui.childId = ?
+        AND NOT (ui.status = 'used' AND w.effectType = 'draw_again')
+      ORDER BY ui.acquiredAt DESC
+    `, request.user!.id);
+    res.json(rows);
+});
 // 撤销兑换（退还金币或特权点）- 抽奖物品和储蓄达成物品不可撤销，每类商品最多撤销一次
 app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => { 
     const request = req as AuthRequest;
@@ -1629,7 +1769,7 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     const db = getDb();
     const today = getLocalDateString();
     
-    // 统计今日抽奖次数（使用本地时区进行日期比较）
+    // 统计今日抽奖次数
     const todayCount = (await db.get(
         `SELECT COUNT(*) as count FROM user_inventory 
          WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, 'localtime') = ?`,
@@ -1639,44 +1779,76 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     const cost = getLotteryCost(todayCount);
     
     const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id); 
-    if(user.coins < cost) return res.status(400).json({message: `金币不足，本次抽奖需要 ${cost} 金币`});
-    
-    // 只获取已上架且有库存的奖品 (stock = -1 或 NULL 表示无限库存，0 表示无库存)
-    const prizes = await db.all("SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock IS NULL OR stock = -1 OR stock > 0)", request.user!.familyId);
-    if(prizes.length === 0) return res.status(400).json({message:'奖池空或奖品已抽完'});
-    
-    // 加权随机算法
-    const totalWeight = prizes.reduce((sum: number, p: any) => sum + (p.weight || 10), 0);
-    let random = Math.random() * totalWeight;
-    let prize = prizes[0];
-    for (const p of prizes) {
-        random -= (p.weight || 10);
-        if (random <= 0) { prize = p; break; }
+    if (user.coins < cost) {
+        return res.status(400).json({ message: `金币不足，本次抽奖需要 ${cost} 金币` });
     }
     
     try {
-        await db.run('BEGIN'); 
-        await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', cost, request.user!.id); 
+        const result = await withTransaction(async () => {
+            // 扣金币
+            await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', cost, request.user!.id);
+            // 抽奖
+            return await drawPrizeCore(db, request.user!.familyId, request.user!.id, cost, 'lottery');
+        });
         
-        // 库存 -1 或 NULL 表示无限，不扣减；stock > 0 时扣减
-        if (prize.stock !== null && prize.stock !== -1 && prize.stock > 0) {
-            await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', prize.id);
-        }
-        
-        // 抽奖奖品添加到背包，记录实际消耗的金币
-        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, 
-            randomUUID(), request.user!.id, prize.id, prize.title, prize.icon, cost, 'coins', 'lottery');
-        await db.run('COMMIT');
-        
-        // 返回中奖信息和下次抽奖费用
-        const nextCost = getLotteryCost(todayCount + 1);
-        res.json({ winner: prize, cost, nextCost, todayDrawCount: todayCount + 1 });
-    } catch (err) {
-        await db.run('ROLLBACK');
+        // 如果抽到"再抽一次"，不增加次数（因为会立即免费再抽）
+        const actualCount = result.isDrawAgain ? todayCount : todayCount + 1;
+        const nextCost = getLotteryCost(actualCount);
+        res.json({ 
+            winner: result.prize, 
+            cost, 
+            nextCost, 
+            todayDrawCount: actualCount,
+            isDrawAgain: result.isDrawAgain  // 告诉前端这是"再抽一次"
+        });
+    } catch (err: any) {
         console.error('抽奖失败:', err);
-        return res.status(500).json({message: '抽奖失败，请重试'});
+        return res.status(500).json({ message: err.message || '抽奖失败，请重试' });
     }
 });
+
+// 「再抽一次」免费抽奖：验证用户最近抽到了"再抽一次"奖品后，执行免费抽奖
+app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    
+    // 验证用户最近一次抽奖确实是"再抽一次"奖品（status='used' 且 source='lottery' 或 'free_draw'）
+    // 并且在5分钟内（防止滥用）
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const recentDrawAgain = await db.get(`
+        SELECT ui.id, w.effectType 
+        FROM user_inventory ui 
+        JOIN wishes w ON ui.wishId = w.id 
+        WHERE ui.childId = ? 
+          AND ui.status = 'used' 
+          AND w.effectType = 'draw_again'
+          AND ui.redeemedAt > ?
+        ORDER BY ui.redeemedAt DESC 
+        LIMIT 1
+    `, request.user!.id, fiveMinutesAgo);
+    
+    if (!recentDrawAgain) {
+        return res.status(400).json({ message: '没有可用的再抽一次机会' });
+    }
+    
+    try {
+        // 将该记录标记为已完成免费抽奖（防止重复使用）
+        await db.run("UPDATE user_inventory SET status = 'redeemed' WHERE id = ?", recentDrawAgain.id);
+        
+        // 执行免费抽奖
+        const result = await drawPrizeCore(db, request.user!.familyId, request.user!.id, 0, 'free_draw');
+        
+        res.json({ 
+            winner: result.prize, 
+            isDrawAgain: result.isDrawAgain,  // 可能连续抽到"再抽一次"
+            message: '再抽一次成功！'
+        });
+    } catch (err: any) {
+        console.error('再抽一次失败:', err);
+        return res.status(500).json({ message: err.message || '再抽一次失败，请重试' });
+    }
+});
+
 app.get('/api/child/achievements', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all(`SELECT ua.unlockedAt, ad.title, ad.description, ad.icon FROM user_achievements ua JOIN achievement_defs ad ON ua.achievementId = ad.id WHERE ua.childId = ?`, request.user!.id)); });
 
 // Child All Achievements (包含未解锁的，显示进度)
@@ -1743,11 +1915,14 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
       
       for (let i = 0; i < days.length; i++) {
         const dayStr = days[i];
-        // 计算期望日期（北京时间）
+        // 计算期望日期（北京时间）- 使用时间戳计算，避免跨年问题
         const beijingNow = getBeijingDate();
-        const expectedDate = new Date(beijingNow.getTime());
-        expectedDate.setDate(beijingNow.getDate() - i - startOffset);
-        const expectedStr = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
+        // 使用时间戳减去天数（毫秒），避免 setDate 跨年问题
+        const daysToSubtract = i + startOffset;
+        const expectedTimestamp = beijingNow.getTime() - (daysToSubtract * 24 * 60 * 60 * 1000);
+        const expectedDate = getBeijingDate(new Date(expectedTimestamp));
+        // 使用 getLocalDateString 确保格式一致
+        const expectedStr = getLocalDateString(expectedDate);
         
         if (dayStr === expectedStr) {
           streak++;
@@ -1845,11 +2020,13 @@ app.get('/api/parent/punishment-settings', protect, async (req: any, res) => {
                 mildName, mildRate, mildMin, mildMax,
                 moderateName, moderateRate, moderateMin, moderateMax,
                 severeName, severeRate, severeExtra, severeMax,
+                customName, customMin, customMax,
                 allowNegative, negativeLimit, notifyChild, requireReason
             ) VALUES (?, ?, 0,
                 '轻度警告', 0.3, 2, 10,
                 '中度惩罚', 0.5, 5, 20,
                 '严重惩罚', 1.0, 5, 50,
+                '自定义扣除', 1, 100,
                 1, -10, 1, 1)
         `, id, familyId);
         settings = await db.get('SELECT * FROM punishment_settings WHERE id = ?', id);
@@ -1868,19 +2045,19 @@ app.put('/api/parent/punishment-settings', protect, async (req: any, res) => {
         enabled, mildName, mildRate, mildMin, mildMax,
         moderateName, moderateRate, moderateMin, moderateMax,
         severeName, severeRate, severeExtra, severeMax,
+        customName, customMin, customMax,
         allowNegative, negativeLimit, notifyChild, requireReason
     } = req.body;
     
-    // 检查设置是否存在
     const existing = await db.get('SELECT id FROM punishment_settings WHERE familyId = ?', familyId);
     
     if (existing) {
-        // 更新现有设置
         await db.run(`
             UPDATE punishment_settings SET
                 enabled = ?, mildName = ?, mildRate = ?, mildMin = ?, mildMax = ?,
                 moderateName = ?, moderateRate = ?, moderateMin = ?, moderateMax = ?,
                 severeName = ?, severeRate = ?, severeExtra = ?, severeMax = ?,
+                customName = ?, customMin = ?, customMax = ?,
                 allowNegative = ?, negativeLimit = ?, notifyChild = ?, requireReason = ?,
                 updatedAt = CURRENT_TIMESTAMP
             WHERE familyId = ?
@@ -1888,28 +2065,31 @@ app.put('/api/parent/punishment-settings', protect, async (req: any, res) => {
             enabled, mildName, mildRate, mildMin, mildMax,
             moderateName, moderateRate, moderateMin, moderateMax,
             severeName, severeRate, severeExtra, severeMax,
+            customName ?? '自定义扣除', customMin ?? 1, customMax ?? 100,
             allowNegative, negativeLimit, notifyChild, requireReason,
             familyId
         );
     } else {
-        // 创建新设置
         await db.run(`
             INSERT INTO punishment_settings (
                 id, familyId, enabled,
                 mildName, mildRate, mildMin, mildMax,
                 moderateName, moderateRate, moderateMin, moderateMax,
                 severeName, severeRate, severeExtra, severeMax,
+                customName, customMin, customMax,
                 allowNegative, negativeLimit, notifyChild, requireReason
             ) VALUES (?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
+                ?, ?, ?,
                 ?, ?, ?, ?)
         `,
             randomUUID(), familyId, enabled,
             mildName, mildRate, mildMin, mildMax,
             moderateName, moderateRate, moderateMin, moderateMax,
             severeName, severeRate, severeExtra, severeMax,
+            customName ?? '自定义扣除', customMin ?? 1, customMax ?? 100,
             allowNegative, negativeLimit, notifyChild, requireReason
         );
     }
@@ -1917,8 +2097,8 @@ app.put('/api/parent/punishment-settings', protect, async (req: any, res) => {
     res.json({ message: '设置已保存' });
 });
 
-// 惩罚计算辅助函数
-const calculatePunishment = (taskReward: number, level: string, settings: any): number => {
+// 惩罚计算辅助函数（custom 时由调用方传入 customAmount）
+const calculatePunishment = (taskReward: number, level: string, settings: any, customAmount?: number): number => {
     let deduction = 0;
     
     switch (level) {
@@ -1933,6 +2113,12 @@ const calculatePunishment = (taskReward: number, level: string, settings: any): 
         case 'severe':
             deduction = Math.round(taskReward * settings.severeRate) + settings.severeExtra;
             deduction = Math.min(settings.severeMax, deduction);
+            break;
+        case 'custom':
+            if (customAmount == null || customAmount < 0) return 0;
+            const min = settings.customMin ?? 1;
+            const max = settings.customMax ?? 100;
+            deduction = Math.max(min, Math.min(max, Math.round(customAmount)));
             break;
     }
     
@@ -1987,14 +2173,25 @@ app.post('/api/parent/task-entries/:id/punish', protect, async (req: any, res) =
     const request = req as AuthRequest;
     const db = getDb();
     const entryId = req.params.id;
-    const { level, reason } = req.body; // level: 'mild' | 'moderate' | 'severe'
+    const { level, reason, customAmount } = req.body; // level: 'mild' | 'moderate' | 'severe' | 'custom'
     
     if (!level || !reason) {
         return res.status(400).json({ message: '缺少惩罚等级或原因' });
     }
     
-    if (!['mild', 'moderate', 'severe'].includes(level)) {
+    if (!['mild', 'moderate', 'severe', 'custom'].includes(level)) {
         return res.status(400).json({ message: '无效的惩罚等级' });
+    }
+    if (level === 'custom') {
+        const amount = Number(customAmount);
+        if (isNaN(amount) || amount < 0) return res.status(400).json({ message: '自定义扣除金额无效' });
+        // 获取设置中的范围限制
+        const tempSettings = await db.get('SELECT customMin, customMax FROM punishment_settings WHERE familyId = ?', request.user!.familyId);
+        const min = tempSettings?.customMin ?? 1;
+        const max = tempSettings?.customMax ?? 100;
+        if (amount < min || amount > max) {
+            return res.status(400).json({ message: `自定义扣除金额应在 ${min}～${max} 之间` });
+        }
     }
     
     // 获取任务条目
@@ -2024,8 +2221,10 @@ app.post('/api/parent/task-entries/:id/punish', protect, async (req: any, res) =
         return res.status(400).json({ message: '必须填写惩罚原因' });
     }
     
-    // 计算扣除金币数
-    const deduction = calculatePunishment(entry.coinReward, level, settings);
+    // 计算扣除金币数（custom 时使用 customAmount）
+    const deduction = level === 'custom'
+        ? calculatePunishment(entry.coinReward, level, settings, Number(req.body.customAmount))
+        : calculatePunishment(entry.coinReward, level, settings);
     
     // 获取孩子当前金币
     const child = await db.get('SELECT coins FROM users WHERE id = ?', entry.childId);

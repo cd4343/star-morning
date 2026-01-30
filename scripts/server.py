@@ -421,11 +421,17 @@ def check_port_available(port):
 
 def main():
     """主函数"""
+    # Change to project root directory (parent of scripts folder)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    os.chdir(project_root)
+    
     print("=" * 50)
     print("Python HTTP 服务器")
     print("=" * 50)
     print(f"域名: http://{DOMAIN}/")
     print(f"监听地址: {HOST}:{PORT}")
+    print(f"项目根目录: {project_root}")
     print("=" * 50)
     print()
     

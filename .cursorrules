@@ -1,78 +1,77 @@
-# 星辰动力系统 (Stellar Drive System) - 开发规则
+# 星辰动力 / Star Coin - 开发规则与长期记忆
 
-## 核心协议：RIPER-5模式
+## 项目概述
+- **名称**：星辰早晨 / Star Coin（家庭成长激励系统）
+- **架构**：前后端分离；前端 React + Vite，后端 Node.js + Express + TypeScript
+- **数据库**：SQLite（`stellar.db`），通过 `sqlite` + `sqlite3` 驱动
+- **认证**：JWT Token，角色：`parent` / `child`
 
-### 模式声明要求
-- 必须在每个响应开头声明模式：[MODE: RESEARCH/INNOVATE/PLAN/EXECUTE/REVIEW]
-- 默认模式：RESEARCH（除非明确指示）
-- 模式转换需要明确信号：ENTER [MODE] MODE
+## 技术栈（务必一致）
+- **后端**：Node.js、Express、TypeScript、SQLite（`sqlite` 包）、`uuid`、`bcryptjs`、`jsonwebtoken`
+- **前端**：React 18、React Router、TypeScript、Vite、Tailwind CSS、lucide-react、axios
+- **时间**：**所有业务时间统一使用北京时间 (UTC+8)**。使用 `getBeijingDate`、`getLocalDateString`、`getBeijingTimeString`（见 `backend/src/server.ts`）进行日期/时间计算与比较，避免依赖 SQLite `localtime` 或服务器系统时区。
 
-### 模式操作规范
-- RESEARCH: 仅信息收集，禁止建议和实施
-- INNOVATE: 仅讨论方案，禁止规划和实施
-- PLAN: 仅创建详细计划，禁止实施
-- EXECUTE: 100%遵循计划，禁止偏离
-- REVIEW: 验证实施与计划的符合度
-
-## 项目技术栈
-- 后端：Node.js + Express + TypeScript
-- 前端：原生 HTML + CSS + JavaScript (无框架)
-- 数据库：SQLite (via sqlite/sqlite3)
-- 架构：前后端分离 (Frontend: /frontend, Backend: /backend)
-- 部署：本地运行 (Backend: Port 3001, Frontend: File/Server)
-
-## 代码质量标准
-
-### 禁止事项
-- ❌ 冗余代码和注释
-- ❌ 无用的测试脚本
-- ❌ 未使用的导入和依赖
-- ❌ 过度的日志输出
-- ❌ 占位符代码（TODO注释除外）
-- ❌ 空函数或未实现的功能
-
-### 必须事项
-- ✅ 完整的错误处理
-- ✅ 清晰的函数命名（中文或英文均可）
-- ✅ 必要的注释（仅解释复杂逻辑）
-- ✅ 数据库操作的异常处理 (使用 async/await)
-- ✅ API响应的统一格式
-
-## 文件组织规范
-
-### 项目结构
+## 目录与关键文件
 ```
-stellar_system/
-├── backend/               # 后端服务
+star coin/
+├── backend/
 │   ├── src/
-│   │   ├── server.ts      # 主应用入口
-│   │   └── database.ts    # 数据库连接与初始化
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/              # 前端静态资源
-│   ├── index.html         # 单页入口
-│   └── static/
-│       ├── css/
-│       └── js/
-├── CHANGELOG.md           # 变更日志
-└── .cursorrules           # 本文件
+│   │   ├── server.ts       # API 入口、时间工具、抽奖/惩罚/任务/心愿等逻辑
+│   │   └── database.ts     # 表结构、迁移、索引、getDb()
+├── stellar.db              # SQLite 数据文件（运行后生成，在项目根目录）
+├── frontend/
+│   └── src/
+│       ├── App.tsx         # 路由（含 404 页面）
+│       ├── pages/
+│       │   ├── parent/     # 家长端：Dashboard、Punishment、Wishes、Tasks 等
+│       │   └── child/      # 孩子端：Tasks、Wishes、Me 等
+│       ├── components/     # Modal、ConfirmDialog、Toast、BottomSheet 等（已增强可访问性）
+│       ├── hooks/          # useApiCall、useTemplateSelector 等自定义 Hooks
+│       └── services/api.ts # axios 封装、JWT 注入、错误处理
+├── docs/                   # 项目文档
+│   ├── ARCHITECTURE.md     # 架构与数据流
+│   ├── FEATURES.md         # 功能清单与业务规则
+│   ├── DEPLOYMENT.md       # 部署与上线清单
+│   ├── CODE_HEALTH_REPORT.md # 代码健康检查报告
+│   └── HOSTS_SETUP.md      # Hosts 配置说明
+├── scripts/                # 脚本工具
+│   ├── start_app.bat       # 智能启动器
+│   ├── start_app_local.bat # 本地开发启动
+│   ├── start_dev.ps1       # PowerShell 开发启动
+│   ├── server.py           # 生产环境 HTTP 代理
+│   └── db-tools/           # 数据库修复工具
+│       ├── fix-auto-approved.js  # 误自动审批恢复
+│       └── fix-db.js       # 表结构修复
+├── _archive/               # 归档文件（废弃代码暂存）
+├── .cursorrules            # 本文件
+└── README.md               # 项目说明
 ```
 
-### 命名规范
-- TypeScript文件：camelCase (如 `server.ts`, `database.ts`)
-- HTML文件：kebab-case（如 `task-card.html`）
-- JavaScript函数：camelCase（如 `startTask()`）
-- 数据库表：snake_case（如 `task_entries`）
-- API端点：kebab-case（如 `/api/tasks/start`）
+## 业务规则（长期记忆）
 
-## 前端开发规范
-- 使用原生JavaScript，不使用框架
-- 异步操作使用async/await
-- 错误处理必须有用户提示
-- 避免全局变量污染（使用命名空间）
+### 时间与审批
+- **任务提交/审核/自动审批**：以**北京时间**的“当天”为基准。当天 00:00–23:59 未审批的任务，在次日按“中间档”自动审批；不要用服务器 UTC 或 `date(..., 'localtime')` 做“今天”判断，应在 Node 里用 `getLocalDateString()` 比较。
+- **连续打卡/连续天数**：基于北京时间的日期集合，用 `getBeijingDate` / `getLocalDateString` 做跨年安全计算。
 
-## 后端开发规范
-- 使用 Express 路由处理请求
-- 所有的数据库交互必须通过 `database.ts` 提供的接口
-- 严格的类型定义 (TypeScript)
-- 安全中间件 (Helmet, CORS, Auth) 必须启用
+### 抽奖与心愿
+- **抽奖**：`wishes` 表 `type='lottery'` 且 `isActive=1` 的奖品参与转盘；权重 `weight`，库存 `stock`（-1/NULL 无限）。孩子端 8 格转盘，费用按当日已抽次数递增（`getLotteryCost`）。
+- **再抽一次**：`wishes.effectType = 'draw_again'` 的奖品；抽到后**不放入背包**，直接弹窗提示并调用 `POST /api/child/lottery/redraw` 立即免费再抽，直到抽到非"再抽一次"奖品为止。后端记录在 `user_inventory`（status='used'）用于次数统计。
+- **家长端**：新建/编辑抽奖奖品时可设置「效果类型」为普通或「再抽一次」；模板中“再抽一次”“再来一次机会”自动设为 `effectType: 'draw_again'`。
+
+### 惩罚系统
+- **等级**：`mild`（轻度）、`moderate`（中度）、`severe`（严重）、`custom`（自定义）。
+- **自定义扣除**：家长在惩罚设置中配置 `customName`、`customMin`、`customMax`；审核时选择「自定义」并输入扣除金币数（在 min～max 之间）。`punishment_records.level = 'custom'`，扣款数由请求 body 的 `customAmount` 决定。
+- **设置表**：`punishment_settings`（含 customName/customMin/customMax）；**记录表**：`punishment_records`（level 含 `custom`）。执行惩罚接口：`POST /api/parent/task-entries/:id/punish`，body：`level`、`reason`，若 `level === 'custom'` 则必须传 `customAmount`。
+
+### 数据库注意
+- **用户表**：金币/经验等字段为 `rewardXpTotal`（不是 `accumulatedRewardXp`）。
+- **惩罚记录**：`level` 的 CHECK 包含 `'mild','moderate','severe','custom'`。旧库迁移时通过重建 `punishment_records` 表以加入 `custom`（见 `database.ts` 中迁移块）。
+
+## 代码与协作规范
+- **禁止**：冗余注释、未使用导入、占位符代码、过度 console；**必须**：错误处理、类型安全、API 统一返回格式。
+- **命名**：TS 文件 camelCase；表/列 snake_case；API 路径 kebab-case。
+- **修改范围**：动到时间、审批、抽奖、惩罚、背包时，需同时考虑家长端和孩子端展示与接口，并跑一遍关键流程（提交→审核→惩罚/奖励、抽奖→背包使用再抽一次）。
+
+## 文档与维护
+- 新功能或重要规则变更：更新 `FEATURES.md` 和本文件中的业务规则；涉及部署时更新 `DEPLOYMENT.md`。
+- 修复线上数据（如误自动审批）：优先用脚本 `fix-auto-approved.js` 等可复现步骤，并在文档中注明使用场景与风险。

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -7,21 +7,59 @@ interface ModalProps {
   title?: string;
   children: React.ReactNode;
   showCloseButton?: boolean;
+  closeOnBackdrop?: boolean;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, showCloseButton = true }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, showCloseButton = true, closeOnBackdrop = true }) => {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useRef(`modal-title-${Math.random().toString(36).substr(2, 9)}`).current;
+  
+  // ESC 键关闭
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  }, [onClose]);
+  
+  // 打开时聚焦 Modal 并禁止背景滚动
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      modalRef.current?.focus();
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen, handleKeyDown]);
+  
   if (!isOpen) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div 
+      className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={closeOnBackdrop ? onClose : undefined}
+      role="presentation"
+    >
       <div 
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95 duration-200"
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95 duration-200 outline-none"
         style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}
+        onClick={e => e.stopPropagation()}
       >
         <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
-          <h3 className="font-bold text-lg text-gray-800">{title}</h3>
+          <h3 id={titleId} className="font-bold text-lg text-gray-800">{title}</h3>
           {showCloseButton && (
-            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+            <button 
+              onClick={onClose} 
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              aria-label="关闭"
+            >
               <X size={20} className="text-gray-500" />
             </button>
           )}

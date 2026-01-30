@@ -12,8 +12,8 @@ Hosts 文件是操作系统用来将域名映射到 IP 地址的本地文件。�
 
 ### 方法1：使用自动脚本（推荐）
 
-1. **以管理员身份运行** `setup_hosts.bat`
-   - 右键点击 `setup_hosts.bat`
+1. **以管理员身份运行** `scripts/setup_hosts.bat`
+   - 右键点击 `scripts/setup_hosts.bat`
    - 选择"以管理员身份运行"
 
 2. 脚本会自动：
@@ -53,7 +53,7 @@ Hosts 文件是操作系统用来将域名映射到 IP 地址的本地文件。�
 如果需要移除域名映射：
 
 1. **使用脚本**：
-   - 运行 `setup_hosts.bat`
+   - 运行 `scripts/setup_hosts.bat`
    - 选择移除现有条目
 
 2. **手动移除**：

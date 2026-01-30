@@ -29,6 +29,23 @@ const PageLoader = () => (
   </div>
 );
 
+// 404 页面
+const NotFound = () => (
+  <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="text-center p-8">
+      <div className="text-8xl mb-6">🔍</div>
+      <h1 className="text-2xl font-bold text-gray-800 mb-2">页面不存在</h1>
+      <p className="text-gray-500 mb-6">您访问的页面可能已被移除或地址有误</p>
+      <a 
+        href="/" 
+        className="inline-block px-6 py-3 bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-600 transition-colors"
+      >
+        返回首页
+      </a>
+    </div>
+  </div>
+);
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -84,6 +101,9 @@ function App() {
           <Route path="me" element={<Suspense fallback={<PageLoader />}><ChildMe /></Suspense>} />
           <Route index element={<Navigate to="tasks" replace />} />
         </Route>
+        
+        {/* 404 页面 */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

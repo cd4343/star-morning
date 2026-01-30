@@ -94,6 +94,12 @@ const createTables = async () => {
   `);
   // 添加稀有度字段（如果不存在）
   try { await db.run('ALTER TABLE wishes ADD COLUMN rarity TEXT'); } catch (e) {}
+  // 抽奖奖品效果类型：null/普通 | draw_again 再抽一次（背包中使用后获得一次免费抽奖）
+  try { await db.run('ALTER TABLE wishes ADD COLUMN effectType TEXT'); } catch (e) {}
+  // 系统默认奖项标记（1=系统自动创建的，不能删除和修改名称）
+  try { await db.run('ALTER TABLE wishes ADD COLUMN isSystemDefault INTEGER DEFAULT 0'); } catch (e) {}
+  // 商品分类（零食、玩乐、特权、其他）
+  try { await db.run('ALTER TABLE wishes ADD COLUMN category TEXT'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS privileges (
       id TEXT PRIMARY KEY, familyId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, cost INTEGER NOT NULL, icon TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -171,6 +177,10 @@ const createTables = async () => {
       severeExtra INTEGER DEFAULT 5,
       severeMax INTEGER DEFAULT 50,
       
+      customName TEXT DEFAULT '自定义扣除',
+      customMin INTEGER DEFAULT 1,
+      customMax INTEGER DEFAULT 100,
+      
       allowNegative INTEGER DEFAULT 1,
       negativeLimit INTEGER DEFAULT -10,
       notifyChild INTEGER DEFAULT 1,
@@ -181,6 +191,9 @@ const createTables = async () => {
       FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
     )
   `);
+  try { await db.run('ALTER TABLE punishment_settings ADD COLUMN customName TEXT DEFAULT \'自定义扣除\''); } catch (e) {}
+  try { await db.run('ALTER TABLE punishment_settings ADD COLUMN customMin INTEGER DEFAULT 1'); } catch (e) {}
+  try { await db.run('ALTER TABLE punishment_settings ADD COLUMN customMax INTEGER DEFAULT 100'); } catch (e) {}
   
   // 惩罚记录表
   await db.exec(`
@@ -192,7 +205,7 @@ const createTables = async () => {
       parentId TEXT NOT NULL,
       familyId TEXT NOT NULL,
       
-      level TEXT CHECK(level IN ('mild', 'moderate', 'severe')) NOT NULL,
+      level TEXT CHECK(level IN ('mild', 'moderate', 'severe', 'custom')) NOT NULL,
       reason TEXT NOT NULL,
       
       taskReward INTEGER NOT NULL,
@@ -208,4 +221,98 @@ const createTables = async () => {
       FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
     )
   `);
+  
+  // 迁移：为 punishment_records 的 level 增加 'custom'（SQLite 无法 ALTER CHECK，需重建表）
+  // 只有当表结构需要迁移时才执行（检测 level CHECK 是否包含 custom）
+  try {
+    // 检查当前表的 CHECK 约束是否已包含 'custom'
+    const tableInfo = await db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='punishment_records'");
+    const needsMigration = tableInfo && tableInfo.sql && !tableInfo.sql.includes("'custom'");
+    
+    if (needsMigration) {
+      console.log('📦 Migrating punishment_records to support custom level...');
+      // 清理可能残留的临时表
+      await db.run('DROP TABLE IF EXISTS punishment_records_new');
+      
+      await db.run(`CREATE TABLE punishment_records_new (
+        id TEXT PRIMARY KEY,
+        taskEntryId TEXT NOT NULL,
+        taskId TEXT NOT NULL,
+        childId TEXT NOT NULL,
+        parentId TEXT NOT NULL,
+        familyId TEXT NOT NULL,
+        level TEXT CHECK(level IN ('mild', 'moderate', 'severe', 'custom')) NOT NULL,
+        reason TEXT NOT NULL,
+        taskReward INTEGER NOT NULL,
+        deductedCoins INTEGER NOT NULL,
+        balanceBefore INTEGER NOT NULL,
+        balanceAfter INTEGER NOT NULL,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (taskEntryId) REFERENCES task_entries(id) ON DELETE CASCADE,
+        FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (parentId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+      )`);
+      await db.run('INSERT INTO punishment_records_new SELECT * FROM punishment_records');
+      await db.run('DROP TABLE punishment_records');
+      await db.run('ALTER TABLE punishment_records_new RENAME TO punishment_records');
+      console.log('✅ punishment_records migration completed');
+    }
+  } catch (e) {
+    // 新库或已是新结构时可能失败，忽略
+    console.log('📦 punishment_records migration skipped or already done');
+  }
+  
+  // 创建索引以提升查询性能
+  console.log('📦 Creating indexes...');
+  try {
+    // users 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_users_familyId ON users(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
+    
+    // tasks 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_tasks_familyId ON tasks(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_tasks_isEnabled ON tasks(isEnabled)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_tasks_familyId_isEnabled ON tasks(familyId, isEnabled)');
+    
+    // task_entries 表索引（高频查询）
+    await db.run('CREATE INDEX IF NOT EXISTS idx_task_entries_childId ON task_entries(childId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_task_entries_taskId ON task_entries(taskId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_task_entries_status ON task_entries(status)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_task_entries_submittedAt ON task_entries(submittedAt)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_task_entries_childId_status ON task_entries(childId, status)');
+    
+    // wishes 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_wishes_familyId ON wishes(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_wishes_type ON wishes(type)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_wishes_familyId_type ON wishes(familyId, type)');
+    
+    // user_inventory 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_user_inventory_childId ON user_inventory(childId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_user_inventory_status ON user_inventory(status)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_user_inventory_source ON user_inventory(source)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_user_inventory_childId_source ON user_inventory(childId, source)');
+    
+    // punishment_records 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_punishment_records_familyId ON punishment_records(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_punishment_records_childId ON punishment_records(childId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_punishment_records_taskEntryId ON punishment_records(taskEntryId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_punishment_records_createdAt ON punishment_records(createdAt)');
+    
+    // user_achievements 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_user_achievements_childId ON user_achievements(childId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_user_achievements_achievementId ON user_achievements(achievementId)');
+    
+    // achievement_defs 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_achievement_defs_familyId ON achievement_defs(familyId)');
+    
+    // privileges 表索引
+    await db.run('CREATE INDEX IF NOT EXISTS idx_privileges_familyId ON privileges(familyId)');
+    
+    console.log('✅ Database indexes created');
+  } catch (e) {
+    console.log('⚠️ Some indexes may already exist, continuing...');
+  }
 };

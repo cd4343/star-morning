@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -25,23 +25,30 @@ const TOAST_CONFIGS = {
     icon: CheckCircle,
     bg: 'bg-green-500',
     iconBg: 'bg-green-600',
+    ariaLive: 'polite' as const,
   },
   error: {
     icon: XCircle,
     bg: 'bg-red-500',
     iconBg: 'bg-red-600',
+    ariaLive: 'assertive' as const,
   },
   warning: {
     icon: AlertTriangle,
     bg: 'bg-orange-500',
     iconBg: 'bg-orange-600',
+    ariaLive: 'polite' as const,
   },
   info: {
     icon: Info,
     bg: 'bg-blue-500',
     iconBg: 'bg-blue-600',
+    ariaLive: 'polite' as const,
   },
 };
+
+// 最大同时显示的 Toast 数量
+const MAX_TOASTS = 5;
 
 const ToastItem: React.FC<{ toast: Toast; onRemove: (id: string) => void }> = ({ toast, onRemove }) => {
   const config = TOAST_CONFIGS[toast.type];
@@ -56,21 +63,27 @@ const ToastItem: React.FC<{ toast: Toast; onRemove: (id: string) => void }> = ({
 
   return (
     <div 
+      role="alert"
+      aria-live={config.ariaLive}
       className={`${config.bg} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in slide-in-from-top-2 duration-200 max-w-sm`}
     >
       <div className={`p-1 rounded-lg ${config.iconBg}`}>
-        <Icon size={18} />
+        <Icon size={18} aria-hidden="true" />
       </div>
       <span className="flex-1 text-sm font-medium">{toast.message}</span>
       <button 
         onClick={() => onRemove(toast.id)} 
         className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+        aria-label="关闭通知"
       >
-        <X size={16} />
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );
 };
+
+// 唯一 ID 计数器
+let toastIdCounter = 0;
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -80,8 +93,16 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const showToast = useCallback((message: string, type: ToastType = 'info', duration = 3000) => {
-    const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type, duration }]);
+    // 使用递增计数器确保 ID 唯一
+    const id = `toast-${++toastIdCounter}-${Date.now()}`;
+    setToasts(prev => {
+      const newToasts = [...prev, { id, message, type, duration }];
+      // 限制最大数量，移除最旧的
+      if (newToasts.length > MAX_TOASTS) {
+        return newToasts.slice(-MAX_TOASTS);
+      }
+      return newToasts;
+    });
   }, []);
 
   const success = useCallback((message: string) => showToast(message, 'success'), [showToast]);
