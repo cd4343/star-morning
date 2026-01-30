@@ -161,13 +161,8 @@ export default function ParentWishes() {
       return toast.warning(`已存在同名${viewType === 'shop' ? '商品' : viewType === 'lottery' ? '奖品' : '心愿'}："${title}"`);
     }
     
-    // 抽奖奖池限制
+    // 抽奖奖池稀有度限制（不再限制总数量，通过"管理上架"选择8个）
     if (viewType === 'lottery') {
-      const currentLotteryCount = wishes.filter((w: any) => w.type === 'lottery').length;
-      if (currentLotteryCount >= 8) {
-        return toast.warning('抽奖奖池只能有8个奖品！请先删除一些奖品再添加。');
-      }
-      
       // 检查稀有度数量限制
       const rarityCounts = getRarityCounts();
       const config = RARITY_CONFIG[rarity];
@@ -192,13 +187,15 @@ export default function ParentWishes() {
       category: viewType === 'shop' ? shopCategory : null
     });
     
-    // 检查抽奖奖池是否达到8个
+    // 抽奖奖品添加提示
     if (viewType === 'lottery') {
       const newCount = wishes.filter((w: any) => w.type === 'lottery').length + 1;
-      if (newCount === 8) {
+      if (newCount < 8) {
+        toast.success(`添加成功！奖池当前${newCount}个，还需${8 - newCount}个才能上架。`);
+      } else if (newCount === 8) {
         toast.success('🎉 奖池已有8个奖品！可以点击"管理上架"选择上架了。');
-      } else if (newCount < 8) {
-        toast.success(`添加成功！奖池当前${newCount}个，还需${8 - newCount}个。`);
+      } else {
+        toast.success(`添加成功！奖池当前${newCount}个，请通过"管理上架"选择8个上架。`);
       }
     }
     
@@ -230,15 +227,12 @@ export default function ParentWishes() {
       return toast.warning(`以下${viewType === 'shop' ? '商品' : '奖品'}已存在：${duplicates.join('、')}`);
     }
     
-    // 抽奖奖池必须正好8个
+    // 抽奖奖池提示（不再强制限制数量）
     if (viewType === 'lottery') {
       const currentLotteryCount = wishes.filter((w: any) => w.type === 'lottery').length;
       const totalAfterAdd = currentLotteryCount + selectedTemplates.length;
       if (totalAfterAdd < 8) {
-        return toast.warning(`奖池需要8个奖品！当前${currentLotteryCount}个，选择后共${totalAfterAdd}个，还差${8 - totalAfterAdd}个。`);
-      }
-      if (totalAfterAdd > 8) {
-        return toast.warning(`奖池只能有8个奖品！当前${currentLotteryCount}个，最多再添加${8 - currentLotteryCount}个。`);
+        toast.info(`提示：添加后共${totalAfterAdd}个奖品，还需${8 - totalAfterAdd}个才能上架转盘。`);
       }
     }
     
@@ -675,17 +669,15 @@ export default function ParentWishes() {
               <div className="text-sm">
                 <span className="font-bold text-purple-700">转盘状态：</span>
                 {lotteryItems.length === 0 ? (
-                  <span className="text-gray-500 font-bold ml-1">暂无奖品，需要添加 8 个</span>
+                  <span className="text-gray-500 font-bold ml-1">暂无奖品，需要添加至少 8 个</span>
                 ) : lotteryItems.length < 8 ? (
-                  <span className="text-orange-600 font-bold ml-1">⚠️ 当前有 {lotteryItems.length} 个奖品，还需要 {8 - lotteryItems.length} 个才能上架</span>
-                ) : lotteryItems.length === 8 ? (
-                  activeLotteryCount === 8 ? (
-                    <span className="text-green-600 font-bold ml-1">✅ 已上架 8 个奖品</span>
-                  ) : (
-                    <span className="text-orange-600 font-bold ml-1">⚠️ 已有 8 个奖品，但只上架了 {activeLotteryCount} 个，请点击"管理上架"选择 8 个上架</span>
-                  )
+                  <span className="text-orange-600 font-bold ml-1">⚠️ 当前有 {lotteryItems.length} 个，还需 {8 - lotteryItems.length} 个才能上架</span>
+                ) : activeLotteryCount === 8 ? (
+                  <span className="text-green-600 font-bold ml-1">✅ 已上架 8 个奖品（共 {lotteryItems.length} 个）</span>
+                ) : activeLotteryCount === 0 ? (
+                  <span className="text-orange-600 font-bold ml-1">⚠️ 有 {lotteryItems.length} 个奖品，请选择 8 个上架</span>
                 ) : (
-                  <span className="text-red-600 font-bold ml-1">❌ 奖品数量为 {lotteryItems.length}，超过 8 个！请删除多余奖品，只保留 8 个</span>
+                  <span className="text-orange-600 font-bold ml-1">⚠️ 已上架 {activeLotteryCount} 个，需选满 8 个</span>
                 )}
               </div>
               {!lotteryEditMode ? (
