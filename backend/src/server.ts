@@ -2168,6 +2168,111 @@ app.get('/api/task-entries/:id', protect, async (req: any, res) => {
   });
 });
 
+// 审批后再次调整奖励/惩罚（仅限已通过的任务）
+// - 会按“新净值(最终奖励-惩罚) - 旧净值(已发放奖励-历史惩罚)”计算差值并修正孩子金币
+// - 惩罚记录会被“整体替换”为一条 custom 记录（或清空）
+app.put('/api/parent/task-entries/:id/adjust', protect, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const entryId = req.params.id;
+  const { finalCoins, punishmentDeduction, punishmentReason } = req.body;
+
+  if (typeof finalCoins !== 'number' || Number.isNaN(finalCoins)) {
+    return res.status(400).json({ message: '请提供最终金币数 finalCoins（数字）' });
+  }
+
+  const entry = await db.get(
+    `
+    SELECT te.*, t.coinReward, t.familyId
+    FROM task_entries te
+    JOIN tasks t ON te.taskId = t.id
+    WHERE te.id = ?
+  `,
+    entryId
+  );
+
+  if (!entry) return res.status(404).json({ message: '任务记录不存在' });
+  if (entry.familyId !== request.user!.familyId) return res.status(403).json({ message: '无权操作' });
+  if (entry.status !== 'approved') return res.status(400).json({ message: '只能调整已通过的任务' });
+
+  const oldEarnedCoins = entry.earnedCoins ?? 0;
+  const oldPunishmentRow = await db.get(
+    'SELECT COALESCE(SUM(deductedCoins), 0) as s FROM punishment_records WHERE taskEntryId = ?',
+    entryId
+  );
+  const oldPunishmentSum = oldPunishmentRow?.s ?? 0;
+  const oldNet = oldEarnedCoins - oldPunishmentSum;
+
+  const newFinalCoins = Math.round(finalCoins);
+  const newPunishmentDeduction = Math.max(0, Math.round(Number(punishmentDeduction) || 0));
+  const newNet = newFinalCoins - newPunishmentDeduction;
+  const delta = newNet - oldNet;
+
+  const child = await db.get('SELECT coins FROM users WHERE id = ?', entry.childId);
+  const balanceBefore = child?.coins ?? 0;
+
+  // 按惩罚设置的“负数保护”规则校验（避免静默截断导致账目不一致）
+  const settings = await db.get(
+    'SELECT allowNegative, negativeLimit FROM punishment_settings WHERE familyId = ?',
+    entry.familyId
+  );
+  const allowNegative = (settings?.allowNegative ?? 0) === 1;
+  const negativeLimit = settings?.negativeLimit ?? 0;
+  const minBalance = allowNegative ? negativeLimit : 0;
+
+  const balanceAfter = balanceBefore + delta;
+  if (balanceAfter < minBalance) {
+    return res
+      .status(400)
+      .json({ message: allowNegative ? `调整后金币不能低于 ${negativeLimit}` : '调整后金币不能为负数' });
+  }
+
+  try {
+    await db.run('BEGIN');
+
+    await db.run('UPDATE users SET coins = ? WHERE id = ?', balanceAfter, entry.childId);
+    await db.run('UPDATE task_entries SET earnedCoins = ? WHERE id = ?', newFinalCoins, entryId);
+
+    // 用新的惩罚结果整体替换（0 则清空）
+    await db.run('DELETE FROM punishment_records WHERE taskEntryId = ?', entryId);
+    if (newPunishmentDeduction > 0) {
+      await db.run(
+        `
+        INSERT INTO punishment_records (
+          id, taskEntryId, taskId, childId, parentId, familyId,
+          level, reason, taskReward, deductedCoins, balanceBefore, balanceAfter
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+        randomUUID(),
+        entryId,
+        entry.taskId,
+        entry.childId,
+        request.user!.id,
+        entry.familyId,
+        'custom',
+        (punishmentReason && String(punishmentReason).trim()) || '家长调整',
+        entry.coinReward,
+        newPunishmentDeduction,
+        balanceBefore,
+        balanceAfter
+      );
+    }
+
+    await db.run('COMMIT');
+    res.json({
+      message: '已调整',
+      finalCoins: newFinalCoins,
+      punishmentDeduction: newPunishmentDeduction,
+      coinsDelta: delta,
+      balanceAfter
+    });
+  } catch (err) {
+    await db.run('ROLLBACK');
+    console.error('调整奖励/惩罚失败:', err);
+    return res.status(500).json({ message: '调整失败，请重试' });
+  }
+});
+
 // 执行惩罚（任务审核时调用）
 app.post('/api/parent/task-entries/:id/punish', protect, async (req: any, res) => {
     const request = req as AuthRequest;

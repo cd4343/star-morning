@@ -54,7 +54,7 @@ api.interceptors.response.use(
     const errorMsg = error.response?.data?.message || error.message;
     
     // 开发环境打印详细错误信息
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.error(`[API Error] ${method} ${url}`, {
         status,
         message: errorMsg,

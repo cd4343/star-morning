@@ -4,7 +4,7 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar } from 'lucide-react';
+import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2 } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
@@ -76,6 +76,15 @@ export default function ParentDashboard() {
   // 任务详情弹窗状态
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [taskDetail, setTaskDetail] = useState<any>(null);
+  
+  // 审批后再次调整（编辑奖励/惩罚）弹窗
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustEntryId, setAdjustEntryId] = useState<string | null>(null);
+  const [adjustDetail, setAdjustDetail] = useState<any>(null);
+  const [adjustFinalCoins, setAdjustFinalCoins] = useState(0);
+  const [adjustPunishmentDeduction, setAdjustPunishmentDeduction] = useState(0);
+  const [adjustPunishmentReason, setAdjustPunishmentReason] = useState('');
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
   useEffect(() => {
     fetchDashboard();
@@ -101,6 +110,52 @@ export default function ParentDashboard() {
     // 如果惩罚设置未加载，重新加载
     if (!punishmentSettings) {
       fetchPunishmentSettings();
+    }
+  };
+
+  // 打开「审批后再次调整」弹窗（从审核历史或详情进入）
+  const openAdjustModal = async (entryId: string) => {
+    setAdjustEntryId(entryId);
+    setShowAdjustModal(true);
+    setAdjustSubmitting(false);
+    try {
+      const res = await api.get(`/task-entries/${entryId}`);
+      const d = res.data;
+      setAdjustDetail(d);
+      setAdjustFinalCoins(d.earnedCoins ?? d.coinReward ?? 0);
+      const currentDeduction = d.punishment ? (d.punishment.deductedCoins ?? 0) : 0;
+      setAdjustPunishmentDeduction(currentDeduction);
+      setAdjustPunishmentReason(d.punishment?.reason ?? '');
+    } catch (err) {
+      console.error('获取任务详情失败:', err);
+      toast.error('获取详情失败');
+      setShowAdjustModal(false);
+    }
+  };
+
+  const handleSaveAdjust = async () => {
+    if (!adjustEntryId) return;
+    try {
+      setAdjustSubmitting(true);
+      await api.put(`/parent/task-entries/${adjustEntryId}/adjust`, {
+        finalCoins: adjustFinalCoins,
+        punishmentDeduction: adjustPunishmentDeduction,
+        punishmentReason: adjustPunishmentReason.trim() || undefined
+      });
+      toast.success('已调整');
+      setShowAdjustModal(false);
+      setAdjustEntryId(null);
+      setAdjustDetail(null);
+      fetchReviewHistory(historyDate);
+      fetchDashboard();
+      if (showDetailModal && taskDetail?.id === adjustEntryId) {
+        const res = await api.get(`/task-entries/${adjustEntryId}`);
+        setTaskDetail(res.data);
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || '调整失败');
+    } finally {
+      setAdjustSubmitting(false);
     }
   };
 
@@ -481,6 +536,15 @@ export default function ParentDashboard() {
                         </div>
                       )}
                     </div>
+                    {item.status === 'approved' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openAdjustModal(item.id); }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="编辑奖励/惩罚"
+                      >
+                        <Edit2 size={18}/>
+                      </button>
+                    )}
                   </div>
                 </Card>
               )) : (
@@ -899,12 +963,77 @@ export default function ParentDashboard() {
               )}
             </div>
             
-            <div className="flex-shrink-0 p-4 border-t">
+            <div className="flex-shrink-0 p-4 border-t flex gap-2">
+              {taskDetail.status === 'approved' && (
+                <button 
+                  onClick={() => { openAdjustModal(taskDetail.id); setShowDetailModal(false); }}
+                  className="flex-1 py-3 bg-blue-500 font-bold text-white rounded-xl hover:bg-blue-600"
+                >
+                  编辑奖励/惩罚
+                </button>
+              )}
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="w-full py-3 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200"
+                className={taskDetail?.status === 'approved' ? 'flex-1 py-3 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200' : 'w-full py-3 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200'}
               >
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 审批后再次调整奖励/惩罚 弹窗 */}
+      {showAdjustModal && adjustDetail && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: 'calc(100vh - 80px)' }}>
+            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-lg">调整奖励/惩罚</h3>
+              <button onClick={() => setShowAdjustModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
+                <X size={20} className="text-gray-500"/>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="bg-gray-50 p-3 rounded-xl">
+                <h4 className="font-bold text-gray-800">{adjustDetail.title}</h4>
+                <div className="text-xs text-gray-500 mt-1">{adjustDetail.childName}</div>
+              </div>
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-1">最终金币</label>
+                <input
+                  type="number"
+                  value={adjustFinalCoins}
+                  onChange={(e) => setAdjustFinalCoins(Number(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-1">惩罚扣除（0 表示不惩罚）</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={adjustPunishmentDeduction}
+                  onChange={(e) => setAdjustPunishmentDeduction(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              {adjustPunishmentDeduction > 0 && (
+                <div>
+                  <label className="text-sm font-bold text-gray-700 block mb-1">惩罚原因（选填）</label>
+                  <textarea
+                    value={adjustPunishmentReason}
+                    onChange={(e) => setAdjustPunishmentReason(e.target.value)}
+                    placeholder="家长调整"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none"
+                    rows={2}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex-shrink-0 p-4 border-t flex gap-2">
+              <button onClick={() => setShowAdjustModal(false)} className="flex-1 py-3 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200">取消</button>
+              <button onClick={handleSaveAdjust} disabled={adjustSubmitting} className="flex-1 py-3 bg-green-500 font-bold text-white rounded-xl hover:bg-green-600 disabled:opacity-50">
+                {adjustSubmitting ? '保存中...' : '保存'}
               </button>
             </div>
           </div>
