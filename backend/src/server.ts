@@ -846,6 +846,16 @@ app.get('/api/parent/review-history', protect, async (req: any, res) => {
     JOIN tasks t ON te.taskId = t.id 
     JOIN users u ON te.childId = u.id 
     WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
+    AND NOT (
+      te.status = 'rejected'
+      AND EXISTS (
+        SELECT 1 FROM task_entries te2
+        WHERE te2.taskId = te.taskId
+          AND te2.childId = te.childId
+          AND te2.status = 'approved'
+          AND date(te2.submittedAt, 'localtime') = date(te.submittedAt, 'localtime')
+      )
+    )
   `;
   
   const params: any[] = [familyId];
@@ -869,6 +879,16 @@ app.get('/api/parent/review-history', protect, async (req: any, res) => {
     FROM task_entries te 
     JOIN tasks t ON te.taskId = t.id 
     WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
+    AND NOT (
+      te.status = 'rejected'
+      AND EXISTS (
+        SELECT 1 FROM task_entries te2
+        WHERE te2.taskId = te.taskId
+          AND te2.childId = te.childId
+          AND te2.status = 'approved'
+          AND date(te2.submittedAt, 'localtime') = date(te.submittedAt, 'localtime')
+      )
+    )
     AND te.submittedAt >= date('now', '-30 days')
     GROUP BY date(te.submittedAt)
     ORDER BY date DESC
