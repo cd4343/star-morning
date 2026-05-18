@@ -1,25 +1,30 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
-import { CheckSquare, Gift, User, ShieldCheck, AlertCircle } from 'lucide-react';
-import api from '../../services/api';
+import { CheckSquare, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
+import api, { isAuthError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import PullToRefresh from '../../components/PullToRefresh';
 
 export default function ChildLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, login } = useAuth();
+  const { user, token, login } = useAuth();
   const toast = useToast();
   const [childData, setChildData] = useState<any>(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
+  const [taskReminders, setTaskReminders] = useState<any[]>([]);
   const retryCount = useRef(0);
+  const lastDataErrorAt = useRef(0);
+  const previousUserId = useRef<string | null>(null);
   const MAX_RETRIES = 3;
 
   const fetchData = useCallback(async () => {
+    if (!token || !user) return;
     try {
       const res = await api.get('/child/dashboard');
       // 验证返回的数据是否与当前用户匹配
@@ -34,22 +39,50 @@ export default function ChildLayout() {
       }
       retryCount.current = 0;
       setChildData(res.data.child);
+      try {
+        const reminderRes = await api.get('/child/task-session-reminders');
+        setTaskReminders(reminderRes.data || []);
+      } catch (reminderErr) {
+        console.error('task reminders load failed:', reminderErr);
+      }
     } catch (e) {
       console.error(e);
-      toast.error('加载数据失败，请下拉刷新');
+      if (isAuthError(e)) return;
+      const now = Date.now();
+      if (now - lastDataErrorAt.current > 15000) {
+        toast.error('加载数据失败，请下拉刷新');
+        lastDataErrorAt.current = now;
+      }
     }
-  }, [user, toast]);
+  }, [token, user, toast]);
+
+  const refreshChildPage = useCallback(async () => {
+    await fetchData();
+    window.dispatchEvent(new CustomEvent('starcoin:child-refresh'));
+  }, [fetchData]);
 
   // 当用户或路径变化时重新获取数据
   useEffect(() => {
     // 清除旧数据，避免显示上一个用户的信息
-    setChildData(null);
+    const userId = user?.id || null;
+    if (previousUserId.current !== userId) {
+      previousUserId.current = userId;
+      setChildData(null);
+    }
     retryCount.current = 0;
     fetchData();
   }, [location.pathname, user?.id, fetchData]);
 
+  // 定时轮询刷新数据（每 30 秒）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
   const handleSwitchUser = () => {
-      // 先显示默认PIN码提示
+      // 先提示需要家长 PIN，再进入输入弹窗
       setShowDefaultPinHint(true);
   };
   
@@ -79,10 +112,25 @@ export default function ChildLayout() {
       navigate('/parent/dashboard');
   };
 
+  const currentTaskReminder = taskReminders[0];
+  const markTaskReminderRead = async () => {
+      if (!currentTaskReminder) return;
+      try {
+          await api.post(`/child/task-session-reminders/${currentTaskReminder.id}/read`);
+      } catch (err) {
+          console.error('task reminder dismiss failed:', err);
+      }
+      setTaskReminders(prev => prev.slice(1));
+      window.dispatchEvent(new CustomEvent('starcoin:child-refresh'));
+  };
+
   return (
     <div className="min-h-screen bg-gray-200 md:flex md:items-center md:justify-center md:p-6">
       {/* PC Device Frame Container */}
-      <div className="w-full h-screen md:h-[850px] md:max-w-md bg-gray-50 flex flex-col md:rounded-[2.5rem] md:shadow-2xl md:border-[8px] md:border-gray-900 overflow-hidden relative">
+      <div
+        data-child-app-frame="true"
+        className="w-full h-screen md:h-[850px] md:max-w-md bg-gray-50 flex flex-col md:rounded-[2.5rem] md:shadow-2xl md:border-[8px] md:border-gray-900 overflow-hidden relative"
+      >
           
           {/* Top Bar */}
           <div className="bg-white p-3 shadow-sm z-10 sticky top-0">
@@ -122,22 +170,100 @@ export default function ChildLayout() {
                 {(childData?.xp || 0) % (childData?.maxXp || 100)}/{childData?.maxXp || 100}
               </span>
             </div>
+
+            {/* 特权点进度条 */}
+            {(() => {
+              // 奖励经验每累计 100 点自动兑换 1 个特权点，和等级经验分开显示。
+              const rewardXpTotal = childData?.rewardXpTotal || 0;
+              const xpInCurrentCycle = rewardXpTotal % 100;
+              const xpNeeded = 100 - xpInCurrentCycle;
+              const progressPercent = Math.min((xpInCurrentCycle / 100) * 100, 100);
+              const privPoints = childData?.privilegePoints || 0;
+              return (
+                <div className="mt-1.5 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-blue-500 font-bold whitespace-nowrap">特权进度</span>
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden" title="100 奖励经验 = 1 特权点">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-400 to-indigo-400 rounded-full transition-all duration-700"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <span className={`text-[9px] font-bold whitespace-nowrap ${xpInCurrentCycle >= 80 ? 'text-blue-600 animate-pulse' : 'text-gray-500'}`}>
+                      {xpInCurrentCycle}/100
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] text-gray-400 font-medium">
+                    <span>100 奖励经验 = 1 特权点</span>
+                    <span>{privPoints} 点 · 还差 {xpNeeded === 100 ? 100 : xpNeeded} 奖励经验</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 overflow-y-auto pb-20 scrollbar-hide">
+          <PullToRefresh
+            data-child-main-viewport="true"
+            onRefresh={refreshChildPage}
+            className="flex-1 min-h-0 pb-20 scrollbar-hide"
+          >
             <Outlet context={{ childData, refresh: fetchData }} />
-          </div>
+          </PullToRefresh>
+
+          <div
+            data-child-overlay-root="true"
+            className="absolute inset-0 pointer-events-none z-[60]"
+          />
+
+          {currentTaskReminder && (
+            <div className="absolute inset-0 z-[70] bg-slate-900/45 backdrop-blur-sm flex items-end px-4 pb-24">
+              <div className="w-full rounded-3xl bg-white shadow-2xl border border-slate-100 p-5">
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center text-2xl">
+                    {currentTaskReminder.icon || '⏰'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-black text-amber-600">任务已自动收尾</div>
+                    <div className="mt-1 font-black text-slate-900 truncate">{currentTaskReminder.title}</div>
+                    <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                      昨天开始后没有点“完成”，系统已按常规时长提交给家长确认。下次完成后记得点一下完成按钮。
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={markTaskReminderRead}
+                  className="mt-4 w-full rounded-2xl bg-slate-900 text-white py-3 font-black active:scale-[0.99]"
+                >
+                  知道了
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Bottom Nav - 支持安全区域 */}
-          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full flex justify-around py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
-            <NavLink onClick={() => navigate('/child/tasks')} icon={<CheckSquare size={22}/>} label="任务" active={location.pathname.includes('tasks')} />
-            <NavLink onClick={() => navigate('/child/wishes')} icon={<Gift size={22}/>} label="心愿" active={location.pathname.includes('wishes')} />
+          {!location.pathname.includes('calm') && (
+            <button
+              type="button"
+              onClick={() => navigate('/child/calm', { state: { backTo: `${location.pathname}${location.search}`, backLabel: '返回上一页' } })}
+              className="absolute right-4 bottom-[5.6rem] z-30 w-14 h-14 rounded-full shadow-xl shadow-cyan-200/60 border-2 border-white flex flex-col items-center justify-center text-[10px] font-black transition-transform active:scale-95 bg-gradient-to-br from-cyan-400 to-blue-500 text-white"
+              aria-label="打开冷静"
+            >
+              <HeartPulse size={20} />
+              冷静
+            </button>
+          )}
+
+          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full grid grid-cols-4 px-3 py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
+            <NavLink onClick={() => navigate('/child/challenge')} icon={<CheckSquare size={22}/>} label="挑战" active={['challenge', 'tasks', 'learning'].some(path => location.pathname.includes(path)) || location.pathname === '/child'} />
+            <NavLink onClick={() => navigate('/child/morning')} icon={<Utensils size={22}/>} label="早餐" active={location.pathname.includes('morning')} />
+            <NavLink onClick={() => navigate('/child/wishes')} icon={<Gift size={22}/>} label="奖励" active={location.pathname.includes('wishes')} />
             <NavLink onClick={() => navigate('/child/me')} icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
           </div>
       </div>
 
-      {/* 默认PIN码提示弹窗 - 支持安全区域 */}
+      {/* 家长 PIN 提示弹窗 - 支持安全区域 */}
       {showDefaultPinHint && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
@@ -147,9 +273,9 @@ export default function ChildLayout() {
               </div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">切换到家长模式</h3>
               <p className="text-gray-600 mb-2">需要输入家长 PIN 码才能切换</p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4">
-                <p className="text-yellow-800 text-sm font-medium">💡 默认 PIN 码是：<span className="font-bold text-lg">1234</span></p>
-                <p className="text-yellow-600 text-xs mt-1">如果家长已修改，请输入修改后的 PIN 码</p>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+                <p className="text-blue-800 text-sm font-medium">请让家长输入已经设置的安全 PIN。</p>
+                <p className="text-blue-600 text-xs mt-1">如果还没有设置，请家长先登录账号并到家庭管理中设置。</p>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setShowDefaultPinHint(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-all">
@@ -197,8 +323,8 @@ export default function ChildLayout() {
   );
 }
 
-const NavLink = ({ to, icon, label, active, onClick }: any) => (
-  <div onClick={onClick} className={`flex flex-col items-center gap-1 cursor-pointer transition-all duration-200 ${active ? 'text-blue-600 scale-110 font-bold' : 'hover:text-gray-600'}`}>
+const NavLink = ({ icon, label, active, onClick }: any) => (
+  <div onClick={onClick} className={`flex flex-col items-center gap-1 cursor-pointer transition-all duration-200 ${active ? 'text-blue-600 scale-105 font-bold' : 'hover:text-gray-600'}`}>
     {icon}
     <span>{label}</span>
   </div>

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 
-interface PullToRefreshProps {
+interface PullToRefreshProps extends React.HTMLAttributes<HTMLDivElement> {
   onRefresh: () => Promise<void>;
   children: React.ReactNode;
   className?: string;
@@ -14,7 +14,8 @@ interface PullToRefreshProps {
 export const PullToRefresh: React.FC<PullToRefreshProps> = ({ 
   onRefresh, 
   children, 
-  className = '' 
+  className = '',
+  ...rest
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -74,6 +75,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({
   return (
     <div 
       ref={containerRef}
+      {...rest}
       className={`relative overflow-y-auto ${className}`}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}

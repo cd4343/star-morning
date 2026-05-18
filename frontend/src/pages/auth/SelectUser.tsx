@@ -12,7 +12,7 @@ interface Member {
   name: string;
   role: 'parent' | 'child';
   avatar?: string;
-  pin?: string;
+  hasPin?: boolean;
   birthdate?: string;
   gender?: string; // boy, girl, dad, mom, grandpa, grandma
 }
@@ -75,7 +75,7 @@ export default function SelectUser() {
   const handleCardClick = (member: Member) => {
       if (manageMode) return; // 管理模式下点击卡片无操作，除非点击删除按钮
       
-      if (member.role === 'parent' && member.pin) {
+      if (member.role === 'parent' && member.hasPin) {
           setSelectedParentId(member.id);
           setShowPinModal(true);
       } else {
@@ -91,7 +91,7 @@ export default function SelectUser() {
       if (res.data.user.role === 'parent') {
         navigate('/parent/dashboard');
       } else {
-        navigate('/child/tasks');
+        navigate('/child/challenge');
       }
     } catch (err: any) {
       alert(err.response?.data?.message || '切换失败');
@@ -173,7 +173,7 @@ export default function SelectUser() {
                                 )}
                             </span>
                         )}
-                        {member.role === 'parent' && member.pin && <span className="text-[10px] bg-gray-200 px-1 rounded text-gray-600">🔒 PIN</span>}
+                        {member.role === 'parent' && member.hasPin && <span className="text-[10px] bg-gray-200 px-1 rounded text-gray-600">🔒 PIN</span>}
                       </div>
                     </div>
                   </Card>

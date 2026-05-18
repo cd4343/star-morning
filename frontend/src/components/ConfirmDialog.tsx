@@ -7,6 +7,7 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  showCancel?: boolean;
   type?: 'danger' | 'warning' | 'info';
   onConfirm: () => void;
   onCancel: () => void;
@@ -22,6 +23,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   message,
   confirmText = '确定',
   cancelText = '取消',
+  showCancel = true,
   type = 'warning',
   onConfirm,
   onCancel,
@@ -108,12 +110,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         
         {/* Actions */}
         <div className="p-4 pt-0 flex gap-2">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
-          >
-            {cancelText}
-          </button>
+          {showCancel && (
+            <button
+              onClick={onCancel}
+              className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+            >
+              {cancelText}
+            </button>
+          )}
           <button
             onClick={onConfirm}
             className={`flex-1 py-2.5 px-4 font-medium rounded-xl transition-colors ${styles.confirmBtn}`}
@@ -142,6 +146,7 @@ export function useConfirmDialog() {
     message: string;
     confirmText?: string;
     cancelText?: string;
+    showCancel?: boolean;
     type?: 'danger' | 'warning' | 'info';
   }): Promise<boolean> => {
     setConfig(options);

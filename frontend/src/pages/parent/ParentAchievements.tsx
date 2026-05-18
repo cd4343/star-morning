@@ -4,11 +4,16 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Plus, Trash2, Pen, X, Check } from 'lucide-react';
+import { Trash2, Pen, Check, Sparkles } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
+import { CreateActionCard } from '../../components/CreateActionCard';
+import {
+  getAchievementDisplay as getSharedAchievementDisplay,
+  getAchievementRank as getSharedAchievementRank,
+} from '../../utils/achievementDisplay';
 
 // 成就图标库 - 按类别分组，统一 emoji 风格
 const ACHIEVEMENT_ICON_CATEGORIES = {
@@ -132,83 +137,143 @@ const CONDITION_TYPES = [
   { value: 'level_reach', label: '达到等级', needValue: true, needCategory: false },
   { value: 'category_count', label: '特定类别任务完成数', needValue: true, needCategory: true },
   { value: 'streak_days', label: '连续天数完成任务', needValue: true, needCategory: true },
-  { value: 'manual', label: '仅手动颁发', needValue: false, needCategory: false },
+  { value: 'manual', label: '家长确认类', needValue: false, needCategory: false },
 ];
 
 // 任务类别
-const TASK_CATEGORIES = ['劳动', '学习', '兴趣', '运动'];
+const TASK_CATEGORIES = ['生活', '学习', '运动', '活动', '其他'];
+const ACHIEVEMENT_CATEGORIES = ['启动', '坚持', '生活', '学习', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
+const ACHIEVEMENT_CATEGORY_HINTS: Record<string, string> = {
+  启动: '奖励开始和小步完成。',
+  坚持: '看见稳定和连续。',
+  生活: '自理、家务和日常责任。',
+  学习: '作业、阅读、练习和专注。',
+  运动: '重在参与和身体习惯。',
+  活动: '兴趣、艺术和探索体验。',
+  情绪: '表达、冷静和复原。',
+  金币: '储蓄、兑换和目标感。',
+  成长: '等级、经验和综合提升。',
+  品格: '礼貌、诚实、勇敢和合作。',
+  家庭: '分担、协作和亲子约定。',
+  其他: '特殊目标暂放这里。',
+};
 
-// 预设成就模板 - 大幅扩充
+// 预设成就模板：前端创建、后端默认种子使用同一套分类语义
 const ACHIEVEMENT_TEMPLATES = [
-  // === 任务数量类 ===
-  { title: '初来乍到', desc: '完成第1个任务', icon: '🌱', type: 'task_count', value: 1, category: null },
-  { title: '小小勤劳者', desc: '完成10个任务', icon: '🐝', type: 'task_count', value: 10, category: null },
-  { title: '任务达人', desc: '完成50个任务', icon: '🏆', type: 'task_count', value: 50, category: null },
-  { title: '任务大师', desc: '完成100个任务', icon: '👑', type: 'task_count', value: 100, category: null },
-  { title: '超级明星', desc: '完成500个任务', icon: '🌟', type: 'task_count', value: 500, category: null },
-  
-  // === 金币类 ===
-  { title: '小小存钱罐', desc: '累计获得100金币', icon: '🐷', type: 'coin_count', value: 100, category: null },
-  { title: '财富小能手', desc: '累计获得500金币', icon: '💰', type: 'coin_count', value: 500, category: null },
-  { title: '金币大亨', desc: '累计获得1000金币', icon: '🏦', type: 'coin_count', value: 1000, category: null },
-  { title: '财富之王', desc: '累计获得5000金币', icon: '💎', type: 'coin_count', value: 5000, category: null },
-  
-  // === 经验/等级类 ===
-  { title: '新手入门', desc: '累计获得100经验', icon: '⭐', type: 'xp_count', value: 100, category: null },
-  { title: '成长之路', desc: '达到5级', icon: '📈', type: 'level_reach', value: 5, category: null },
-  { title: '进阶高手', desc: '达到10级', icon: '🚀', type: 'level_reach', value: 10, category: null },
-  { title: '满级大神', desc: '达到20级', icon: '🦄', type: 'level_reach', value: 20, category: null },
-  
-  // === 运动坚持类 ===
-  { title: '运动新手', desc: '完成第1个运动任务', icon: '🏃', type: 'category_count', value: 1, category: '运动' },
-  { title: '运动小将', desc: '完成20个运动任务', icon: '🏋️', type: 'category_count', value: 20, category: '运动' },
-  { title: '运动达人', desc: '连续7天完成运动', icon: '🔥', type: 'streak_days', value: 7, category: '运动' },
-  { title: '运动之星', desc: '连续30天完成运动', icon: '🏅', type: 'streak_days', value: 30, category: '运动' },
-  { title: '运动健将', desc: '连续100天完成运动', icon: '🦸', type: 'streak_days', value: 100, category: '运动' },
-  
-  // === 学习/练琴/写字类 ===
-  { title: '学习新手', desc: '完成第1个学习任务', icon: '📚', type: 'category_count', value: 1, category: '学习' },
-  { title: '学习小能手', desc: '完成30个学习任务', icon: '📖', type: 'category_count', value: 30, category: '学习' },
-  { title: '学习达人', desc: '连续7天完成学习', icon: '✏️', type: 'streak_days', value: 7, category: '学习' },
-  { title: '学霸养成', desc: '连续30天完成学习', icon: '📝', type: 'streak_days', value: 30, category: '学习' },
-  { title: '学习之星', desc: '连续100天完成学习', icon: '🎓', type: 'streak_days', value: 100, category: '学习' },
-  
-  // === 兴趣爱好类（练琴等） ===
-  { title: '兴趣萌芽', desc: '完成第1个兴趣任务', icon: '🎹', type: 'category_count', value: 1, category: '兴趣' },
-  { title: '小小艺术家', desc: '完成20个兴趣任务', icon: '🎨', type: 'category_count', value: 20, category: '兴趣' },
-  { title: '坚持练琴', desc: '连续7天完成兴趣任务', icon: '🎸', type: 'streak_days', value: 7, category: '兴趣' },
-  { title: '音乐达人', desc: '连续30天完成兴趣任务', icon: '🎻', type: 'streak_days', value: 30, category: '兴趣' },
-  { title: '艺术大师', desc: '连续100天完成兴趣任务', icon: '🎤', type: 'streak_days', value: 100, category: '兴趣' },
-  
-  // === 劳动类 ===
-  { title: '劳动小蜜蜂', desc: '完成第1个劳动任务', icon: '🧹', type: 'category_count', value: 1, category: '劳动' },
-  { title: '家务小帮手', desc: '完成30个劳动任务', icon: '🧺', type: 'category_count', value: 30, category: '劳动' },
-  { title: '劳动达人', desc: '连续7天完成劳动', icon: '🛏️', type: 'streak_days', value: 7, category: '劳动' },
-  { title: '勤劳之星', desc: '连续30天完成劳动', icon: '🍽️', type: 'streak_days', value: 30, category: '劳动' },
-  
-  // === 连续打卡类 ===
-  { title: '三天小确幸', desc: '连续3天完成任务', icon: '📅', type: 'streak_days', value: 3, category: null },
-  { title: '周周坚持', desc: '连续7天完成任务', icon: '🗓️', type: 'streak_days', value: 7, category: null },
-  { title: '习惯养成', desc: '连续21天完成任务', icon: '💯', type: 'streak_days', value: 21, category: null },
-  { title: '月度坚持', desc: '连续30天完成任务', icon: '⚡', type: 'streak_days', value: 30, category: null },
-  { title: '百日挑战', desc: '连续100天完成任务', icon: '🎊', type: 'streak_days', value: 100, category: null },
-  
-  // === 好习惯类（手动） ===
-  { title: '护牙小卫士', desc: '坚持每天刷牙', icon: '🦷', type: 'manual', value: 0, category: null },
-  { title: '护眼小达人', desc: '坚持做眼保健操', icon: '👀', type: 'manual', value: 0, category: null },
-  { title: '早睡早起', desc: '养成良好作息习惯', icon: '😴', type: 'manual', value: 0, category: null },
-  { title: '多喝水宝宝', desc: '每天喝够8杯水', icon: '💧', type: 'manual', value: 0, category: null },
-  { title: '爱干净宝宝', desc: '勤洗手讲卫生', icon: '🧴', type: 'manual', value: 0, category: null },
-  { title: '小手干净', desc: '坚持不咬指甲不拔手皮', icon: '🧤', type: 'manual', value: 0, category: null },
-  { title: '健康饮食', desc: '多吃蔬果少吃零食', icon: '🥗', type: 'manual', value: 0, category: null },
-  
-  // === 品德类（手动） ===
-  { title: '礼貌小天使', desc: '说话有礼貌', icon: '😊', type: 'manual', value: 0, category: null },
-  { title: '乐于助人', desc: '主动帮助他人', icon: '🤝', type: 'manual', value: 0, category: null },
-  { title: '懂得感恩', desc: '学会说谢谢', icon: '🙏', type: 'manual', value: 0, category: null },
-  { title: '勇敢宝贝', desc: '敢于面对困难', icon: '🦁', type: 'manual', value: 0, category: null },
-  { title: '诚实守信', desc: '做一个诚实的孩子', icon: '💝', type: 'manual', value: 0, category: null },
+  { title: '启程有光', desc: '完成 1 个任务', icon: '🌱', type: 'task_count', value: 1, category: null, achievementCategory: '启动' },
+  { title: '小步成章', desc: '完成 10 个任务', icon: '🧭', type: 'task_count', value: 10, category: null, achievementCategory: '启动' },
+  { title: '百炼成章', desc: '完成 50 个任务', icon: '🏆', type: 'task_count', value: 50, category: null, achievementCategory: '启动' },
+  { title: '星路领航', desc: '完成 100 个任务', icon: '🌟', type: 'task_count', value: 100, category: null, achievementCategory: '启动' },
+
+  { title: '三天不断线', desc: '连续 3 天完成任务，先守住小周期', icon: '📅', type: 'streak_days', value: 3, category: null, achievementCategory: '坚持' },
+  { title: '一周节奏', desc: '连续 7 天完成任务，节奏开始成形', icon: '🗓️', type: 'streak_days', value: 7, category: null, achievementCategory: '坚持' },
+  { title: '习惯养成', desc: '连续 21 天完成任务，习惯正在长出来', icon: '💯', type: 'streak_days', value: 21, category: null, achievementCategory: '坚持' },
+  { title: '月度坚持', desc: '连续 30 天完成任务，稳定性很珍贵', icon: '⚡', type: 'streak_days', value: 30, category: null, achievementCategory: '坚持' },
+
+  { title: '生活小帮手', desc: '完成第 1 个生活任务', icon: '🧹', type: 'category_count', value: 1, category: '生活', achievementCategory: '生活' },
+  { title: '自理小队长', desc: '完成 20 个生活任务，照顾自己更熟练', icon: '🛏️', type: 'category_count', value: 20, category: '生活', achievementCategory: '生活' },
+  { title: '家务小帮手', desc: '完成 50 个生活任务，能主动分担了', icon: '🧺', type: 'category_count', value: 50, category: '生活', achievementCategory: '生活' },
+  { title: '整洁一周', desc: '连续 7 天完成生活任务', icon: '🍽️', type: 'streak_days', value: 7, category: '生活', achievementCategory: '生活' },
+
+  { title: '学习启动', desc: '完成第 1 个学习任务，先开始就算赢', icon: '📚', type: 'category_count', value: 1, category: '学习', achievementCategory: '学习' },
+  { title: '作业小闯将', desc: '完成 20 个学习任务', icon: '✏️', type: 'category_count', value: 20, category: '学习', achievementCategory: '学习' },
+  { title: '阅读小苗', desc: '完成 50 个学习任务，知识在慢慢长大', icon: '📖', type: 'category_count', value: 50, category: '学习', achievementCategory: '学习' },
+  { title: '学习一周星', desc: '连续 7 天完成学习任务', icon: '🎓', type: 'streak_days', value: 7, category: '学习', achievementCategory: '学习' },
+
+  { title: '动起来', desc: '完成第 1 个运动任务', icon: '🏃', type: 'category_count', value: 1, category: '运动', achievementCategory: '运动' },
+  { title: '运动小将', desc: '完成 20 个运动任务，不用比快，只要参与', icon: '🏋️', type: 'category_count', value: 20, category: '运动', achievementCategory: '运动' },
+  { title: '活力一周', desc: '连续 7 天完成运动任务', icon: '🔥', type: 'streak_days', value: 7, category: '运动', achievementCategory: '运动' },
+  { title: '运动之星', desc: '连续 30 天完成运动任务', icon: '🏅', type: 'streak_days', value: 30, category: '运动', achievementCategory: '运动' },
+
+  { title: '探索新事物', desc: '完成第 1 个活动任务', icon: '🎹', type: 'category_count', value: 1, category: '活动', achievementCategory: '活动' },
+  { title: '兴趣练习者', desc: '完成 20 个活动任务', icon: '🎨', type: 'category_count', value: 20, category: '活动', achievementCategory: '活动' },
+  { title: '活动坚持星', desc: '连续 7 天完成活动任务', icon: '🎸', type: 'streak_days', value: 7, category: '活动', achievementCategory: '活动' },
+  { title: '小小创作者', desc: '完成 50 个活动任务，探索也会积累', icon: '🎤', type: 'category_count', value: 50, category: '活动', achievementCategory: '活动' },
+
+  { title: '会说感受', desc: '能说出自己现在的感受', icon: '💝', type: 'manual', value: 0, category: null, achievementCategory: '情绪' },
+  { title: '冷静小勇士', desc: '生气或着急时尝试冷静动作', icon: '🤫', type: 'manual', value: 0, category: null, achievementCategory: '情绪' },
+  { title: '求助很勇敢', desc: '卡住时能向家长或老师求助', icon: '🦸', type: 'manual', value: 0, category: null, achievementCategory: '情绪' },
+
+  { title: '积少成多', desc: '获得 100 金币', icon: '🪙', type: 'coin_count', value: 100, category: null, achievementCategory: '金币' },
+  { title: '聚沙成塔', desc: '获得 500 金币', icon: '💰', type: 'coin_count', value: 500, category: null, achievementCategory: '金币' },
+  { title: '家财万贯', desc: '获得 1000 金币', icon: '🏦', type: 'coin_count', value: 1000, category: null, achievementCategory: '金币' },
+  { title: '星河宝藏', desc: '获得 5000 金币', icon: '🎁', type: 'coin_count', value: 5000, category: null, achievementCategory: '金币' },
+
+  { title: '新手入门', desc: '累计获得 100 经验', icon: '⭐', type: 'xp_count', value: 100, category: null, achievementCategory: '成长' },
+  { title: '成长之路', desc: '达到 5 级', icon: '📈', type: 'level_reach', value: 5, category: null, achievementCategory: '成长' },
+  { title: '进阶高手', desc: '达到 10 级', icon: '🚀', type: 'level_reach', value: 10, category: null, achievementCategory: '成长' },
+  { title: '闪耀成长', desc: '达到 20 级', icon: '🌟', type: 'level_reach', value: 20, category: null, achievementCategory: '成长' },
+
+  { title: '礼貌小天使', desc: '能用礼貌的话表达需要', icon: '😊', type: 'manual', value: 0, category: null, achievementCategory: '品格' },
+  { title: '乐于助人', desc: '主动帮助别人一次', icon: '🤝', type: 'manual', value: 0, category: null, achievementCategory: '品格' },
+  { title: '懂得感谢', desc: '记得对别人说谢谢', icon: '🙏', type: 'manual', value: 0, category: null, achievementCategory: '品格' },
+  { title: '诚实守信', desc: '遇到问题能诚实说明', icon: '🦁', type: 'manual', value: 0, category: null, achievementCategory: '品格' },
+
+  { title: '家庭小帮手', desc: '主动为家里做一件小事', icon: '🏠', type: 'manual', value: 0, category: null, achievementCategory: '家庭' },
+  { title: '合作之星', desc: '和家人一起完成一次合作任务', icon: '🤝', type: 'manual', value: 0, category: null, achievementCategory: '家庭' },
+  { title: '约定守护者', desc: '遵守一次和家人约好的规则', icon: '🎯', type: 'manual', value: 0, category: null, achievementCategory: '家庭' },
 ];
+
+const getTemplateAchievementCategory = (tpl: typeof ACHIEVEMENT_TEMPLATES[number]) => {
+  if (tpl.achievementCategory && ACHIEVEMENT_CATEGORIES.includes(tpl.achievementCategory)) return tpl.achievementCategory;
+  if (tpl.category && ACHIEVEMENT_CATEGORIES.includes(tpl.category)) return tpl.category;
+  if (tpl.type === 'task_count') return '启动';
+  if (tpl.type === 'coin_count') return '金币';
+  if (tpl.type === 'xp_count' || tpl.type === 'level_reach') return '成长';
+  if (tpl.type === 'streak_days') return '坚持';
+
+  const text = `${tpl.title}${tpl.desc}`;
+  if (/(感受|冷静|求助|情绪)/.test(text)) return '情绪';
+  if (/(家庭|家人|合作|约定)/.test(text)) return '家庭';
+  if (/(礼貌|助人|感恩|勇敢|诚实)/.test(text)) return '品格';
+  return '其他';
+};
+
+const getTemplateReward = (tpl: typeof ACHIEVEMENT_TEMPLATES[number]) => {
+  const value = Number(tpl.value || 0);
+  if (tpl.type === 'manual') return { coins: 10, xp: 10, privilegePoints: 0 };
+  if (tpl.type === 'streak_days') {
+    return {
+      coins: Math.min(100, Math.max(10, value * 3)),
+      xp: Math.min(120, Math.max(10, value * 3)),
+      privilegePoints: value >= 30 ? 1 : 0,
+    };
+  }
+  if (tpl.type === 'task_count' || tpl.type === 'category_count') {
+    return {
+      coins: Math.min(100, Math.max(5, Math.round(value * 0.5))),
+      xp: Math.min(150, Math.max(5, value)),
+      privilegePoints: value >= 100 ? 1 : 0,
+    };
+  }
+  if (tpl.type === 'coin_count') {
+    return {
+      coins: 0,
+      xp: Math.min(100, Math.max(10, Math.round(value / 20))),
+      privilegePoints: value >= 1000 ? 1 : 0,
+    };
+  }
+  if (tpl.type === 'level_reach') {
+    return {
+      coins: Math.min(120, Math.max(20, value * 10)),
+      xp: 0,
+      privilegePoints: value >= 10 ? 1 : 0,
+    };
+  }
+  return { coins: 0, xp: 0, privilegePoints: 0 };
+};
+
+const getRewardText = (item: any) => {
+  if (!item) return '';
+  const parts = [];
+  if (Number(item.rewardCoins || 0) > 0) parts.push(`${item.rewardCoins} 金币`);
+  if (Number(item.rewardXp || 0) > 0) parts.push(`${item.rewardXp} 经验`);
+  if (Number(item.rewardPrivilegePoints || 0) > 0) parts.push(`${item.rewardPrivilegePoints} 特权点`);
+  return parts.join(' + ');
+};
+
+const getLocalRank = getSharedAchievementRank;
+const getLocalAchievementDisplay = getSharedAchievementDisplay;
 
 // 获取所有图标的扁平列表
 const getAllIcons = () => {
@@ -228,7 +293,9 @@ export default function ParentAchievements() {
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [activeIconCategory, setActiveIconCategory] = useState('基础');
-  
+  const [achievementFilter, setAchievementFilter] = useState('全部');
+  const [templateFilter, setTemplateFilter] = useState('全部');
+
   // 表单状态
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -236,7 +303,12 @@ export default function ParentAchievements() {
   const [conditionType, setConditionType] = useState('task_count');
   const [conditionValue, setConditionValue] = useState('');
   const [conditionCategory, setConditionCategory] = useState('');
-  
+  const [achievementCategory, setAchievementCategory] = useState('启动');
+  const [rewardCoins, setRewardCoins] = useState('0');
+  const [rewardXp, setRewardXp] = useState('0');
+  const [rewardPrivilegePoints, setRewardPrivilegePoints] = useState('0');
+  const [rewardDelivery, setRewardDelivery] = useState<'instant' | 'backpack'>('instant');
+
   // 编辑状态
   const [editingAchievement, setEditingAchievement] = useState<any>(null);
 
@@ -250,6 +322,19 @@ export default function ParentAchievements() {
     setConditionType('task_count');
     setConditionValue('');
     setConditionCategory('');
+    setAchievementCategory('启动');
+    setRewardCoins('0');
+    setRewardXp('0');
+    setRewardPrivilegePoints('0');
+    setRewardDelivery('instant');
+  };
+
+  const openCreateSheet = (useTemplates = false) => {
+    resetForm();
+    setShowIconPicker(false);
+    setShowTemplates(useTemplates);
+    setTemplateFilter('全部');
+    setShowAdd(true);
   };
 
   const handleAdd = async () => {
@@ -257,16 +342,21 @@ export default function ParentAchievements() {
     const condConfig = CONDITION_TYPES.find(c => c.value === conditionType);
     if (condConfig?.needValue && !conditionValue) return toast.warning('请输入目标值');
     if (condConfig?.needCategory && !conditionCategory) return toast.warning('请选择任务类别');
-    
-    await api.post('/parent/achievements', { 
-      title, 
-      description: desc, 
-      icon, 
-      conditionType, 
+
+    await api.post('/parent/achievements', {
+      title,
+      description: desc,
+      icon,
+      conditionType,
       conditionValue: +conditionValue || 0,
-      conditionCategory: conditionCategory || null
+      conditionCategory: conditionCategory || null,
+      category: achievementCategory || '其他',
+      rewardCoins: +rewardCoins || 0,
+      rewardXp: +rewardXp || 0,
+      rewardPrivilegePoints: +rewardPrivilegePoints || 0,
+      rewardDelivery
     });
-    setShowAdd(false); 
+    setShowAdd(false);
     resetForm();
     fetchList();
     toast.success('成就创建成功');
@@ -294,22 +384,32 @@ export default function ParentAchievements() {
     setConditionType(item.conditionType);
     setConditionValue(item.conditionValue?.toString() || '');
     setConditionCategory(item.conditionCategory || '');
+    setAchievementCategory(item.category || '其他');
+    setRewardCoins(String(item.rewardCoins || 0));
+    setRewardXp(String(item.rewardXp || 0));
+    setRewardPrivilegePoints(String(item.rewardPrivilegePoints || 0));
+    setRewardDelivery(item.rewardDelivery === 'backpack' ? 'backpack' : 'instant');
   };
 
   // 保存编辑
   const handleSaveEdit = async () => {
     if (!editingAchievement) return;
     if (!title) return toast.warning('请输入标题');
-    
+
     await api.put(`/parent/achievements/${editingAchievement.id}`, {
       title,
       description: desc,
       icon,
       conditionType,
       conditionValue: +conditionValue || 0,
-      conditionCategory: conditionCategory || null
+      conditionCategory: conditionCategory || null,
+      category: achievementCategory || '其他',
+      rewardCoins: +rewardCoins || 0,
+      rewardXp: +rewardXp || 0,
+      rewardPrivilegePoints: +rewardPrivilegePoints || 0,
+      rewardDelivery
     });
-    
+
     setEditingAchievement(null);
     resetForm();
     fetchList();
@@ -329,13 +429,18 @@ export default function ParentAchievements() {
     setConditionType(tpl.type);
     setConditionValue(tpl.value.toString());
     setConditionCategory(tpl.category || '');
+    setAchievementCategory(getTemplateAchievementCategory(tpl));
+    const reward = getTemplateReward(tpl);
+    setRewardCoins(String(reward.coins));
+    setRewardXp(String(reward.xp));
+    setRewardPrivilegePoints(String(reward.privilegePoints));
     setShowTemplates(false);
   };
 
   // 获取条件类型显示文本
   const getConditionText = (item: any) => {
     switch (item.conditionType) {
-      case 'manual': return '🎁 手动颁发';
+      case 'manual': return '🎁 家长确认';
       case 'task_count': return `📋 完成 ${item.conditionValue} 个任务`;
       case 'coin_count': return `💰 获得 ${item.conditionValue} 金币`;
       case 'xp_count': return `⭐ 获得 ${item.conditionValue} 经验`;
@@ -349,19 +454,19 @@ export default function ParentAchievements() {
   // 渲染表单（新建和编辑共用）
   const renderForm = (isEdit: boolean) => {
     const condConfig = CONDITION_TYPES.find(c => c.value === conditionType);
-    
+
     return (
       <div className="space-y-3">
         <div className="flex gap-2">
           <div className="relative">
             <label className="text-xs text-gray-500 font-bold">图标</label>
-            <button 
+            <button
               onClick={() => setShowIconPicker(!showIconPicker)}
               className="w-14 h-10 rounded border bg-white text-2xl flex items-center justify-center hover:bg-gray-50"
             >
               {icon}
             </button>
-            
+
             {/* 图标选择器 */}
             {showIconPicker && (
               <div className="absolute top-full left-0 mt-1 p-2 bg-white rounded-xl shadow-xl border z-50 w-72">
@@ -372,8 +477,8 @@ export default function ParentAchievements() {
                       key={cat}
                       onClick={() => setActiveIconCategory(cat)}
                       className={`px-2 py-1 text-xs font-medium rounded whitespace-nowrap transition-colors ${
-                        activeIconCategory === cat 
-                          ? 'bg-yellow-500 text-white' 
+                        activeIconCategory === cat
+                          ? 'bg-yellow-500 text-white'
                           : 'text-gray-600 hover:bg-gray-200'
                       }`}
                     >
@@ -384,7 +489,7 @@ export default function ParentAchievements() {
                 {/* 图标网格 */}
                 <div className="grid grid-cols-8 gap-1 max-h-40 overflow-y-auto">
                   {ACHIEVEMENT_ICON_CATEGORIES[activeIconCategory as keyof typeof ACHIEVEMENT_ICON_CATEGORIES].map((item, i) => (
-                    <button 
+                    <button
                       key={i}
                       onClick={() => { setIcon(item.icon); setShowIconPicker(false); }}
                       className={`w-8 h-8 rounded text-lg hover:bg-yellow-100 transition-colors ${icon === item.icon ? 'bg-yellow-200 ring-2 ring-yellow-400' : ''}`}
@@ -402,12 +507,24 @@ export default function ParentAchievements() {
             <input className="w-full p-2 rounded-lg border" placeholder="例如：运动健将" value={title} onChange={e => setTitle(e.target.value)} />
           </div>
         </div>
-        
+
         <div>
           <label className="text-xs text-gray-500 font-bold">描述 (孩子看到的鼓励语)</label>
           <input className="w-full p-2 rounded-lg border" placeholder="例如：坚持运动锻炼身体" value={desc} onChange={e => setDesc(e.target.value)} />
         </div>
-        
+
+        <div>
+          <label className="text-xs text-gray-500 font-bold">成就分类</label>
+          <select className="w-full p-2 rounded-lg border bg-white" value={achievementCategory} onChange={e => setAchievementCategory(e.target.value)}>
+            {ACHIEVEMENT_CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+          <div className="mt-1 text-[10px] text-gray-400 leading-relaxed">
+            {ACHIEVEMENT_CATEGORY_HINTS[achievementCategory] || ACHIEVEMENT_CATEGORY_HINTS['其他']}
+          </div>
+        </div>
+
         <div>
           <label className="text-xs text-gray-500 font-bold">解锁条件</label>
           <select className="w-full p-2 rounded-lg border bg-white" value={conditionType} onChange={e => setConditionType(e.target.value)}>
@@ -416,7 +533,7 @@ export default function ParentAchievements() {
             ))}
           </select>
         </div>
-        
+
         {/* 需要选择类别时 */}
         {condConfig?.needCategory && (
           <div>
@@ -429,45 +546,127 @@ export default function ParentAchievements() {
             </select>
           </div>
         )}
-        
+
         {/* 需要输入数值时 */}
         {condConfig?.needValue && (
           <div>
             <label className="text-xs text-gray-500 font-bold">
-              {conditionType === 'streak_days' ? '连续天数' : 
+              {conditionType === 'streak_days' ? '连续天数' :
                conditionType === 'level_reach' ? '等级' : '目标值'}
             </label>
-            <input 
-              className="w-full p-2 rounded-lg border" 
-              type="number" 
-              placeholder={conditionType === 'streak_days' ? '7' : '10'} 
-              value={conditionValue} 
-              onChange={e => setConditionValue(e.target.value)} 
+            <input
+              className="w-full p-2 rounded-lg border"
+              type="number"
+              placeholder={conditionType === 'streak_days' ? '7' : '10'}
+              value={conditionValue}
+              onChange={e => setConditionValue(e.target.value)}
             />
           </div>
         )}
+
+        <div className="p-3 bg-yellow-50 rounded-xl border border-yellow-100">
+          <div className="text-xs text-yellow-700 font-bold mb-2">达成奖励（可选）</div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[10px] text-gray-500 font-bold">金币</label>
+              <input className="w-full p-2 rounded-lg border bg-white" type="number" min="0" value={rewardCoins} onChange={e => setRewardCoins(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 font-bold">经验</label>
+              <input className="w-full p-2 rounded-lg border bg-white" type="number" min="0" value={rewardXp} onChange={e => setRewardXp(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 font-bold">特权点</label>
+              <input className="w-full p-2 rounded-lg border bg-white" type="number" min="0" value={rewardPrivilegePoints} onChange={e => setRewardPrivilegePoints(e.target.value)} />
+            </div>
+          </div>
+          <div className="text-[10px] text-gray-500 mt-2">模板会自动给出建议值，家长也可以按家庭规则微调。</div>
+        </div>
+
+        <div>
+          <label className="text-xs text-gray-500 font-bold">奖励领取方式</label>
+          <select className="w-full p-2 rounded-lg border bg-white" value={rewardDelivery} onChange={e => setRewardDelivery(e.target.value as 'instant' | 'backpack')}>
+            <option value="instant">达成时立即发放</option>
+            <option value="backpack">放入孩子背包，孩子自己打开</option>
+          </select>
+          <div className="text-[10px] text-gray-400 mt-1">ADHD 场景建议多数成就即时发放；长期里程碑可放入背包，增加仪式感。</div>
+        </div>
       </div>
     );
   };
 
+  const groupedAchievements = list.reduce((acc, item) => {
+    const group = item.category || '其他';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(item);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  Object.values(groupedAchievements as Record<string, any[]>).forEach((items) => {
+    items.sort((a, b) =>
+      getLocalRank(a).order - getLocalRank(b).order ||
+      Number(a.conditionValue || 0) - Number(b.conditionValue || 0) ||
+      String(getLocalAchievementDisplay(a).title || '').localeCompare(String(getLocalAchievementDisplay(b).title || ''), 'zh-Hans-CN')
+    );
+  });
+
+  const achievementCategoryOrder = Array.from(new Set([
+    ...ACHIEVEMENT_CATEGORIES,
+    ...Object.keys(groupedAchievements),
+  ])).filter(cat => groupedAchievements[cat]?.length);
+  const visibleAchievementCategoryOrder = achievementFilter === '全部'
+    ? achievementCategoryOrder
+    : achievementCategoryOrder.filter(cat => cat === achievementFilter);
+  const templateCategories = Array.from(new Set(
+    ACHIEVEMENT_TEMPLATES.map(tpl => getTemplateAchievementCategory(tpl))
+  )).sort((a, b) => ACHIEVEMENT_CATEGORIES.indexOf(a) - ACHIEVEMENT_CATEGORIES.indexOf(b));
+  const filteredTemplates = templateFilter === '全部'
+    ? ACHIEVEMENT_TEMPLATES
+    : ACHIEVEMENT_TEMPLATES.filter(tpl => getTemplateAchievementCategory(tpl) === templateFilter);
+  const groupedTemplates = filteredTemplates.reduce((acc, tpl) => {
+    const group = getTemplateAchievementCategory(tpl);
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(tpl);
+    return acc;
+  }, {} as Record<string, typeof ACHIEVEMENT_TEMPLATES>);
+  const unlockedCount = list.filter(item => item.unlockedAt || item.isUnlocked || item.unlocked).length;
+  const categoryOverview = achievementCategoryOrder.map(cat => {
+    const achievements = (groupedAchievements[cat] || []) as any[];
+    const unlocked = achievements.filter(item => item.unlockedAt || item.isUnlocked || item.unlocked).length;
+    return {
+      cat,
+      total: achievements.length,
+      unlocked,
+      hint: ACHIEVEMENT_CATEGORY_HINTS[cat] || ACHIEVEMENT_CATEGORY_HINTS['其他'],
+    };
+  });
+  const currentCategoryOverview = achievementFilter === '全部'
+    ? {
+        cat: '全部',
+        total: list.length,
+        unlocked: unlockedCount,
+        hint: '按分类查看孩子已经拿到哪些里程碑，也能发现哪些能力维度还没有被照顾到。',
+      }
+    : categoryOverview.find(item => item.cat === achievementFilter);
+
   return (
     <Layout>
-      <Header title="成就管理" showBack onBack={() => navigate('/parent/dashboard')} rightElem={<button onClick={() => setShowAdd(true)}><Plus className="text-blue-600"/></button>} />
-      
+      <Header title="成就管理" showBack onBack={() => navigate('/parent/dashboard')} />
+
       {/* 新建成就 - 底部抽屉 */}
-      <BottomSheet 
-        isOpen={showAdd} 
-        onClose={() => { setShowAdd(false); resetForm(); }} 
-        title="🏆 新建成就"
+      <BottomSheet
+        isOpen={showAdd}
+        onClose={() => { setShowAdd(false); setShowTemplates(false); resetForm(); }}
+        title={showTemplates ? '📋 从模板创建成就' : '🏆 新建成就'}
         footer={
           <div className="flex gap-3">
             <Button size="sm" onClick={handleAdd} className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 border-none">保存成就</Button>
-            <Button size="sm" variant="ghost" onClick={() => { setShowAdd(false); resetForm(); }} className="flex-1">取消</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setShowAdd(false); setShowTemplates(false); resetForm(); }} className="flex-1">取消</Button>
           </div>
         }
       >
         <div className="mb-4">
-          <button 
+          <button
             onClick={() => setShowTemplates(!showTemplates)}
             className="w-full text-sm bg-blue-100 text-blue-600 px-3 py-2 rounded-lg font-bold hover:bg-blue-200 transition-colors"
           >
@@ -477,26 +676,52 @@ export default function ParentAchievements() {
 
         {/* 模板选择 */}
         {showTemplates && (
-          <div className="mb-4 p-3 bg-gray-50 rounded-xl border max-h-64 overflow-y-auto">
-            <div className="grid grid-cols-1 gap-2">
-              {ACHIEVEMENT_TEMPLATES.map((tpl, i) => (
-                <button 
-                  key={i}
-                  onClick={() => applyTemplate(tpl)}
-                  className="flex items-center gap-3 p-2 bg-white rounded-lg hover:bg-yellow-50 text-left transition-colors border"
+          <div className="mb-4 space-y-3">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {['全部', ...templateCategories].map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setTemplateFilter(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border transition-colors ${
+                    templateFilter === cat ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-500 border-gray-100'
+                  }`}
                 >
-                  <span className="text-2xl">{tpl.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-bold truncate">{tpl.title}</div>
-                    <div className="text-xs text-gray-400 truncate">{tpl.desc}</div>
-                  </div>
-                  <div className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                    {tpl.type === 'manual' ? '手动' : 
-                     tpl.type === 'streak_days' ? `${tpl.value}天` :
-                     tpl.type === 'category_count' ? `${tpl.category}${tpl.value}次` :
-                     `${tpl.value}`}
-                  </div>
+                  {cat}
                 </button>
+              ))}
+            </div>
+            <div className="p-3 bg-gray-50 rounded-xl border max-h-72 overflow-y-auto space-y-3">
+              {templateCategories.filter(cat => groupedTemplates[cat]?.length).map((cat, catIndex) => (
+                <details key={cat} className="group rounded-xl bg-white border border-gray-100 overflow-hidden" open={templateFilter !== '全部' || catIndex === 0}>
+                  <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between text-sm font-black text-gray-700">
+                    <span>{cat}模板</span>
+                    <span className="text-[10px] text-gray-400 group-open:hidden">展开</span>
+                    <span className="text-[10px] text-gray-400 hidden group-open:inline">收起</span>
+                  </summary>
+                  <div className="px-2 pb-2 space-y-2">
+                    {groupedTemplates[cat].map((tpl) => (
+                      <button
+                        key={`${tpl.title}-${tpl.type}-${tpl.value}`}
+                        type="button"
+                        onClick={() => applyTemplate(tpl)}
+                        className="w-full flex items-center gap-3 p-2 bg-gray-50 rounded-lg hover:bg-yellow-50 text-left transition-colors border border-gray-100"
+                      >
+                        <span className="text-2xl">{tpl.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold truncate">{tpl.title}</div>
+                          <div className="text-xs text-gray-400 truncate">{tpl.desc}</div>
+                        </div>
+                        <div className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                          {tpl.type === 'manual' ? '确认类' :
+                           tpl.type === 'streak_days' ? `${tpl.value}天` :
+                           tpl.type === 'category_count' ? `${tpl.category}${tpl.value}次` :
+                           `${tpl.value}`}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </details>
               ))}
             </div>
           </div>
@@ -505,62 +730,217 @@ export default function ParentAchievements() {
         {renderForm(false)}
       </BottomSheet>
 
-      {/* 编辑成就弹窗 */}
-      {editingAchievement && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95" style={{ maxHeight: 'calc(100% - 32px)' }}>
-            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
-              <h3 className="font-bold text-lg">编辑成就</h3>
-              <button onClick={cancelEdit} className="p-1 hover:bg-gray-100 rounded-full">
-                <X size={20} className="text-gray-500"/>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {renderForm(true)}
-            </div>
-            <div className="flex-shrink-0 p-4 border-t flex gap-3">
-              <Button size="sm" onClick={handleSaveEdit} className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 border-none">
-                <Check size={16} className="mr-1"/> 保存修改
-              </Button>
-              <Button size="sm" variant="ghost" onClick={cancelEdit} className="flex-1">取消</Button>
-            </div>
+      <BottomSheet
+        isOpen={Boolean(editingAchievement)}
+        onClose={cancelEdit}
+        title="🏆 编辑成就"
+        footer={
+          <div className="flex gap-3">
+            <Button size="sm" onClick={handleSaveEdit} className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 border-none">
+              <Check size={16} className="mr-1"/> 保存修改
+            </Button>
+            <Button size="sm" variant="ghost" onClick={cancelEdit} className="flex-1">取消</Button>
+          </div>
+        }
+      >
+        {renderForm(true)}
+      </BottomSheet>
+
+      <div className="p-4 space-y-4 overflow-y-auto flex-1">
+        <CreateActionCard
+          icon="🏆"
+          title="成就是孩子的里程碑"
+          description="按能力分类，只保留关键节点，让孩子看见自己正在变强。"
+          primaryLabel="🏆 新建成就"
+          onPrimary={() => openCreateSheet(false)}
+          primaryClassName="bg-gradient-to-r from-yellow-500 to-orange-500 border-none"
+          secondaryLabel="从模板创建"
+          secondaryIcon={<Sparkles size={15} />}
+          onSecondary={() => openCreateSheet(true)}
+          tone="from-yellow-50 to-orange-50 border-yellow-100"
+        />
+
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-gray-100 bg-white p-3 text-center">
+            <div className="text-xl font-black text-gray-800">{list.length}</div>
+            <div className="text-[10px] font-bold text-gray-400">成就总数</div>
+          </div>
+          <div className="rounded-2xl border border-green-100 bg-green-50 p-3 text-center">
+            <div className="text-xl font-black text-green-600">{unlockedCount}</div>
+            <div className="text-[10px] font-bold text-green-500">已解锁</div>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-center">
+            <div className="text-xl font-black text-blue-600">{achievementCategoryOrder.length}</div>
+            <div className="text-[10px] font-bold text-blue-500">分类</div>
           </div>
         </div>
-      )}
 
-      <div className="p-4 space-y-3 overflow-y-auto flex-1">
+        {categoryOverview.length > 0 && (
+          <Card className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-black text-gray-900">分类总览</div>
+                <div className="text-xs text-gray-500 mt-1 leading-relaxed">
+                  每个分类代表一个成长维度，适合用来检查奖励体系是不是只偏向某一种表现。
+                </div>
+              </div>
+              <div className="px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 text-[10px] font-bold whitespace-nowrap">
+                {categoryOverview.length} 类
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {categoryOverview.map(item => {
+                const progress = Math.round((item.unlocked / Math.max(1, item.total)) * 100);
+                const active = achievementFilter === item.cat;
+                return (
+                  <button
+                    key={item.cat}
+                    type="button"
+                    onClick={() => setAchievementFilter(item.cat)}
+                    className={`text-left rounded-2xl border p-3 transition-colors ${
+                      active ? 'border-yellow-300 bg-yellow-50' : 'border-gray-100 bg-gray-50 hover:bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-black text-gray-800 truncate">{item.cat}</div>
+                      <div className="text-[10px] font-bold text-gray-500">{item.unlocked}/{item.total}</div>
+                    </div>
+                    <div className="mt-2 h-1.5 rounded-full bg-white overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-yellow-400 to-orange-400"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 text-[10px] text-gray-500 line-clamp-2 leading-snug">{item.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+        {achievementCategoryOrder.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {['全部', ...achievementCategoryOrder].map(cat => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setAchievementFilter(cat)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border transition-colors ${
+                  achievementFilter === cat ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-500 border-gray-100'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {currentCategoryOverview && categoryOverview.length > 0 && (
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-black text-gray-900 truncate">
+                  当前查看：{currentCategoryOverview.cat}
+                </div>
+                <div className="text-xs text-blue-700 mt-1 leading-relaxed">
+                  {currentCategoryOverview.hint}
+                </div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="text-lg font-black text-blue-700">{currentCategoryOverview.unlocked}/{currentCategoryOverview.total}</div>
+                <div className="text-[10px] font-bold text-blue-500">已解锁</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {list.length === 0 && !showAdd && (
-          <div className="text-center py-8">
+          <div className="text-center py-10 rounded-2xl border border-dashed border-gray-200 bg-white">
             <div className="text-5xl mb-3">🏆</div>
-            <div className="text-gray-400 mb-4">暂无成就，点击右上角 + 添加</div>
-            <Button size="sm" onClick={() => { setShowAdd(true); setShowTemplates(true); }}>
+            <div className="text-gray-500 font-bold mb-1">还没有成就</div>
+            <div className="text-xs text-gray-400 mb-4">先用模板建立几个清晰目标，后面再慢慢补充个性化成就。</div>
+            <Button size="sm" onClick={() => openCreateSheet(true)}>
               使用模板快速创建
             </Button>
           </div>
         )}
-        {list.map(item => (
-          <Card key={item.id} className="flex justify-between items-center hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="w-12 h-12 bg-gradient-to-br from-yellow-100 to-orange-100 rounded-xl flex items-center justify-center text-2xl shadow-sm flex-shrink-0">
-                {item.icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-gray-800 truncate">{item.title}</div>
-                <div className="text-xs text-gray-500 truncate">{item.description}</div>
-                <div className="text-[10px] text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-0.5 rounded-full font-medium">
-                  {getConditionText(item)}
+
+        {visibleAchievementCategoryOrder.map((cat, index) => (
+          <details
+            key={cat}
+            className="group rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden"
+            open={achievementFilter !== '全部' || index === 0}
+          >
+            <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-black text-gray-800">{cat}成就</div>
+                <div className="text-[10px] font-bold text-gray-400">{groupedAchievements[cat].length} 个里程碑</div>
+                <div className="mt-1 text-[10px] text-gray-500 leading-snug max-w-[260px]">
+                  {ACHIEVEMENT_CATEGORY_HINTS[cat] || ACHIEVEMENT_CATEGORY_HINTS['其他']}
                 </div>
               </div>
+              <span className="text-[10px] text-gray-400 group-open:hidden">展开</span>
+              <span className="text-[10px] text-gray-400 hidden group-open:inline">收起</span>
+            </summary>
+            <div className="space-y-2 px-2 pb-3">
+            {groupedAchievements[cat].map((item: any) => {
+              const rewardText = getRewardText(item);
+              const isUnlocked = item.unlockedAt || item.isUnlocked || item.unlocked;
+              const display = getLocalAchievementDisplay(item);
+              const displayTitle = display.title;
+              const displayDescription = display.description;
+              const displayIcon = display.icon;
+              const rank = display.rank;
+              const showConditionChip = item.conditionType === 'manual';
+              return (
+                <Card key={item.id} className="flex justify-between items-center hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-12 h-12 bg-gradient-to-br from-yellow-100 to-orange-100 rounded-xl flex items-center justify-center text-2xl shadow-sm flex-shrink-0">
+                      {displayIcon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="font-bold text-gray-800 truncate">{displayTitle}</div>
+                        {rank.label && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-slate-50 text-slate-500 text-[9px] font-black whitespace-nowrap">
+                            {rank.icon || displayIcon} {rank.label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">{displayDescription}</div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {showConditionChip && (
+                          <div className="text-[10px] text-blue-600 bg-blue-50 inline-block px-2 py-0.5 rounded-full font-medium">
+                            {getConditionText(item)}
+                          </div>
+                        )}
+                        {rewardText && (
+                          <div className="text-[10px] text-yellow-700 bg-yellow-50 inline-block px-2 py-0.5 rounded-full font-medium">
+                            奖励 {rewardText}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                      isUnlocked ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'
+                    }`}>
+                      {isUnlocked ? '已解锁' : '进行中'}
+                    </div>
+                    <button onClick={() => openEdit(item)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                      <Pen size={16}/>
+                    </button>
+                    <button onClick={() => handleDelete(item.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                      <Trash2 size={16}/>
+                    </button>
+                  </div>
+                </Card>
+              );
+            })}
             </div>
-            <div className="flex gap-1 flex-shrink-0">
-              <button onClick={() => openEdit(item)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                <Pen size={16}/>
-              </button>
-              <button onClick={() => handleDelete(item.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                <Trash2 size={16}/>
-              </button>
-            </div>
-          </Card>
+          </details>
         ))}
       </div>
       <ConfirmDialog />

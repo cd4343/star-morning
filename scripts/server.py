@@ -364,10 +364,10 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             self.send_error(404, "Not Found")
     
     def end_headers(self):
-        """添加CORS头和缓存控制"""
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        """添加缓存控制（CORS由后端处理，代理只透传）"""
+        # 注意：不要在这里添加 Access-Control-Allow-Origin: *
+        # 后端 cors() 中间件已经返回了具体的 origin，
+        # 重复添加会导致与 credentials: true 冲突，浏览器拒绝请求
         
         # 静态资源缓存策略
         if hasattr(self, '_is_static_resource') and self._is_static_resource:

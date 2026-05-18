@@ -1,0 +1,146 @@
+/* 任务抽屉与计时器容器 */
+.task-drawer {
+  position: absolute;
+  bottom: 84px; /* 默认位于底部导航栏上方，可拖动后使用 top/left */
+  left: 50%;
+  z-index: 40;
+  width: min(420px, calc(100vw - 24px));
+  transform: translateX(-50%);
+  pointer-events: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 42vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(16px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.task-drawer.dragging {
+  transition: none;
+  cursor: grabbing;
+  user-select: none;
+}
+
+.task-drawer::-webkit-scrollbar {
+  display: none;
+}
+
+/* 可拖动标题栏 */
+.timer-drawer-handle {
+  min-height: 34px;
+  padding: 4px 8px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #475569;
+  cursor: grab;
+  touch-action: none;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.timer-drawer-handle:active {
+  cursor: grabbing;
+}
+
+/* 计时条卡片 */
+.timer-strip {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 16px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  animation: slide-up 0.4s ease-out;
+  transition: transform 0.2s;
+}
+
+.timer-strip:active {
+  transform: scale(0.98);
+}
+
+.timer-strip.overdue {
+  background: rgba(254, 242, 242, 0.95);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* 进度条背景 */
+.progress-container {
+  flex: 1;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 进度条填充 */
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #6366f1);
+  transition: width 1s linear;
+}
+
+.overdue .progress-bar {
+  background: #ef4444;
+}
+
+/* 倒计时文字 */
+.countdown-text {
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: #1e293b;
+  min-width: 70px;
+  text-align: right;
+}
+
+.overdue .countdown-text {
+  color: #ef4444;
+  animation: pulse-red 2s infinite;
+}
+
+/* 动画定义 */
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulse-red {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* 移动端适配：横屏或更小屏幕时减小尺寸 */
+@media (max-height: 600px) {
+  .task-drawer {
+    bottom: 60px;
+    max-height: 46vh;
+  }
+  .timer-strip {
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 420px) {
+  .task-drawer {
+    width: calc(100vw - 16px);
+  }
+
+  .timer-drawer-handle {
+    padding-inline: 6px;
+  }
+}

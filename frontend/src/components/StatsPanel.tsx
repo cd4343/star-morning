@@ -41,15 +41,45 @@ interface StatsData {
     level: number;
     totalTasks: number;
   }[];
+  wellbeing?: {
+    punishmentCount: number;
+    autoCompletedCount: number;
+    emotionCheckins: number;
+    helpfulEmotionRate: number | null;
+    screenMinutes: number;
+    screenSessions: number;
+    chestCount: number;
+    achievementCount: number;
+  };
+  dimensionScores?: {
+    key: string;
+    label: string;
+    value: string;
+    score: number;
+    tone: 'green' | 'blue' | 'orange' | 'red' | string;
+    hint: string;
+  }[];
+  recommendations?: string[];
 }
 
 // 类别颜色配置
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; fill: string }> = {
+  '生活': { bg: 'bg-emerald-100', text: 'text-emerald-600', fill: 'fill-emerald-500' },
   '劳动': { bg: 'bg-orange-100', text: 'text-orange-600', fill: 'fill-orange-500' },
   '学习': { bg: 'bg-blue-100', text: 'text-blue-600', fill: 'fill-blue-500' },
+  '活动': { bg: 'bg-purple-100', text: 'text-purple-600', fill: 'fill-purple-500' },
   '兴趣': { bg: 'bg-purple-100', text: 'text-purple-600', fill: 'fill-purple-500' },
   '运动': { bg: 'bg-green-100', text: 'text-green-600', fill: 'fill-green-500' },
 };
+
+const DIMENSION_TONES: Record<string, string> = {
+  green: 'text-emerald-700 bg-emerald-50 border-emerald-100',
+  blue: 'text-blue-700 bg-blue-50 border-blue-100',
+  orange: 'text-orange-700 bg-orange-50 border-orange-100',
+  red: 'text-red-700 bg-red-50 border-red-100',
+};
+
+const getDimensionTone = (tone?: string) => DIMENSION_TONES[tone || 'blue'] || DIMENSION_TONES.blue;
 
 export const StatsPanel: React.FC = () => {
   const [stats, setStats] = useState<StatsData | null>(null);
@@ -96,7 +126,23 @@ export const StatsPanel: React.FC = () => {
 
   if (!stats) return null;
 
-  const { overview, coins, categoryStats, dailyAverage, coinTrend, nearestAchievements } = stats;
+  const { overview, coins, categoryStats, dailyAverage, coinTrend, nearestAchievements, children } = stats;
+  const dimensionScores = stats.dimensionScores || [];
+  const recommendations = stats.recommendations || [];
+  const wellbeing = stats.wellbeing || {
+    punishmentCount: 0,
+    autoCompletedCount: 0,
+    emotionCheckins: 0,
+    helpfulEmotionRate: null,
+    screenMinutes: 0,
+    screenSessions: 0,
+    chestCount: 0,
+    achievementCount: 0,
+  };
+  const growthScore = dimensionScores.length > 0
+    ? Math.round(dimensionScores.reduce((sum, item) => sum + item.score, 0) / dimensionScores.length)
+    : null;
+  const topRecommendation = recommendations[0];
 
   // 计算金币净值
   const weekNetCoins = coins.weekEarned - coins.weekSpent;
@@ -104,6 +150,33 @@ export const StatsPanel: React.FC = () => {
 
   // 找到趋势中最大值用于计算比例
   const maxTrendValue = Math.max(...coinTrend.map(t => t.earned), 1);
+  const topCategory = categoryStats[0];
+  const growthSignals = [
+    {
+      label: '今日启动',
+      value: `${overview.todayTasks} 个`,
+      hint: overview.todayTasks > 0 ? '今天已经有行动记录' : '先完成一个低阻力任务',
+      tone: 'text-emerald-700 bg-emerald-50 border-emerald-100',
+    },
+    {
+      label: '稳定性',
+      value: `${overview.streakDays} 天`,
+      hint: overview.streakDays >= 3 ? '连续节奏正在形成' : '目标是连续 3 天不断线',
+      tone: 'text-orange-700 bg-orange-50 border-orange-100',
+    },
+    {
+      label: '能力分布',
+      value: topCategory ? topCategory.category : '暂无',
+      hint: topCategory ? `当前最常完成：${topCategory.percent}%` : '完成后会显示偏好',
+      tone: 'text-blue-700 bg-blue-50 border-blue-100',
+    },
+    {
+      label: '奖励流向',
+      value: `${monthNetCoins >= 0 ? '+' : ''}${monthNetCoins}`,
+      hint: monthNetCoins >= 0 ? '本月金币在积累' : '本月兑换多于获得',
+      tone: monthNetCoins >= 0 ? 'text-violet-700 bg-violet-50 border-violet-100' : 'text-rose-700 bg-rose-50 border-rose-100',
+    },
+  ];
 
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100 overflow-hidden">
@@ -115,32 +188,50 @@ export const StatsPanel: React.FC = () => {
               <TrendingUp size={18} className="text-indigo-600"/>
               成长数据
             </h3>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className={`p-1.5 rounded-lg transition-all ${
-                refreshing 
-                  ? 'bg-indigo-200 cursor-not-allowed' 
-                  : 'bg-white hover:bg-indigo-100 active:scale-95'
+              className={`px-2 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 transition-all ${
+                refreshing
+                  ? 'bg-indigo-200 text-indigo-500 cursor-not-allowed'
+                  : 'bg-white/70 text-indigo-600 hover:bg-white active:scale-95'
               }`}
               title="刷新数据"
             >
-              <RefreshCw 
-                size={14} 
+              <RefreshCw
+                size={12}
                 className={`text-indigo-600 ${refreshing ? 'animate-spin' : ''}`}
               />
+              {refreshing ? '更新中' : '更新'}
+            </button>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-xs bg-white/60 text-indigo-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-white transition-colors"
+            >
+              {expanded ? '收起' : '展开详情'}
+              {expanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
             </button>
           </div>
-          <button 
-            onClick={() => setExpanded(!expanded)}
-            className="text-xs bg-white/60 text-indigo-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-white transition-colors"
-          >
-            {expanded ? '收起' : '展开详情'}
-            {expanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-          </button>
         </div>
 
         {/* 核心指标卡片 */}
+        <div className="mb-3 rounded-xl bg-white/70 border border-white p-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-black text-indigo-700">总览看什么</div>
+            <div className="mt-1 text-[11px] leading-relaxed text-gray-500">
+              看孩子有没有启动、奖励是否及时、规则压力是否合适，以及游戏票和情绪自助是否健康。
+            </div>
+          </div>
+          {growthScore !== null && (
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-700 flex flex-col items-center justify-center flex-shrink-0">
+              <div className="text-xl font-black">{growthScore}</div>
+              <div className="text-[9px] font-bold">画像分</div>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-3 gap-2">
           {/* 连续打卡 */}
           <div className="bg-white/70 rounded-xl p-3 text-center">
@@ -164,41 +255,13 @@ export const StatsPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* 分类任务统计 */}
-        {categoryStats.length > 0 && (
-          <div className="mt-3 bg-white/70 rounded-xl p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-bold text-gray-600">任务类型分布</div>
-              <div className="text-[10px] text-gray-400">
-                共 {categoryStats.reduce((sum, c) => sum + c.count, 0)} 个任务
-              </div>
+        {!expanded && topRecommendation && (
+          <div className="mt-2 rounded-xl bg-amber-50 border border-amber-100 p-2.5">
+            <div className="flex items-center gap-1.5 text-xs font-black text-amber-700">
+              <Target size={14} /> 下一步建议
             </div>
-            <div className="space-y-2">
-              {categoryStats.map(cat => {
-                const colors = CATEGORY_COLORS[cat.category] || { bg: 'bg-gray-100', text: 'text-gray-600' };
-                const barColor = {
-                  '劳动': 'bg-orange-400',
-                  '学习': 'bg-blue-400',
-                  '兴趣': 'bg-purple-400',
-                  '运动': 'bg-green-400'
-                }[cat.category] || 'bg-gray-400';
-                return (
-                  <div key={cat.category} className="flex items-center gap-2">
-                    <span className={`text-[10px] w-8 font-bold ${colors.text}`}>
-                      {cat.category}
-                    </span>
-                    <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full ${barColor} rounded-full transition-all`}
-                        style={{ width: `${cat.percent}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-gray-500 w-12 text-right">
-                      {cat.count}次 <span className="text-gray-400">{cat.percent}%</span>
-                    </span>
-                  </div>
-                );
-              })}
+            <div className="mt-1 text-[11px] leading-relaxed text-amber-800 font-bold line-clamp-2">
+              {topRecommendation}
             </div>
           </div>
         )}
@@ -232,6 +295,145 @@ export const StatsPanel: React.FC = () => {
             {/* 概览 Tab */}
             {activeTab === 'overview' && (
               <div className="space-y-3">
+                <div className="bg-white rounded-xl p-3">
+                  <div className="text-xs font-bold text-gray-600 mb-2">核心信号</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {growthSignals.map(signal => (
+                      <div key={signal.label} className={`rounded-xl border p-3 ${signal.tone}`}>
+                        <div className="text-[10px] font-black opacity-80">{signal.label}</div>
+                        <div className="mt-1 text-lg font-black truncate">{signal.value}</div>
+                        <div className="mt-1 text-[10px] leading-snug opacity-75">{signal.hint}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {dimensionScores.length > 0 && (
+                  <div className="bg-white rounded-xl p-3">
+                    <div className="text-xs font-bold text-gray-600 mb-2">成长维度明细</div>
+                    <div className="space-y-2">
+                      {dimensionScores.map(item => (
+                        <div key={item.key} className={`rounded-xl border p-3 ${getDimensionTone(item.tone)}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-black">{item.label}</div>
+                              <div className="text-[10px] mt-0.5 opacity-75 leading-snug">{item.hint}</div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <div className="text-lg font-black">{item.score}</div>
+                              <div className="text-[10px] font-bold opacity-75">{item.value}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 h-2 rounded-full bg-white/70 overflow-hidden">
+                            <div className="h-full rounded-full bg-current opacity-70" style={{ width: `${item.score}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {categoryStats.length > 0 && (
+                  <div className="bg-white rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs font-bold text-gray-600">任务类型分布</div>
+                      <div className="text-[10px] text-gray-400">
+                        共 {categoryStats.reduce((sum, c) => sum + c.count, 0)} 个任务
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {categoryStats.map(cat => {
+                        const colors = CATEGORY_COLORS[cat.category] || { bg: 'bg-gray-100', text: 'text-gray-600' };
+                        const barColor = {
+                          '生活': 'bg-emerald-400',
+                          '劳动': 'bg-orange-400',
+                          '学习': 'bg-blue-400',
+                          '活动': 'bg-purple-400',
+                          '兴趣': 'bg-purple-400',
+                          '运动': 'bg-green-400'
+                        }[cat.category] || 'bg-gray-400';
+                        return (
+                          <div key={cat.category} className="flex items-center gap-2">
+                            <span className={`text-[10px] w-8 font-bold ${colors.text}`}>
+                              {cat.category}
+                            </span>
+                            <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full ${barColor} rounded-full transition-all`}
+                                style={{ width: `${cat.percent}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-gray-500 w-12 text-right">
+                              {cat.count}次 <span className="text-gray-400">{cat.percent}%</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {recommendations.length > 0 && (
+                  <div className="bg-white rounded-xl p-3">
+                    <div className="text-xs font-bold text-gray-600 mb-2">接下来优先看</div>
+                    <div className="space-y-2">
+                      {recommendations.slice(0, 3).map((item, index) => (
+                        <div key={index} className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-xs text-amber-800 font-bold leading-relaxed">
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white rounded-xl p-3">
+                  <div className="text-xs font-bold text-gray-600 mb-2">体验质量</div>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div>
+                      <div className="text-lg font-black text-purple-600">{wellbeing.chestCount}</div>
+                      <div className="text-[10px] text-gray-400">宝箱</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-black text-red-500">{wellbeing.punishmentCount}</div>
+                      <div className="text-[10px] text-gray-400">惩罚</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-black text-blue-600">{wellbeing.screenMinutes}</div>
+                      <div className="text-[10px] text-gray-400">游戏分钟</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-black text-emerald-600">
+                        {wellbeing.helpfulEmotionRate === null ? '-' : `${wellbeing.helpfulEmotionRate}%`}
+                      </div>
+                      <div className="text-[10px] text-gray-400">情绪有效</div>
+                    </div>
+                  </div>
+                  {wellbeing.autoCompletedCount > 0 && (
+                    <div className="mt-2 rounded-xl bg-blue-50 border border-blue-100 p-2 text-[11px] text-blue-700 font-bold leading-relaxed">
+                      有 {wellbeing.autoCompletedCount} 个任务由系统跨日自动完成，孩子端和家长端会保留提醒记录。
+                    </div>
+                  )}
+                </div>
+
+                {children.length > 0 && (
+                  <div className="bg-white rounded-xl p-3">
+                    <div className="text-xs font-bold text-gray-600 mb-2">孩子成长快照</div>
+                    <div className="space-y-2">
+                      {children.map(child => (
+                        <div key={child.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-slate-800 truncate">{child.name}</div>
+                            <div className="text-[10px] text-slate-400">Lv.{child.level} · {child.totalTasks} 个已通过任务</div>
+                          </div>
+                          <div className="text-right text-[10px] font-bold text-slate-500">
+                            <div>{child.coins} 金币</div>
+                            <div>{child.xp} 经验</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {/* 任务完成数统计 */}
                 <div className="bg-white rounded-xl p-3">
                   <div className="text-xs font-bold text-gray-600 mb-2">任务完成数</div>
@@ -292,9 +494,9 @@ export const StatsPanel: React.FC = () => {
                         <div className="text-[8px] text-indigo-600 font-bold mb-0.5">
                           {day.earned > 0 ? day.earned : ''}
                         </div>
-                        <div 
+                        <div
                           className="w-full bg-gradient-to-t from-indigo-400 to-indigo-300 rounded-t transition-all"
-                          style={{ 
+                          style={{
                             height: `${Math.max((day.earned / maxTrendValue) * 100, 4)}%`,
                             minHeight: day.earned > 0 ? '8px' : '2px'
                           }}
@@ -384,8 +586,8 @@ export const StatsPanel: React.FC = () => {
                     </div>
                   </div>
                   <div className="mt-2 text-xs text-center text-gray-500 bg-gray-50 py-1 rounded-lg">
-                    {monthNetCoins >= 0 
-                      ? '✨ 孩子正在积极存钱！' 
+                    {monthNetCoins >= 0
+                      ? '✨ 孩子正在积极存钱！'
                       : '💡 消费超过收入，可以鼓励多完成任务'}
                   </div>
                 </div>
@@ -415,7 +617,7 @@ export const StatsPanel: React.FC = () => {
                             <div className="text-xs text-gray-500 truncate">{ach.description}</div>
                             <div className="mt-1 flex items-center gap-2">
                               <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                <div 
+                                <div
                                   className="h-full bg-gradient-to-r from-yellow-400 to-orange-400 transition-all"
                                   style={{ width: `${ach.percent}%` }}
                                 />
@@ -441,4 +643,3 @@ export const StatsPanel: React.FC = () => {
 };
 
 export default StatsPanel;
-

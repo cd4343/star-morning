@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface BottomSheetProps {
@@ -27,7 +28,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       // 禁止背景滚动
       document.body.style.overflow = 'hidden';
       // 聚焦到抽屉
-      sheetRef.current?.focus();
+      sheetRef.current?.focus({ preventScroll: true });
     }
     return () => {
       document.body.style.overflow = '';
@@ -45,8 +46,12 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="absolute inset-0 z-50 flex items-end justify-center" role="presentation">
+  const portalTarget = typeof document !== 'undefined'
+    ? document.querySelector<HTMLElement>('[data-child-app-frame="true"], [data-app-frame="true"]') || document.body
+    : null;
+
+  const sheet = (
+    <div className="absolute inset-0 z-50 flex items-end justify-center pt-5" role="presentation">
       {/* 遮罩层 */}
       <div 
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
@@ -62,7 +67,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={`relative w-full max-w-md bg-white rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300 flex flex-col outline-none ${className}`}
-        style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - 20px)' }}
+        style={{ maxHeight: 'calc(100% - 20px)' }}
       >
         {/* 拖动指示器 */}
         <div className="flex-shrink-0 flex justify-center pt-3 pb-2">
@@ -95,7 +100,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       </div>
     </div>
   );
+
+  return portalTarget ? createPortal(sheet, portalTarget) : sheet;
 };
 
 export default BottomSheet;
-

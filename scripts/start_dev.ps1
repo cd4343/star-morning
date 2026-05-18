@@ -51,10 +51,14 @@ if (-not (Test-Path "frontend\node_modules")) {
 }
 Write-Host "      Done!" -ForegroundColor Green
 
+# Set JWT_SECRET if not set
+$env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { "stellar-system-dev-secret" }
+Write-Host "[INFO] JWT_SECRET: $($env:JWT_SECRET.Substring(0, [Math]::Min(20, $env:JWT_SECRET.Length)))..." -ForegroundColor Gray
+
 # Start Backend
 Write-Host "[3/4] Starting Backend (Port 3001)..." -ForegroundColor White
 $projectRoot = Join-Path $PSScriptRoot ".."
-$backendJob = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$projectRoot\backend`" & npm run dev" -WindowStyle Minimized -PassThru
+$backendJob = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$projectRoot\backend`" & set JWT_SECRET=$($env:JWT_SECRET) & npm run dev" -WindowStyle Minimized -PassThru
 
 # Start Frontend  
 Write-Host "[4/4] Starting Frontend (Port 3000)..." -ForegroundColor White

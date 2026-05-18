@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import api from '../services/api';
 
 interface User {
@@ -24,63 +24,75 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const readStoredUser = (): User | null => {
+  try {
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  } catch {
+    localStorage.removeItem('user');
+    return null;
+  }
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  // 直接从 localStorage 初始化状态（无需等待）
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      const storedUser = localStorage.getItem('user');
-      return storedUser ? JSON.parse(storedUser) : null;
-    } catch {
-      // JSON 解析失败，清除损坏的数据
-      localStorage.removeItem('user');
-      return null;
-    }
-  });
-  
-  // isLoading 仅用于首次加载时的短暂验证
-  // 策略：先显示界面，后台验证 token
-  const [isLoading, setIsLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(readStoredUser);
+  const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem('token')));
   const validationDone = useRef(false);
 
   useEffect(() => {
-    // 仅首次挂载时后台验证 token
-    if (validationDone.current) return;
-    validationDone.current = true;
-    
-    const validateTokenInBackground = async () => {
-      const storedToken = localStorage.getItem('token');
-      if (!storedToken) return;
-      
-      try {
-        // 后台静默验证 - 不阻塞界面
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('timeout')), 8000);
-        });
-        
-        await Promise.race([
-          api.get('/auth/members'),
-          timeoutPromise
-        ]);
-        // Token 有效，无需操作
-      } catch (err: any) {
-        // 只有确定 token 无效（401/403）才清除，超时/网络错误不清除
-        if (err.response?.status === 401 || err.response?.status === 403) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setToken(null);
-          setUser(null);
-        }
-        // 超时和网络错误保持现有登录状态
-      }
+    const handleLogoutEvent = () => {
+      setToken(null);
+      setUser(null);
+      setIsLoading(false);
     };
-    
-    validateTokenInBackground();
+
+    window.addEventListener('auth:logout', handleLogoutEvent);
+
+    if (!validationDone.current) {
+      validationDone.current = true;
+
+      const validateTokenInBackground = async () => {
+        const storedToken = localStorage.getItem('token');
+        if (!storedToken) {
+          setIsLoading(false);
+          return;
+        }
+
+        try {
+          const timeoutPromise = new Promise((_, reject) => {
+            window.setTimeout(() => reject(new Error('timeout')), 8000);
+          });
+
+          await Promise.race([
+            api.get('/auth/members'),
+            timeoutPromise,
+          ]);
+        } catch (err: any) {
+          if (err.response?.status === 401 || err.response?.status === 403) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setToken(null);
+            setUser(null);
+          }
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      validateTokenInBackground();
+    }
+
+    return () => {
+      window.removeEventListener('auth:logout', handleLogoutEvent);
+    };
   }, []);
 
   const login = (newToken: string, newUser?: User) => {
     localStorage.setItem('token', newToken);
     setToken(newToken);
+    setIsLoading(false);
+
     if (newUser) {
       localStorage.setItem('user', JSON.stringify(newUser));
       setUser(newUser);
@@ -92,6 +104,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
+    setIsLoading(false);
   };
 
   const updateUser = (updates: Partial<User>) => {
@@ -102,7 +115,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, updateUser, isAuthenticated: !!token, isLoading }}>
+    <AuthContext.Provider value={{
+      user,
+      token,
+      login,
+      logout,
+      updateUser,
+      isAuthenticated: Boolean(token),
+      isLoading,
+    }}>
       {children}
     </AuthContext.Provider>
   );

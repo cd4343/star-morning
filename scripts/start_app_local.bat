@@ -109,6 +109,12 @@ if not exist "frontend\node_modules" (
 )
 echo.
 
+REM Set JWT_SECRET if not set
+if not defined JWT_SECRET (
+    set "JWT_SECRET=stellar-system-dev-secret"
+    echo [INFO] JWT_SECRET not set, using default for development.
+)
+
 REM Start servers
 color 0A
 echo ========================================
@@ -117,7 +123,7 @@ echo ========================================
 echo.
 
 echo    - Starting Backend Server (Port 3001)...
-start "Backend Server" /MIN cmd /c "cd /d %CD%\backend && npm run dev"
+start "Backend Server" /MIN cmd /c "cd /d %CD%\backend && set JWT_SECRET=%JWT_SECRET% && npm run dev"
 
 echo    - Starting Frontend Server (Port 3000)...
 start "Frontend Server" /MIN cmd /c "cd /d %CD%\frontend && npm run dev"
