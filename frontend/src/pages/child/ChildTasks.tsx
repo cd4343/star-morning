@@ -23,13 +23,15 @@ interface Task {
   coins: number;
   xp: number;
   duration: number;
-  status: 'todo' | 'pending' | 'completed' | 'approved';
+  status: 'todo' | 'running' | 'pending' | 'completed' | 'approved' | 'rejected';
   isParallel?: boolean;
   taskType?: string;
   durationMinutes?: number;
   coinReward?: number;
   xpReward?: number;
   icon?: string;
+  sessionId?: string;
+  sessionStartedAt?: string;
 }
 
 // 存储键名
@@ -61,6 +63,24 @@ const getRarityMeta = (rarity?: string) => rarityLabel[String(rarity || 'common'
   zh: '普通',
   en: String(rarity || 'Common'),
   className: 'text-slate-600 bg-white border-slate-100',
+};
+
+const getGameTicketPreviewText = (preview?: any) => {
+  if (!preview || Number(preview.requestedMinutes || 0) <= 0) return '';
+  const label = preview.label || '游戏票';
+  const granted = Number(preview.grantedMinutes || 0);
+  const capped = Number(preview.cappedMinutes || 0);
+  if (granted > 0 && capped > 0) {
+    return `审核通过后预计获得${label} +${granted} 分钟；今日上限已满的 ${capped} 分钟不会再发放。`;
+  }
+  if (granted > 0) return `审核通过后预计获得${label} +${granted} 分钟。`;
+  if (capped > 0) return `节省时间已记录，但今日游戏时间已到上限，审核通过后不会再增加游戏票。`;
+  return '';
+};
+
+const withGameTicketPreview = (message: string, preview?: any) => {
+  const ticketText = getGameTicketPreviewText(preview);
+  return ticketText ? `${message}\n${ticketText}` : message;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -443,17 +463,23 @@ export default function ChildTasks() {
     }
 
     try {
-        await api.post(`/child/tasks/${task.id}/start`);
+        const res = await api.post(`/child/tasks/${task.id}/start`);
+        const session = res.data?.session || {};
+        const activeTask = {
+            ...task,
+            status: 'running' as const,
+            sessionId: session.id,
+            sessionStartedAt: session.startedAt,
+        };
+        const newActiveTasks = [...activeTasks.filter(t => t.id !== task.id), activeTask];
+        setActiveTasks(newActiveTasks);
+        localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(newActiveTasks));
+        focusTask(activeTask, anchor);
     } catch (e: any) {
         toast.error(e.response?.data?.message || '开始任务失败');
         fetchTasks();
         return;
     }
-
-    const newActiveTasks = [...activeTasks, task];
-    setActiveTasks(newActiveTasks);
-    localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(newActiveTasks));
-    focusTask(task, anchor);
   };
 
   const handleTaskAbandon = async (taskId: string) => {
@@ -489,15 +515,17 @@ export default function ChildTasks() {
               playMagicSound(); setChestReward(res.data.chest); setShowChestModal(true);
               if (isFamilyMission) {
                   setShowConfetti(true);
-                  toast.success('全家任务已提交，并获得惊喜宝箱！');
+                  toast.success(withGameTicketPreview('全家任务已提交，并获得惊喜宝箱！', res.data?.gameTicketPreview));
                   setTimeout(() => setShowConfetti(false), 3000);
+              } else {
+                  toast.success(withGameTicketPreview('任务已提交，并打开了惊喜宝箱！', res.data?.gameTicketPreview));
               }
           } else if (isFamilyMission) {
               playMagicSound(); setShowConfetti(true);
-              toast.success('全家任务已提交！等待家长审核发放高额奖励！');
+              toast.success(withGameTicketPreview('全家任务已提交！等待家长审核发放高额奖励！', res.data?.gameTicketPreview));
               setTimeout(() => setShowConfetti(false), 3000);
           } else {
-              playSuccessSound(); toast.success('任务已提交，等待家长审核');
+              playSuccessSound(); toast.success(withGameTicketPreview('任务已提交，等待家长审核', res.data?.gameTicketPreview));
           }
       } catch (e: any) {
           const message = e.response?.data?.message || '提交失败';
@@ -667,13 +695,14 @@ export default function ChildTasks() {
       const res = await api.get(url);
       const adaptedTasks = res.data.tasks.map((t: any) => ({ ...t, coins: t.coinReward, xp: t.xpReward, duration: t.durationMinutes }));
       setTasks(adaptedTasks); setWeeklyStats(res.data.weeklyStats || []); setIsToday(res.data.isToday !== false);
-      const runnableIds = new Set(adaptedTasks.filter((t: any) => t.status === 'todo' || t.status === 'rejected').map((t: any) => t.id));
+      const serverActiveTasks = res.data.isToday !== false
+        ? adaptedTasks.filter((t: any) => t.status === 'running' && t.sessionId)
+        : [];
+      const serverActiveIds = new Set(serverActiveTasks.map((t: any) => t.id));
       setActiveTasks(prev => {
-        const next = prev.filter(task => runnableIds.has(task.id));
-        if (next.length !== prev.length) {
-          localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(next));
-          prev.filter(task => !runnableIds.has(task.id)).forEach(task => localStorage.removeItem(getTaskDataKey(task.id)));
-        }
+        const next = serverActiveTasks;
+        localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(next));
+        prev.filter(task => !serverActiveIds.has(task.id)).forEach(task => localStorage.removeItem(getTaskDataKey(task.id)));
         return next;
       });
     } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -732,6 +761,7 @@ export default function ChildTasks() {
   const totalWeeklyNet = weeklyStats.reduce((acc, cur) => acc + (cur.coins ?? 0), 0);
   const totalWeeklyEarned = weeklyStats.reduce((acc, cur) => acc + (cur.earned ?? cur.coins ?? 0), 0);
   const totalWeeklySpent = weeklyStats.reduce((acc, cur) => acc + (cur.spent ?? 0), 0);
+  const formatSignedNumber = (value: number) => value > 0 ? `+${value}` : String(value || 0);
   const overlayBounds = getChildViewportBounds();
   const drawerWidth = getDrawerWidth();
 
@@ -751,7 +781,7 @@ export default function ChildTasks() {
             </div>
             <div className="text-right">
                 <div className={`text-3xl font-black drop-shadow-sm ${totalWeeklyNet >= 0 ? 'text-yellow-300' : 'text-red-300'}`}>
-                    {totalWeeklyNet >= 0 ? '+' : ''}{totalWeeklyNet} <span className="text-sm font-medium text-white/80">金币</span>
+                    {formatSignedNumber(totalWeeklyNet)} <span className="text-sm font-medium text-white/80">金币</span>
                 </div>
             </div>
           </div>

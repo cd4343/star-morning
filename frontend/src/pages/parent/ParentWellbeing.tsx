@@ -30,7 +30,20 @@ type ChildOverview = {
   todayUsed: number;
   allowance: number;
   earnedMinutes: number;
+  dailyBaseMinutes?: number;
   dailyMaxMinutes?: number;
+  breakdown?: {
+    base: number;
+    earned: number;
+    studySaved: number;
+    morningStartup: number;
+    morningStreak: number;
+    manual: number;
+    other: number;
+    used: number;
+    allowance: number;
+    balance: number;
+  };
   cooldown?: {
     cooldownMinutes: number;
     isCoolingDown: boolean;
@@ -58,7 +71,7 @@ const INTENSITY_LABELS: Record<string, string> = {
 
 const defaultRules: ScreenTimeRules = {
   isEnabled: 1,
-  dailyBaseMinutes: 20,
+  dailyBaseMinutes: 15,
   dailyMaxMinutes: 45,
   ticketMinutes: 10,
   cooldownMinutes: 3,
@@ -89,6 +102,7 @@ const SCREEN_RECORD_TYPE_FILTERS = [
   { value: 'grant', label: '发放' },
   { value: 'deduct', label: '扣减' },
   { value: 'study_saved_time', label: '学习节省' },
+  { value: 'morning_startup', label: '早晨启动' },
   { value: 'session', label: '使用' },
   { value: 'completed', label: '已结束' },
 ] as const;
@@ -313,7 +327,7 @@ export default function ParentWellbeing() {
           </div>
 
           <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3 text-xs text-emerald-700 font-bold leading-relaxed">
-            规则说明：游戏票按北京时间当天统计，未使用分钟不会结转到明天；每日可用分钟会被“每日上限”封顶；学习节省时间只奖励学习类任务；每次结束后会按“冷却分钟”限制再次开启，避免连续长时间看屏幕。
+            规则说明：游戏票按北京时间当天统计，未使用分钟不会结转到明天；每日基础建议 15 分钟；每日可用分钟会被“每日上限”封顶；学习节省时间只奖励学习类任务，早晨启动任务每天最多奖励 1 分钟；每次结束后会按“冷却分钟”限制再次开启。
           </div>
 
           <Button onClick={saveRules} loading={saving} className="w-full bg-emerald-500 border-none">
@@ -363,7 +377,7 @@ export default function ParentWellbeing() {
                   <div className="font-black text-gray-800">{child.name}</div>
                   <div className="text-xs text-gray-500">可用 {child.balance} 分钟 · 已用 {child.todayUsed} 分钟 · 今日额度 {child.allowance} 分钟</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">
-                    今日有效 · 上限 {child.dailyMaxMinutes ?? rules.dailyMaxMinutes} 分钟
+                    基础 {child.dailyBaseMinutes ?? child.breakdown?.base ?? rules.dailyBaseMinutes} 分钟 · 额外 {child.earnedMinutes} 分钟 · 上限 {child.dailyMaxMinutes ?? rules.dailyMaxMinutes} 分钟
                     {child.cooldown?.isCoolingDown ? ` · 冷却中 ${child.cooldown.minutesUntilNext} 分钟` : ` · 冷却 ${child.cooldown?.cooldownMinutes ?? rules.cooldownMinutes} 分钟`}
                   </div>
                 </div>
@@ -375,6 +389,11 @@ export default function ParentWellbeing() {
               </div>
               <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-500" style={{ width: `${Math.min(100, child.allowance ? (child.todayUsed / child.allowance) * 100 : 0)}%` }} />
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 text-[10px] font-bold">
+                <div className="rounded-xl bg-sky-50 text-sky-600 px-2 py-1.5">学习 +{child.breakdown?.studySaved ?? 0}</div>
+                <div className="rounded-xl bg-amber-50 text-amber-600 px-2 py-1.5">早晨 +{(child.breakdown?.morningStartup ?? 0) + (child.breakdown?.morningStreak ?? 0)}</div>
+                <div className="rounded-xl bg-gray-50 text-gray-500 px-2 py-1.5">家长 {child.breakdown?.manual ?? 0}</div>
               </div>
             </Card>
           ))}
@@ -459,12 +478,15 @@ export default function ParentWellbeing() {
           ) : screenRecords.map(record => {
             const isSession = record.type === 'session';
             const isStudySaved = record.source === 'study_saved_time';
+            const isMorningStartup = record.source === 'morning_startup' || record.source === 'morning_startup_streak_3';
             const isPositive = Number(record.minutes || 0) >= 0;
             const title = isSession
               ? `使用 ${record.minutes || 0} 分钟`
               : isStudySaved
                 ? `学习节省 +${Math.abs(Number(record.minutes || 0))} 分钟`
-              : `${isPositive ? '发放' : '扣减'} ${Math.abs(Number(record.minutes || 0))} 分钟`;
+                : isMorningStartup
+                  ? `早晨启动 +${Math.abs(Number(record.minutes || 0))} 分钟`
+                  : `${isPositive ? '发放' : '扣减'} ${Math.abs(Number(record.minutes || 0))} 分钟`;
             const statusText: Record<string, string> = {
               running: '进行中',
               completed: '已结束',

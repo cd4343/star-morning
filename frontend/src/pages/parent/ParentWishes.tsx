@@ -36,6 +36,15 @@ const SHOP_TEMPLATES = [
 
 const SHOP_CATEGORY_OPTIONS = ['零食', '玩乐', '屏幕', '餐饮', '学习', '外出', '特权', '其他'];
 
+const SHOP_PRICING_PRESETS = [
+  { label: '小零食', category: '零食', cost: 20, stock: 10, hint: '低价值、可频繁兑换，适合糖果、饼干、小饮料。' },
+  { label: '学习用品', category: '学习', cost: 50, stock: 5, hint: '文具、书签、小本子，和成长目标关联更强。' },
+  { label: '普通玩具', category: '玩乐', cost: 120, stock: 3, hint: '小玩具、贴纸套装、画材，建议需要几天积累。' },
+  { label: '屏幕额外', category: '屏幕', cost: 150, stock: 2, hint: '只建议偶尔使用，日常屏幕时间优先走游戏票。' },
+  { label: '外出活动', category: '外出', cost: 300, stock: 1, hint: '公园、电影、亲子活动，适合作为阶段性奖励。' },
+  { label: '大额目标', category: '玩乐', cost: 800, stock: 1, hint: '高价值物品建议改为储蓄目标，更能训练延迟满足。' },
+];
+
 const inferShopCategory = (wish: any) => {
   const stored = String(wish?.category || '').trim();
   if (stored) return stored;
@@ -634,6 +643,26 @@ export default function ParentWishes() {
               <div className="p-3 rounded-xl border border-pink-100 bg-pink-50 text-xs text-pink-800">
                 <div className="font-bold mb-2">商品积分规则助手</div>
                 <div className="mb-2">建议按人民币 1 元 = 10 金币作为锚点。小零食 10-30 金币，普通玩乐 50-150 金币，高价值目标建议放入储蓄目标。</div>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {SHOP_PRICING_PRESETS.map(item => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        setCost(String(item.cost));
+                        setShopCategory(item.category);
+                        setStock(String(item.stock));
+                      }}
+                      className="rounded-xl bg-white border border-pink-100 p-2 text-left active:scale-[0.98] transition-transform"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-black text-gray-800">{item.label}</span>
+                        <span className="text-pink-600 font-black">{item.cost}</span>
+                      </div>
+                      <div className="mt-1 text-[10px] text-gray-500 leading-snug">{item.hint}</div>
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { label: '约 1 元', value: 10 },
@@ -1415,6 +1444,29 @@ export default function ParentWishes() {
                       value={editCost}
                       onChange={e => setEditCost(e.target.value)}
                     />
+                  </div>
+                  <div className="rounded-xl border border-pink-100 bg-pink-50 p-3">
+                    <div className="text-xs font-black text-pink-800 mb-2">一键定价</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {SHOP_PRICING_PRESETS.map(item => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => {
+                            setEditCost(String(item.cost));
+                            setEditCategory(item.category);
+                            setEditStock(String(item.stock));
+                          }}
+                          className="rounded-xl bg-white border border-pink-100 p-2 text-left active:scale-[0.98] transition-transform"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-black text-gray-800">{item.label}</span>
+                            <span className="text-xs text-pink-600 font-black">{item.cost}</span>
+                          </div>
+                          <div className="mt-1 text-[10px] text-gray-500 leading-snug">{item.category}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 font-bold">库存数量</label>

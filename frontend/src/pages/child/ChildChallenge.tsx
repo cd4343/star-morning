@@ -5,7 +5,7 @@ import { BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Pl
 import api, { isAuthError } from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { BottomSheet } from '../../components/BottomSheet';
-import { TASK_CATEGORY_FILTERS, getTaskCategoryInfo, taskMatchesCategory } from '../../utils/taskCategories';
+import { TASK_CATEGORY_FILTERS, getTaskCategoryInfo, normalizeTaskCategory, taskMatchesCategory } from '../../utils/taskCategories';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
 
 type TabKey = 'today' | 'learning' | 'family';
@@ -106,6 +106,20 @@ const getRarityMeta = (rarity?: string) => rarityLabel[String(rarity || 'common'
   className: 'text-slate-600 bg-white border-slate-100',
 };
 
+const formatSignedNumber = (value: number) => {
+  const normalized = Number(value || 0);
+  if (normalized > 0) return `+${normalized}`;
+  if (normalized < 0) return String(normalized);
+  return '0';
+};
+
+const getBeijingDateKeyFromMs = (timestamp: number) => {
+  const date = new Date(timestamp + 8 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
+};
+
+const getTodayBeijingDateKey = () => getBeijingDateKeyFromMs(Date.now());
+
 const readChildChallengeCache = () => {
   if (typeof window === 'undefined') return null;
   try {
@@ -149,8 +163,10 @@ const persistActiveTask = (task: Task, startedAt?: string | number, resetTimer =
   const currentTimer = getStoredTaskTimer(task.id);
   if (resetTimer || !currentTimer?.startTime) {
     const parsedStart = typeof startedAt === 'string' ? new Date(startedAt).getTime() : Number(startedAt || Date.now());
+    const safeStart = Number.isFinite(parsedStart) ? parsedStart : Date.now();
     localStorage.setItem(getTaskDataKey(task.id), JSON.stringify({
-      startTime: Number.isFinite(parsedStart) ? parsedStart : Date.now(),
+      startTime: safeStart,
+      startedDate: getBeijingDateKeyFromMs(safeStart),
       pausedDuration: 0,
       pauseStartTime: null,
     }));
@@ -172,7 +188,21 @@ const removeActiveTask = (taskId: string) => {
 
 const getStoredActiveTasks = (): Task[] => {
   try {
-    return JSON.parse(localStorage.getItem(ACTIVE_TASKS_KEY) || '[]');
+    const todayKey = getTodayBeijingDateKey();
+    const parsed = JSON.parse(localStorage.getItem(ACTIVE_TASKS_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    const validTasks = parsed.filter((task: any) => {
+      const timer = task?.id ? getStoredTaskTimer(task.id) : null;
+      const startTime = Number(timer?.startTime || (task?.sessionStartedAt ? new Date(task.sessionStartedAt).getTime() : 0));
+      const taskDate = timer?.startedDate || (Number.isFinite(startTime) && startTime > 0 ? getBeijingDateKeyFromMs(startTime) : todayKey);
+      const isToday = taskDate === todayKey;
+      if (!isToday && task?.id) localStorage.removeItem(getTaskDataKey(task.id));
+      return isToday;
+    });
+    if (validTasks.length !== parsed.length) {
+      localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(validTasks));
+    }
+    return validTasks;
   } catch {
     localStorage.removeItem(ACTIVE_TASKS_KEY);
     return [];
@@ -375,7 +405,7 @@ export default function ChildChallenge() {
       runningTasks.forEach(task => persistActiveTask(task, task.sessionStartedAt, false));
       getStoredActiveTasks().forEach(task => {
         const latest = nextTasks.find(item => item.id === task.id);
-        if (latest && isDone(latest.status)) removeActiveTask(task.id);
+        if (!latest || isDone(latest.status)) removeActiveTask(task.id);
       });
       refreshActiveTimerTasks();
       setDashboard(nextDashboard);
@@ -1117,6 +1147,17 @@ export default function ChildChallenge() {
     </div>
   );
 
+  const getTaskGameTicketHint = (task: Task) => {
+    const category = normalizeTaskCategory(task.category);
+    if (category === '早晨启动') {
+      return '审核通过后，今天可获得 +1 分钟游戏票；连续3天早晨启动还有额外奖励。';
+    }
+    if (category === '学习' && Number(task.durationMinutes || task.duration || 0) > 0 && Number(screenSummary?.rules?.studySavedTimeEnabled ?? 1) === 1) {
+      return '高质量完成并节省的学习时间，会按家长设置兑换成今天的游戏票。';
+    }
+    return '';
+  };
+
   const renderWeeklyCard = () => {
     if (!weeklyStats.length) return null;
     const selectedDateText = getFormattedDate(selectedWeeklyEntry?.date);
@@ -1131,7 +1172,7 @@ export default function ChildChallenge() {
             <div className="mt-1 text-xs font-bold text-white/75">收入 +{totalWeeklyEarned} · 消耗 -{totalWeeklySpent}</div>
           </div>
           <div className="text-right">
-            <div className="text-xl font-black text-yellow-200">+{totalWeeklyNet}</div>
+            <div className="text-xl font-black text-yellow-200">{formatSignedNumber(totalWeeklyNet)}</div>
             <div className="text-xs font-bold text-white/70">金币净值</div>
           </div>
         </div>
@@ -1140,7 +1181,7 @@ export default function ChildChallenge() {
             {selectedDateText.day} {selectedDateText.date}
           </div>
           <div className="text-sm font-black text-yellow-200">
-            获得 +{selectedEarned} <span className="text-white/70">· 净值 {selectedNet >= 0 ? '+' : ''}{selectedNet}</span>
+            获得 {formatSignedNumber(selectedEarned)} <span className="text-white/70">· 净值 {formatSignedNumber(selectedNet)}</span>
           </div>
         </div>
         <div className="mt-2 grid grid-cols-7 gap-1.5 items-end">
@@ -1181,10 +1222,15 @@ export default function ChildChallenge() {
               <Sparkles size={16} /> 挑战中心
             </div>
             <div className="rounded-full bg-white/18 px-3 py-1 text-xs font-black text-white">
-              游戏票 {screenSummary?.balance ?? 0}分
+              游戏票 {screenSummary?.balance ?? 0}/{screenSummary?.dailyMaxMinutes ?? 0}分
             </div>
           </div>
           <div className="mt-1 text-xl font-black">把今天拆成小关卡</div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px] font-black text-white/85">
+            <div className="rounded-xl bg-white/14 px-2 py-1.5 text-center">基础 {screenSummary?.dailyBaseMinutes ?? 0}</div>
+            <div className="rounded-xl bg-white/14 px-2 py-1.5 text-center">赚到 {screenSummary?.earnedMinutes ?? 0}</div>
+            <div className="rounded-xl bg-white/14 px-2 py-1.5 text-center">已用 {screenSummary?.todayUsed ?? 0}</div>
+          </div>
           <button
             type="button"
             onClick={handleRecommendedClick}
@@ -1277,6 +1323,7 @@ export default function ChildChallenge() {
         {selectedTask && (() => {
           const categoryInfo = getTaskCategoryInfo(selectedTask.category);
           const completionSummary = getTaskCompletionSummary(selectedTask);
+          const gameTicketHint = getTaskGameTicketHint(selectedTask);
           return (
             <div className="space-y-4">
               <div className="rounded-3xl bg-slate-50 border border-slate-100 p-4">
@@ -1313,6 +1360,11 @@ export default function ChildChallenge() {
               <div className="rounded-2xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700 font-bold leading-relaxed">
                 {completionSummary.childHint} 完成后会提交给家长确认；任务完成时会立刻打开宝箱。
               </div>
+              {gameTicketHint && (
+                <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3 text-xs text-emerald-700 font-bold leading-relaxed">
+                  {gameTicketHint}
+                </div>
+              )}
               <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3 text-xs text-emerald-700 font-bold leading-relaxed">
                 家长会主要看：{completionSummary.reviewFocus}
               </div>

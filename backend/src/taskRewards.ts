@@ -1,5 +1,5 @@
 export type TaskCompletionMode = 'timer' | 'participation' | 'count' | 'checklist';
-export type TaskRewardCategory = '生活' | '学习' | '运动' | '活动' | '情绪调节' | '其他';
+export type TaskRewardCategory = '生活' | '学习' | '早晨启动' | '运动' | '活动' | '情绪调节' | '其他';
 
 type RewardInput = {
   minutes?: number | string | null;
@@ -20,6 +20,7 @@ export type TaskRewardSuggestion = {
 const CATEGORY_ALIASES: Record<TaskRewardCategory, string[]> = {
   生活: ['生活', '劳动', '生活习惯', '日常', '家务'],
   学习: ['学习', '学业', '阅读'],
+  早晨启动: ['早晨启动', '晨间启动', '晨读', '早晨复习', '起床复习'],
   运动: ['运动', '锻炼', '体育'],
   活动: ['活动', '兴趣', '艺术', '亲子', '项目'],
   情绪调节: ['情绪调节', '情绪', '冷静', '冷静练习', '情绪自助'],
@@ -64,6 +65,19 @@ export const getTaskRewardSuggestion = (input: RewardInput): TaskRewardSuggestio
       title: '学习奖励建议',
       basis: '金币适中，经验更高；重点奖励开始、坚持、求助和质量。',
       settlement: '结算时不奖励“做得越快”，主要看是否按小步完成、是否认真、是否需要过多提醒。',
+    };
+  }
+
+  if (category === '早晨启动') {
+    const coins = clamp(Math.round(2 + minutes * 0.45), 2, 5);
+    const xp = clamp(Math.round(5 + minutes * 0.8), 5, 10);
+    return {
+      coins,
+      xp,
+      privilegePoints: 0,
+      title: '早晨启动建议',
+      basis: '只奖励开始和完成一小步，保持轻量，避免早晨变成拉扯。',
+      settlement: '结算时看是否愿意启动、情绪是否平稳、是否完成3到6分钟的小动作；不要按速度或完美度评价。',
     };
   }
 

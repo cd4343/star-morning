@@ -17,7 +17,7 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [verifyCode, setVerifyCode] = useState('');
   const [countdown, setCountdown] = useState(0);
-  const [mockServerCode, setMockServerCode] = useState<string | null>(null);
+  const [devSmsCode, setDevSmsCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
 
@@ -28,12 +28,25 @@ export default function Register() {
     }
   }, [countdown]);
 
-  const handleSendCode = () => {
+  const handleSendCode = async () => {
     if (!/^1[3-9]\d{9}$/.test(phone)) return toast.warning('请输入正确的11位手机号码');
-    setCountdown(60);
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setMockServerCode(code);
-    setTimeout(() => toast.info(`验证码：${code}，请在5分钟内完成注册`), 1000);
+    if (countdown > 0) return;
+
+    try {
+      setLoading(true);
+      const res = await api.post('/auth/sms/send', { phone, purpose: 'register' });
+      setCountdown(60);
+      setDevSmsCode(res.data.devCode || '');
+      if (res.data.devCode) {
+        toast.info(`测试验证码：${res.data.devCode}`);
+      } else {
+        toast.success('验证码已发送');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || '验证码发送失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegister = async () => {
@@ -42,13 +55,13 @@ export default function Register() {
     if (!verifyCode) return toast.warning('请输入验证码');
     if (!/^1[3-9]\d{9}$/.test(phone)) return toast.warning('手机号格式不正确');
     if (password.length < 6) return toast.warning('密码至少需要6位');
-    if (verifyCode !== mockServerCode) return toast.error('验证码错误，请重新获取');
+    if (!/^\d{6}$/.test(verifyCode)) return toast.warning('请输入 6 位短信验证码');
 
     try {
       setLoading(true);
-      const res = await api.post('/auth/register', { email: phone, password });
+      const res = await api.post('/auth/register', { email: phone, password, smsCode: verifyCode });
       localStorage.setItem('last_phone', phone);
-      login(res.data.token);
+      login(res.data.token, res.data.user);
       toast.success('注册成功！');
       navigate('/create-family');
     } catch (err: any) {
@@ -91,6 +104,11 @@ export default function Register() {
               {countdown > 0 ? `${countdown}s` : '获取验证码'}
             </button>
           </div>
+          {devSmsCode && (
+            <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              开发测试验证码：{devSmsCode}
+            </div>
+          )}
           <input 
             className="w-full p-4 bg-gray-100 rounded-xl outline-none focus:ring-2 ring-blue-500" 
             type="password" 

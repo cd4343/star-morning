@@ -89,6 +89,18 @@ export const initializeDatabase = async () => {
   // 游戏票：学习任务节省时间自动入账（旧库兼容）
   try { await db.run('ALTER TABLE screen_time_rules ADD COLUMN studySavedTimeEnabled INTEGER DEFAULT 1'); } catch (e) {}
   try { await db.run('ALTER TABLE screen_time_rules ADD COLUMN studySavedTimeRatio REAL DEFAULT 1'); } catch (e) {}
+  try {
+    await db.run(`
+      UPDATE screen_time_rules
+         SET dailyBaseMinutes = 15
+       WHERE dailyBaseMinutes = 20
+         AND dailyMaxMinutes = 45
+         AND ticketMinutes = 10
+         AND cooldownMinutes = 3
+         AND COALESCE(studySavedTimeEnabled, 1) = 1
+         AND COALESCE(studySavedTimeRatio, 1) = 1
+    `);
+  } catch (e) {}
   try { await db.run('ALTER TABLE screen_time_ledger ADD COLUMN taskEntryId TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE screen_time_ledger ADD COLUMN learningSessionId TEXT'); } catch (e) {}
 
@@ -245,7 +257,7 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS screen_time_rules (
       familyId TEXT PRIMARY KEY,
       isEnabled INTEGER DEFAULT 1,
-      dailyBaseMinutes INTEGER DEFAULT 20,
+      dailyBaseMinutes INTEGER DEFAULT 15,
       dailyMaxMinutes INTEGER DEFAULT 45,
       ticketMinutes INTEGER DEFAULT 10,
       cooldownMinutes INTEGER DEFAULT 3,
@@ -302,6 +314,22 @@ const createTables = async () => {
       FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
     )
   `);
+  try { await db.run('ALTER TABLE breakfast_items ADD COLUMN description TEXT'); } catch (e) {}
+  try { await db.run("ALTER TABLE breakfast_items ADD COLUMN icon TEXT DEFAULT '🥣'"); } catch (e) {}
+  try { await db.run("ALTER TABLE breakfast_items ADD COLUMN category TEXT DEFAULT '主食'"); } catch (e) {}
+  try { await db.run('ALTER TABLE breakfast_items ADD COLUMN costCoins INTEGER DEFAULT 0'); } catch (e) {}
+  try { await db.run('ALTER TABLE breakfast_items ADD COLUMN isActive INTEGER DEFAULT 1'); } catch (e) {}
+  try { await db.run('ALTER TABLE breakfast_items ADD COLUMN isDefault INTEGER DEFAULT 0'); } catch (e) {}
+  try {
+    await db.run(`
+      UPDATE breakfast_items
+         SET icon = COALESCE(NULLIF(icon, ''), '🥣'),
+             category = COALESCE(NULLIF(category, ''), '主食'),
+             costCoins = COALESCE(costCoins, 0),
+             isActive = COALESCE(isActive, 1),
+             isDefault = COALESCE(isDefault, 0)
+    `);
+  } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS breakfast_orders (
       id TEXT PRIMARY KEY,
@@ -352,6 +380,11 @@ const createTables = async () => {
       FOREIGN KEY (defaultItemId) REFERENCES breakfast_items(id) ON DELETE SET NULL
     )
   `);
+  try { await db.run('ALTER TABLE breakfast_plans ADD COLUMN defaultItemId TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE breakfast_plans ADD COLUMN optionItemIds TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE breakfast_plans ADD COLUMN note TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE breakfast_plans ADD COLUMN updatedAt DATETIME'); } catch (e) {}
+  try { await db.run('UPDATE breakfast_plans SET updatedAt = COALESCE(updatedAt, createdAt, CURRENT_TIMESTAMP)'); } catch (e) {}
   // 早晨流程已并入普通任务挑战，清理旧表，避免新旧功能概念并存。
   await db.exec('DROP TABLE IF EXISTS morning_routine_logs');
   await db.exec('DROP TABLE IF EXISTS morning_routine_steps');
@@ -401,7 +434,12 @@ const createTables = async () => {
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS user_achievements (
-      id TEXT PRIMARY KEY, childId TEXT NOT NULL, achievementId TEXT NOT NULL, unlockedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      id TEXT PRIMARY KEY,
+      childId TEXT NOT NULL,
+      achievementId TEXT NOT NULL,
+      unlockedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      rewardClaimedAt DATETIME,
+      rewardInventoryId TEXT,
       FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
@@ -444,6 +482,8 @@ const createTables = async () => {
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN rewardCoins INTEGER DEFAULT 0'); } catch (e) {}
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN rewardXp INTEGER DEFAULT 0'); } catch (e) {}
   try { await db.run('ALTER TABLE user_inventory ADD COLUMN rewardPrivilegePoints INTEGER DEFAULT 0'); } catch (e) {}
+  try { await db.run('ALTER TABLE user_achievements ADD COLUMN rewardClaimedAt DATETIME'); } catch (e) {}
+  try { await db.run('ALTER TABLE user_achievements ADD COLUMN rewardInventoryId TEXT'); } catch (e) {}
 
   // 迁移：扩展库存状态约束，兼容 used/transferring 等当前业务状态
   try {
@@ -724,6 +764,7 @@ const createTables = async () => {
     await db.run('CREATE INDEX IF NOT EXISTS idx_emotion_checkins_createdAt ON emotion_checkins(createdAt)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_screen_time_ledger_familyId_childId ON screen_time_ledger(familyId, childId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_screen_time_ledger_createdAt ON screen_time_ledger(createdAt)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_screen_time_ledger_source ON screen_time_ledger(source)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_screen_time_ledger_taskEntryId ON screen_time_ledger(taskEntryId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_screen_time_ledger_learningSessionId ON screen_time_ledger(learningSessionId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_screen_time_sessions_familyId_childId ON screen_time_sessions(familyId, childId)');

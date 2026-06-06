@@ -141,8 +141,8 @@ const CONDITION_TYPES = [
 ];
 
 // 任务类别
-const TASK_CATEGORIES = ['生活', '学习', '运动', '活动', '其他'];
-const ACHIEVEMENT_CATEGORIES = ['启动', '坚持', '生活', '学习', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
+const TASK_CATEGORIES = ['生活', '学习', '早晨启动', '运动', '活动', '情绪调节', '其他'];
+const ACHIEVEMENT_CATEGORIES = ['启动', '坚持', '生活', '学习', '早晨启动', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
 const ACHIEVEMENT_CATEGORY_HINTS: Record<string, string> = {
   启动: '奖励开始和小步完成。',
   坚持: '看见稳定和连续。',

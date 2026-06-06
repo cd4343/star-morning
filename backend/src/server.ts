@@ -88,6 +88,7 @@ const decodeQueryText = (value: unknown) => {
 const TASK_CATEGORY_ALIASES: Record<string, string[]> = {
   '生活': ['生活', '劳动', '生活习惯', '日常', '家务'],
   '学习': ['学习', '学业', '阅读'],
+  '早晨启动': ['早晨启动', '晨间启动', '晨读', '早晨复习', '起床复习'],
   '运动': ['运动', '锻炼', '体育'],
   '活动': ['活动', '兴趣', '艺术', '亲子', '项目'],
   '情绪调节': ['情绪调节', '情绪', '冷静', '冷静练习', '情绪自助'],
@@ -139,7 +140,7 @@ const getTaskCategoryFilterValues = (value: unknown) => {
   return TASK_CATEGORY_ALIASES[text] || [text];
 };
 
-const ACHIEVEMENT_DISPLAY_CATEGORIES = ['启动', '坚持', '生活', '学习', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
+const ACHIEVEMENT_DISPLAY_CATEGORIES = ['启动', '坚持', '生活', '学习', '早晨启动', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
 
 const inferAchievementCategory = (achievement: any) => {
   const stored = String(achievement?.category || '').trim();
@@ -159,6 +160,7 @@ const inferAchievementCategory = (achievement: any) => {
   if (conditionType === 'category_count') return ACHIEVEMENT_DISPLAY_CATEGORIES.includes(conditionCategory) ? conditionCategory : '启动';
   if (conditionType === 'streak_days') return conditionCategory && conditionCategory !== '其他' ? conditionCategory : '坚持';
   if (/(感受|冷静|求助|情绪|生气|着急)/.test(text)) return '情绪';
+  if (/(早晨|晨读|晨间|起床复习|早读)/.test(text)) return '早晨启动';
   if (/(学习|阅读|作业|背诵|课文|口算)/.test(text)) return '学习';
   if (/(运动|锻炼|跑|跳|体能)/.test(text)) return '运动';
   if (/(生活|家务|劳动|整理|自理|刷牙|洗|睡|喝水|饮食|干净)/.test(text)) return '生活';
@@ -399,6 +401,7 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '一周节奏', desc: '连续 7 天完成任务，节奏开始成形', icon: '🗓️', type: 'streak_days', value: 7, category: '坚持', rewardCoins: 21, rewardXp: 21 },
   { title: '生活小帮手', desc: '完成第 1 个生活任务', icon: '🧹', type: 'category_count', value: 1, conditionCategory: '生活', category: '生活', rewardCoins: 5, rewardXp: 5 },
   { title: '学习启动', desc: '完成第 1 个学习任务，先开始就算赢', icon: '📚', type: 'category_count', value: 1, conditionCategory: '学习', category: '学习', rewardCoins: 5, rewardXp: 5 },
+  { title: '晨光小启动', desc: '完成第 1 个早晨启动任务，只要开始就是进步', icon: '🌤️', type: 'category_count', value: 1, conditionCategory: '早晨启动', category: '早晨启动', rewardCoins: 5, rewardXp: 8 },
   { title: '动起来', desc: '完成第 1 个运动任务，不用比快，只要参与', icon: '🏃', type: 'category_count', value: 1, conditionCategory: '运动', category: '运动', rewardCoins: 5, rewardXp: 5 },
   { title: '探索新事物', desc: '完成第 1 个活动任务', icon: '🎹', type: 'category_count', value: 1, conditionCategory: '活动', category: '活动', rewardCoins: 5, rewardXp: 5 },
   { title: '会说感受', desc: '能说出自己现在的感受', icon: '💝', type: 'manual', value: 0, category: '情绪', rewardCoins: 10, rewardXp: 10 },
@@ -604,6 +607,22 @@ const finalizeOverdueTaskSessions = async (
   }
 
   return completed;
+};
+
+const startTaskSessionFinalizer = () => {
+  const run = async () => {
+    try {
+      const completed = await finalizeOverdueTaskSessions(getDb());
+      if (completed.length > 0) {
+        console.log(`[TaskSession] Auto-completed ${completed.length} overdue running task(s).`);
+      }
+    } catch (error) {
+      console.error('[TaskSession] Overdue finalizer failed:', error);
+    }
+  };
+
+  setTimeout(() => void run(), 30 * 1000);
+  setInterval(() => void run(), 10 * 60 * 1000);
 };
 
 const shouldTaskAppearOnDate = (task: any, targetDate: Date): boolean => {
@@ -872,18 +891,6 @@ const checkAchievements = async (childId: string, db: any) => {
               const rewardXp = Math.max(0, Number(def.rewardXp || 0));
               const rewardPrivilegePoints = Math.max(0, Number(def.rewardPrivilegePoints || 0));
               const rewardDelivery = def.rewardDelivery === 'backpack' ? 'backpack' : 'instant';
-              if ((rewardCoins > 0 || rewardXp > 0 || rewardPrivilegePoints > 0) && rewardDelivery === 'backpack') {
-                  await db.run(
-                      `INSERT INTO user_inventory (id, childId, title, icon, cost, costType, source, status, rewardCoins, rewardXp, rewardPrivilegePoints)
-                       VALUES (?, ?, ?, ?, 0, 'coins', 'achievement_reward', 'pending', ?, ?, ?)`,
-                      randomUUID(), childId, `${def.title}成就礼包`, def.icon || '🏆', rewardCoins, rewardXp, rewardPrivilegePoints
-                  );
-              } else if (rewardCoins > 0 || rewardXp > 0 || rewardPrivilegePoints > 0) {
-                  await db.run(
-                      'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-                      rewardCoins, rewardXp, rewardPrivilegePoints, childId
-                  );
-              }
               const display = buildAchievementDisplay(def);
               unlockedAchievements.push({
                   id: def.id,
@@ -985,14 +992,44 @@ const serializeAuthMember = (member: any) => {
 };
 
 const sendSmsCode = async (phone: string, code: string, purpose: SmsPurpose) => {
-  const provider = process.env.SMS_PROVIDER || (process.env.NODE_ENV === 'production' ? '' : 'mock');
+  const provider = String(process.env.SMS_PROVIDER || (process.env.NODE_ENV === 'production' ? '' : 'mock')).toLowerCase();
 
-  if (provider === 'mock' && process.env.NODE_ENV !== 'production') {
+  if (provider === 'mock') {
     console.log('[sms:mock]', { phone: maskPhone(phone), purpose, code });
-    return { provider: 'mock', devCode: code };
+    return {
+      provider: 'mock',
+      devCode: process.env.NODE_ENV !== 'production' || process.env.SMS_EXPOSE_DEV_CODE === 'true' ? code : undefined,
+    };
   }
 
-  // Real providers should be wired here with server-side credentials only.
+  if (provider === 'http') {
+    const url = process.env.SMS_HTTP_URL;
+    if (!url) {
+      const error: any = new Error('SMS_HTTP_URL is not configured');
+      error.code = 'SMS_PROVIDER_NOT_CONFIGURED';
+      throw error;
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (process.env.SMS_HTTP_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.SMS_HTTP_TOKEN}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ phone, code, purpose }),
+    });
+
+    if (!response.ok) {
+      const error: any = new Error(`SMS HTTP provider failed with ${response.status}`);
+      error.code = 'SMS_PROVIDER_SEND_FAILED';
+      throw error;
+    }
+
+    return { provider: 'http' };
+  }
+
   const error: any = new Error('SMS provider is not configured');
   error.code = 'SMS_PROVIDER_NOT_CONFIGURED';
   throw error;
@@ -1245,11 +1282,21 @@ app.post('/api/auth/register', async (req, res) => {
         }
 
         const db = getDb();
+        const smsCode = String(req.body.smsCode || req.body.code || '').trim();
 
         // 检查手机号是否已注册
         const existingUser = await db.get('SELECT id FROM users WHERE email = ? OR phone = ?', email, email);
         if (existingUser) {
             return res.status(400).json({ message: '该手机号已注册，请直接登录' });
+        }
+
+        if (!/^\d{6}$/.test(smsCode)) {
+            return res.status(400).json({ message: '请输入 6 位短信验证码' });
+        }
+
+        const verification = await verifySmsCode(db, email, smsCode, 'register');
+        if (!verification.ok) {
+            return res.status(verification.status || 400).json({ message: verification.message || '短信验证码校验失败' });
         }
 
         const id = randomUUID();
@@ -2077,7 +2124,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   const screenMinutes = Number(recentScreen?.minutes || 0);
   const screenSessions = Number(recentScreen?.sessions || 0);
   const avgDailyScreen = Math.round(screenMinutes / 7);
-  const categoryCoverage = Math.min(6, categoryWithPercent.length);
+  const categoryCoverage = Math.min(7, categoryWithPercent.length);
   const punishmentPressure = weekTasks > 0 ? recentPunishments / weekTasks : (recentPunishments > 0 ? 1 : 0);
   const immediateFeedbackRatio = weekTasks > 0 ? recentChest / weekTasks : 0;
   const clampScore = (score: number) => Math.max(0, Math.min(100, Math.round(score)));
@@ -2093,10 +2140,10 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     {
       key: 'balance',
       label: '能力均衡',
-      value: `${categoryCoverage}/6类`,
-      score: clampScore((categoryCoverage / 6) * 100),
+      value: `${categoryCoverage}/7类`,
+      score: clampScore((categoryCoverage / 7) * 100),
       tone: categoryCoverage >= 4 ? 'green' : categoryCoverage >= 2 ? 'blue' : 'orange',
-      hint: categoryCoverage >= 4 ? '任务类型比较均衡' : '可补充生活、学习、运动、活动、情绪中的空白'
+      hint: categoryCoverage >= 4 ? '任务类型比较均衡' : '可补充生活、学习、早晨启动、运动、活动或情绪中的空白'
     },
     {
       key: 'feedback',
@@ -2134,7 +2181,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
 
   const recommendations: string[] = [];
   if (activeDays <= 2) recommendations.push('最近启动天数偏少，建议首页只保留少量低阻力任务，让孩子先重新获得“我能开始”的体验。');
-  if (categoryCoverage <= 2 && weekTasks >= 3) recommendations.push('任务完成集中在少数类别，可以补一点运动、活动或情绪调节类任务，避免奖励体系只奖励效率。');
+  if (categoryCoverage <= 2 && weekTasks >= 3) recommendations.push('任务完成集中在少数类别，可以补一点早晨启动、运动、活动或情绪调节类任务，避免奖励体系只奖励效率。');
   if (weekTasks > 0 && immediateFeedbackRatio < 0.8) recommendations.push('近期宝箱反馈没有覆盖大多数完成任务，建议保持“完成任务即抽奖”的即时反馈。');
   if (punishmentPressure > 0.35) recommendations.push('惩罚次数相对完成任务偏高，建议把高频违规改成提醒、替代动作或更短任务。');
   if (avgDailyScreen > 45) recommendations.push('游戏票日均使用偏高，建议收紧每日上限、冷却时间或允许时段。');
@@ -2204,7 +2251,7 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     // 计算建议奖励
     const suggestion = calculateReviewSuggestion(entry.coinReward, entry.xpReward, entry.actualDurationMinutes, entry.expectedDuration, qualityScore);
     const reviewCategory = normalizeRewardCategory(entry.category);
-    const useBaseSettlement = ['生活', '学习', '运动', '活动', '情绪调节'].includes(reviewCategory) || entry.completionMode !== 'timer';
+    const useBaseSettlement = ['生活', '学习', '早晨启动', '运动', '活动', '情绪调节'].includes(reviewCategory) || entry.completionMode !== 'timer';
 
     // 计算最终金币（如果前端传了 finalCoins 就用，否则用建议值）
     let coinsToAward = finalCoins !== undefined
@@ -2228,6 +2275,13 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
 
     let privilegePointsAwarded = 0;
     let gameTicketMinutesAwarded = 0;
+    let gameTicketAwardLabel = '';
+    let gameTicketGrant: ScreenTimeGrantResult | null = null;
+    let gameTicketMinutesRequested = 0;
+    let gameTicketMinutesCapped = 0;
+    let morningStartupTicketMinutesAwarded = 0;
+    let morningStartupStreakBonusAwarded = 0;
+    let morningStartupStreakDays = 0;
     try {
         await withTransaction(async () => {
             const updateResult = await getDb().run(
@@ -2256,7 +2310,7 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
             }
 
             if (reviewCategory === '学习') {
-                gameTicketMinutesAwarded = await grantStudySavedGameTickets(getDb(), {
+                const studyGrant = await grantStudySavedGameTickets(getDb(), {
                     familyId: request.user!.familyId,
                     childId: entry.childId,
                     title: entry.taskTitle,
@@ -2264,6 +2318,38 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
                     actualMinutes: entry.actualDurationMinutes,
                     taskEntryId: req.params.entryId,
                 });
+                gameTicketGrant = studyGrant;
+                gameTicketMinutesAwarded = studyGrant.grantedMinutes;
+                gameTicketMinutesRequested = studyGrant.requestedMinutes;
+                gameTicketMinutesCapped = studyGrant.cappedMinutes;
+                if (gameTicketMinutesAwarded > 0) gameTicketAwardLabel = '学习节省游戏票';
+            } else if (reviewCategory === MORNING_STARTUP_CATEGORY) {
+                const morningAward = await grantMorningStartupGameTickets(getDb(), {
+                    familyId: request.user!.familyId,
+                    childId: entry.childId,
+                    title: entry.taskTitle,
+                    taskEntryId: req.params.entryId,
+                });
+                morningStartupTicketMinutesAwarded = morningAward.startupMinutes;
+                morningStartupStreakBonusAwarded = morningAward.streakBonusMinutes;
+                morningStartupStreakDays = morningAward.streakDays;
+                gameTicketMinutesAwarded = morningAward.total;
+                gameTicketMinutesRequested = morningAward.requestedMinutes;
+                gameTicketMinutesCapped = morningAward.cappedMinutes;
+                gameTicketGrant = {
+                  requestedMinutes: morningAward.requestedMinutes,
+                  grantedMinutes: morningAward.total,
+                  cappedMinutes: morningAward.cappedMinutes,
+                  dailyMaxMinutes: morningAward.grants[0]?.dailyMaxMinutes || 0,
+                  allowanceBefore: morningAward.grants[0]?.allowanceBefore || 0,
+                  earnedMinutesBefore: morningAward.grants[0]?.earnedMinutesBefore || 0,
+                  balanceBefore: morningAward.grants[0]?.balanceBefore || 0,
+                  source: SCREEN_TIME_SOURCES.MORNING_STARTUP,
+                  reason: 'morning_startup',
+                };
+                if (gameTicketMinutesAwarded > 0) {
+                  gameTicketAwardLabel = morningStartupStreakBonusAwarded > 0 ? '早晨启动与连续奖励游戏票' : '早晨启动游戏票';
+                }
             }
         });
     } catch (err: any) {
@@ -2280,6 +2366,13 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
         rewardXpAwarded: rewardXpToAward,
         privilegePointsAwarded: privilegePointsAwarded,
         gameTicketMinutesAwarded,
+        gameTicketAwardLabel,
+        gameTicketMinutesRequested,
+        gameTicketMinutesCapped,
+        gameTicketGrant,
+        morningStartupTicketMinutesAwarded,
+        morningStartupStreakBonusAwarded,
+        morningStartupStreakDays,
         unlockedAchievements,
         suggestion
     });
@@ -2289,6 +2382,22 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
 // ============================================================
 // 学习闯关系统 API
 // ============================================================
+
+const normalizeLearningQuestTitle = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const findDuplicateLearningQuest = async (db: any, familyId: string, title: unknown, excludeId = '') => {
+  const normalizedTitle = normalizeLearningQuestTitle(title);
+  if (!normalizedTitle) return null;
+  const rows = await db.all(
+    `SELECT id, title
+       FROM learning_quests
+      WHERE familyId = ? AND COALESCE(isActive, 1) != 0`,
+    familyId
+  );
+  return rows.find((row: any) =>
+    row.id !== excludeId && normalizeLearningQuestTitle(row.title) === normalizedTitle
+  ) || null;
+};
 
 const normalizeLearningSteps = (rawSteps: any[] | undefined, fallbackMinutes: number) => {
   const source = Array.isArray(rawSteps) && rawSteps.length > 0
@@ -2327,8 +2436,17 @@ const normalizeTimeText = (value: any, fallback: string) => {
   return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
 };
 
+const MORNING_STARTUP_CATEGORY = '早晨启动';
+const SCREEN_TIME_SOURCES = {
+  STUDY_SAVED_TIME: 'study_saved_time',
+  MORNING_STARTUP: 'morning_startup',
+  MORNING_STARTUP_STREAK_3: 'morning_startup_streak_3',
+  PARENT: 'parent',
+  MANUAL: 'manual',
+} as const;
+
 const getOrCreateScreenTimeRules = async (db: any, familyId: string) => {
-  await db.run('INSERT OR IGNORE INTO screen_time_rules (familyId, dailyBaseMinutes) VALUES (?, 20)', familyId);
+  await db.run('INSERT OR IGNORE INTO screen_time_rules (familyId, dailyBaseMinutes) VALUES (?, 15)', familyId);
   return db.get('SELECT * FROM screen_time_rules WHERE familyId = ?', familyId);
 };
 
@@ -2363,6 +2481,16 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
        FROM screen_time_ledger
       WHERE familyId = ? AND childId = ?
         AND date(createdAt, '+8 hours') = date('now', '+8 hours')`,
+    familyId,
+    childId
+  );
+  const ledgerBreakdownRows = await db.all(
+    `SELECT COALESCE(NULLIF(source, ''), 'manual') as source,
+            COALESCE(SUM(deltaMinutes), 0) as total
+       FROM screen_time_ledger
+      WHERE familyId = ? AND childId = ?
+        AND date(createdAt, '+8 hours') = date('now', '+8 hours')
+      GROUP BY COALESCE(NULLIF(source, ''), 'manual')`,
     familyId,
     childId
   );
@@ -2401,8 +2529,18 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
   const dailyBaseMinutes = Boolean(rules.isEnabled) ? Number(rules.dailyBaseMinutes || 0) : 0;
   const dailyMaxMinutes = Math.max(dailyBaseMinutes, Number(rules.dailyMaxMinutes || dailyBaseMinutes));
   const earnedMinutes = Number(ledger?.total || 0);
+  const sourceTotals = (ledgerBreakdownRows || []).reduce((acc: Record<string, number>, row: any) => {
+    acc[String(row.source || SCREEN_TIME_SOURCES.MANUAL)] = Number(row.total || 0);
+    return acc;
+  }, {});
+  const studySavedMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.STUDY_SAVED_TIME] || 0);
+  const morningStartupMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.MORNING_STARTUP] || 0);
+  const morningStreakMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.MORNING_STARTUP_STREAK_3] || 0);
+  const manualMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.PARENT] || 0) + Number(sourceTotals[SCREEN_TIME_SOURCES.MANUAL] || 0);
+  const otherEarnedMinutes = earnedMinutes - studySavedMinutes - morningStartupMinutes - morningStreakMinutes - manualMinutes;
   const todayUsed = Number(used?.total || 0);
   const allowance = Boolean(rules.isEnabled) ? Math.max(0, Math.min(dailyMaxMinutes, dailyBaseMinutes + earnedMinutes)) : 0;
+  const balance = Math.max(0, allowance - todayUsed);
   const minutesAgo = Number(lastEndedSession?.minutesAgo || 0);
   const isCoolingDown = Boolean(cooldownMinutes > 0 && lastEndedSession && minutesAgo < cooldownMinutes);
   return {
@@ -2412,7 +2550,20 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
     earnedMinutes,
     todayUsed,
     allowance,
-    balance: Math.max(0, allowance - todayUsed),
+    balance,
+    breakdown: {
+      base: dailyBaseMinutes,
+      earned: earnedMinutes,
+      studySaved: studySavedMinutes,
+      morningStartup: morningStartupMinutes,
+      morningStreak: morningStreakMinutes,
+      manual: manualMinutes,
+      other: otherEarnedMinutes,
+      used: todayUsed,
+      allowance,
+      balance,
+      sources: sourceTotals,
+    },
     activeSession,
     cooldown: {
       cooldownMinutes,
@@ -2422,6 +2573,97 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
     },
     window: getCurrentScreenTimeWindow(rules),
   };
+};
+
+type ScreenTimeGrantResult = {
+  requestedMinutes: number;
+  grantedMinutes: number;
+  cappedMinutes: number;
+  dailyMaxMinutes: number;
+  allowanceBefore: number;
+  earnedMinutesBefore: number;
+  balanceBefore: number;
+  source: string;
+  reason: string;
+};
+
+const emptyScreenTimeGrantResult = (
+  source: string,
+  reason = '',
+  overrides: Partial<ScreenTimeGrantResult> = {}
+): ScreenTimeGrantResult => ({
+  requestedMinutes: 0,
+  grantedMinutes: 0,
+  cappedMinutes: 0,
+  dailyMaxMinutes: 0,
+  allowanceBefore: 0,
+  earnedMinutesBefore: 0,
+  balanceBefore: 0,
+  source,
+  reason,
+  ...overrides,
+});
+
+const getScreenTimeGrantResult = async (
+  db: any,
+  familyId: string,
+  childId: string,
+  requestedMinutes: number,
+  source: string,
+  reason = ''
+): Promise<ScreenTimeGrantResult> => {
+  const requested = Math.max(0, Math.floor(Number(requestedMinutes || 0)));
+  if (requested <= 0) return emptyScreenTimeGrantResult(source, reason);
+  const summary = await getChildScreenTimeSummary(db, familyId, childId);
+  const headroom = Math.max(0, Number(summary.dailyMaxMinutes || 0) - Number(summary.allowance || 0));
+  const granted = Math.min(requested, headroom);
+  return {
+    requestedMinutes: requested,
+    grantedMinutes: granted,
+    cappedMinutes: Math.max(0, requested - granted),
+    dailyMaxMinutes: Number(summary.dailyMaxMinutes || 0),
+    allowanceBefore: Number(summary.allowance || 0),
+    earnedMinutesBefore: Number(summary.earnedMinutes || 0),
+    balanceBefore: Number(summary.balance || 0),
+    source,
+    reason,
+  };
+};
+
+const getScreenTimeGrantMinutes = async (db: any, familyId: string, childId: string, requestedMinutes: number) => {
+  const result = await getScreenTimeGrantResult(db, familyId, childId, requestedMinutes, SCREEN_TIME_SOURCES.MANUAL);
+  return result.grantedMinutes;
+};
+
+const shiftDateString = (dateStr: string, deltaDays: number) => {
+  const [year, month, day] = String(dateStr || '').split('-').map(Number);
+  if (!year || !month || !day) return dateStr;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+};
+
+const getMorningStartupStreakDays = async (db: any, childId: string) => {
+  const categoryValues = getTaskCategoryFilterValues(MORNING_STARTUP_CATEGORY);
+  const rows = await db.all(
+    `SELECT DISTINCT date(te.submittedAt, '+8 hours') as day
+       FROM task_entries te
+       JOIN tasks t ON te.taskId = t.id
+      WHERE te.childId = ?
+        AND te.status = 'approved'
+        AND t.category IN (${categoryValues.map(() => '?').join(', ')})
+      ORDER BY day DESC`,
+    childId,
+    ...categoryValues
+  );
+  const approvedDays = new Set((rows || []).map((row: any) => String(row.day || '')).filter(Boolean));
+  let cursor = getLocalDateString();
+  let streak = 0;
+  while (approvedDays.has(cursor)) {
+    streak += 1;
+    cursor = shiftDateString(cursor, -1);
+  }
+  return streak;
 };
 
 const grantStudySavedGameTickets = async (
@@ -2437,52 +2679,172 @@ const grantStudySavedGameTickets = async (
   }
 ) => {
   const rules = await getOrCreateScreenTimeRules(db, input.familyId);
-  if (!Boolean(rules?.isEnabled) || Number(rules?.studySavedTimeEnabled ?? 1) !== 1) return 0;
+  if (!Boolean(rules?.isEnabled) || Number(rules?.studySavedTimeEnabled ?? 1) !== 1) {
+    return emptyScreenTimeGrantResult(SCREEN_TIME_SOURCES.STUDY_SAVED_TIME, 'disabled');
+  }
 
   const expected = Math.max(0, Math.round(Number(input.expectedMinutes || 0)));
   const actual = Math.max(0, Math.ceil(Number(input.actualMinutes || 0)));
-  if (expected <= 0 || actual <= 0) return 0;
+  if (expected <= 0 || actual <= 0) {
+    return emptyScreenTimeGrantResult(SCREEN_TIME_SOURCES.STUDY_SAVED_TIME, 'missing_duration');
+  }
 
   const savedMinutes = Math.max(0, Math.floor(expected - actual));
-  if (savedMinutes <= 0) return 0;
+  if (savedMinutes <= 0) {
+    return emptyScreenTimeGrantResult(SCREEN_TIME_SOURCES.STUDY_SAVED_TIME, 'no_saved_time');
+  }
 
   if (input.taskEntryId) {
     const existing = await db.get(
-      "SELECT id FROM screen_time_ledger WHERE taskEntryId = ? AND source = 'study_saved_time' LIMIT 1",
-      input.taskEntryId
+      "SELECT id FROM screen_time_ledger WHERE taskEntryId = ? AND source = ? LIMIT 1",
+      input.taskEntryId,
+      SCREEN_TIME_SOURCES.STUDY_SAVED_TIME
     );
-    if (existing) return 0;
+    if (existing) return emptyScreenTimeGrantResult(SCREEN_TIME_SOURCES.STUDY_SAVED_TIME, 'duplicate');
   }
   if (input.learningSessionId) {
     const existing = await db.get(
-      "SELECT id FROM screen_time_ledger WHERE learningSessionId = ? AND source = 'study_saved_time' LIMIT 1",
-      input.learningSessionId
+      "SELECT id FROM screen_time_ledger WHERE learningSessionId = ? AND source = ? LIMIT 1",
+      input.learningSessionId,
+      SCREEN_TIME_SOURCES.STUDY_SAVED_TIME
     );
-    if (existing) return 0;
+    if (existing) return emptyScreenTimeGrantResult(SCREEN_TIME_SOURCES.STUDY_SAVED_TIME, 'duplicate');
   }
 
   const ratio = Math.max(0, Math.min(2, Number(rules.studySavedTimeRatio ?? 1) || 1));
   const requestedMinutes = Math.max(0, Math.floor(savedMinutes * ratio));
-  if (requestedMinutes <= 0) return 0;
-
-  const summary = await getChildScreenTimeSummary(db, input.familyId, input.childId);
-  const headroom = Math.max(0, Number(summary.dailyMaxMinutes || 0) - Number(summary.allowance || 0));
-  const minutesToGrant = Math.min(requestedMinutes, headroom);
-  if (minutesToGrant <= 0) return 0;
+  const grant = await getScreenTimeGrantResult(
+    db,
+    input.familyId,
+    input.childId,
+    requestedMinutes,
+    SCREEN_TIME_SOURCES.STUDY_SAVED_TIME,
+    'study_saved_time'
+  );
+  if (grant.grantedMinutes <= 0) return grant;
 
   await db.run(
     `INSERT INTO screen_time_ledger (id, familyId, childId, deltaMinutes, reason, source, taskEntryId, learningSessionId)
-     VALUES (?, ?, ?, ?, ?, 'study_saved_time', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     randomUUID(),
     input.familyId,
     input.childId,
-    minutesToGrant,
+    grant.grantedMinutes,
     `学习节省时间：${String(input.title || '学习任务').slice(0, 60)}`,
+    SCREEN_TIME_SOURCES.STUDY_SAVED_TIME,
     input.taskEntryId || null,
     input.learningSessionId || null
   );
 
-  return minutesToGrant;
+  return grant;
+};
+
+const grantMorningStartupGameTickets = async (
+  db: any,
+  input: {
+    familyId: string;
+    childId: string;
+    title: string;
+    taskEntryId: string;
+  }
+) => {
+  const rules = await getOrCreateScreenTimeRules(db, input.familyId);
+  if (!Boolean(rules?.isEnabled)) {
+    return { total: 0, startupMinutes: 0, streakBonusMinutes: 0, streakDays: 0, requestedMinutes: 0, cappedMinutes: 0, grants: [] as ScreenTimeGrantResult[] };
+  }
+
+  let startupMinutes = 0;
+  const grants: ScreenTimeGrantResult[] = [];
+  const existingForTask = await db.get(
+    'SELECT id FROM screen_time_ledger WHERE taskEntryId = ? AND source = ? LIMIT 1',
+    input.taskEntryId,
+    SCREEN_TIME_SOURCES.MORNING_STARTUP
+  );
+  const existingToday = await db.get(
+    `SELECT id
+       FROM screen_time_ledger
+      WHERE familyId = ? AND childId = ? AND source = ?
+        AND date(createdAt, '+8 hours') = date('now', '+8 hours')
+      LIMIT 1`,
+    input.familyId,
+    input.childId,
+    SCREEN_TIME_SOURCES.MORNING_STARTUP
+  );
+
+  if (!existingForTask && !existingToday) {
+    const startupGrant = await getScreenTimeGrantResult(
+      db,
+      input.familyId,
+      input.childId,
+      1,
+      SCREEN_TIME_SOURCES.MORNING_STARTUP,
+      'morning_startup'
+    );
+    grants.push(startupGrant);
+    startupMinutes = startupGrant.grantedMinutes;
+    if (startupMinutes > 0) {
+      await db.run(
+        `INSERT INTO screen_time_ledger (id, familyId, childId, deltaMinutes, reason, source, taskEntryId)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(),
+        input.familyId,
+        input.childId,
+        startupMinutes,
+        `早晨启动：${String(input.title || '小启动').slice(0, 60)}`,
+        SCREEN_TIME_SOURCES.MORNING_STARTUP,
+        input.taskEntryId
+      );
+    }
+  }
+
+  const streakDays = await getMorningStartupStreakDays(db, input.childId);
+  let streakBonusMinutes = 0;
+  if (streakDays === 3) {
+    const existingStreakBonus = await db.get(
+      `SELECT id
+         FROM screen_time_ledger
+        WHERE familyId = ? AND childId = ? AND source = ?
+          AND date(createdAt, '+8 hours') = date('now', '+8 hours')
+        LIMIT 1`,
+      input.familyId,
+      input.childId,
+      SCREEN_TIME_SOURCES.MORNING_STARTUP_STREAK_3
+    );
+    if (!existingStreakBonus) {
+      const streakGrant = await getScreenTimeGrantResult(
+        db,
+        input.familyId,
+        input.childId,
+        3,
+        SCREEN_TIME_SOURCES.MORNING_STARTUP_STREAK_3,
+        'morning_startup_streak_3'
+      );
+      grants.push(streakGrant);
+      streakBonusMinutes = streakGrant.grantedMinutes;
+      if (streakBonusMinutes > 0) {
+        await db.run(
+          `INSERT INTO screen_time_ledger (id, familyId, childId, deltaMinutes, reason, source)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          randomUUID(),
+          input.familyId,
+          input.childId,
+          streakBonusMinutes,
+          '连续3天早晨启动',
+          SCREEN_TIME_SOURCES.MORNING_STARTUP_STREAK_3
+        );
+      }
+    }
+  }
+
+  return {
+    total: startupMinutes + streakBonusMinutes,
+    startupMinutes,
+    streakBonusMinutes,
+    streakDays,
+    requestedMinutes: grants.reduce((sum, grant) => sum + grant.requestedMinutes, 0),
+    cappedMinutes: grants.reduce((sum, grant) => sum + grant.cappedMinutes, 0),
+    grants,
+  };
 };
 
 const DEFAULT_BREAKFAST_ITEMS = [
@@ -2509,7 +2871,7 @@ const getBreakfastItems = async (db: any, familyId: string, onlyActive = false) 
   await seedBreakfastItemsIfEmpty(db, familyId);
   return db.all(
     `SELECT * FROM breakfast_items
-      WHERE familyId = ? ${onlyActive ? 'AND isActive = 1' : ''}
+      WHERE familyId = ? ${onlyActive ? 'AND COALESCE(isActive, 1) != 0' : ''}
       ORDER BY isActive DESC, costCoins ASC, category ASC, createdAt ASC`,
     familyId
   );
@@ -2640,6 +3002,14 @@ const REWARD_RULE_CATEGORIES: Record<string, any> = {
     privilegeThreshold: 30,
     focus: '启动、拆小步、求助和质量',
     advice: '学习类金币适中，经验更高；结算时不鼓励“越快越好”，重点看认真和坚持。',
+  },
+  早晨启动: {
+    icon: '🌤️',
+    baseCoins: 3,
+    xpRate: 2,
+    privilegeThreshold: 999,
+    focus: '愿意开始、情绪平稳、完成一小步',
+    advice: '早晨启动只做3到6分钟，奖励轻量但即时；审核通过后每天最多给1分钟游戏票。',
   },
   生活: {
     icon: '🌱',
@@ -2779,6 +3149,9 @@ app.post('/api/parent/learning-quests', protect, async (req: any, res) => {
   const db = getDb();
   const { title, description, subject, questType, feeling, resistanceLevel, icon, estimatedMinutes, steps } = req.body || {};
   if (!title || !String(title).trim()) return res.status(400).json({ message: '请输入学习关卡名称' });
+  const cleanTitle = String(title).trim().replace(/\s+/g, ' ').slice(0, 80);
+  const duplicateQuest = await findDuplicateLearningQuest(db, request.user!.familyId, cleanTitle);
+  if (duplicateQuest) return res.status(409).json({ message: `「${duplicateQuest.title}」已经在学习关卡中，不能重复添加` });
 
   const normalizedSteps = normalizeLearningSteps(steps, Number(estimatedMinutes || 10));
   const totalCoins = normalizedSteps.reduce((sum, step) => sum + step.coins, 0);
@@ -2794,7 +3167,7 @@ app.post('/api/parent/learning-quests', protect, async (req: any, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       questId,
       request.user!.familyId,
-      String(title).trim().slice(0, 80),
+      cleanTitle,
       String(description || '').trim().slice(0, 300),
       subject || '综合',
       questType || 'written',
@@ -2824,6 +3197,9 @@ app.put('/api/parent/learning-quests/:id', protect, async (req: any, res) => {
   const db = getDb();
   const existing = await db.get('SELECT * FROM learning_quests WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
   if (!existing) return res.status(404).json({ message: '学习关卡不存在' });
+  const cleanTitle = String(req.body?.title || existing.title).trim().replace(/\s+/g, ' ').slice(0, 80);
+  const duplicateQuest = await findDuplicateLearningQuest(db, request.user!.familyId, cleanTitle, req.params.id);
+  if (duplicateQuest) return res.status(409).json({ message: `「${duplicateQuest.title}」已经在学习关卡中，不能重复添加` });
 
   const normalizedSteps = normalizeLearningSteps(req.body?.steps, Number(req.body?.estimatedMinutes || existing.estimatedMinutes || 10));
   const totalCoins = normalizedSteps.reduce((sum, step) => sum + step.coins, 0);
@@ -2837,7 +3213,7 @@ app.put('/api/parent/learning-quests/:id', protect, async (req: any, res) => {
           SET title = ?, description = ?, subject = ?, questType = ?, feeling = ?,
               resistanceLevel = ?, icon = ?, estimatedMinutes = ?, totalCoins = ?, totalXp = ?, privilegePoints = ?
         WHERE id = ? AND familyId = ?`,
-      String(req.body?.title || existing.title).trim().slice(0, 80),
+      cleanTitle,
       String(req.body?.description || '').trim().slice(0, 300),
       req.body?.subject || existing.subject || '综合',
       req.body?.questType || existing.questType || 'written',
@@ -2915,6 +3291,9 @@ app.post('/api/parent/learning-sessions/:id/review', protect, async (req: any, r
   const xpToAward = Math.max(0, Math.round(Number(finalXp ?? session.totalXp ?? session.earnedXp ?? 0)));
   let privilegePointsAwarded = Math.max(0, Number(session.privilegePoints || 0));
   let gameTicketMinutesAwarded = 0;
+  let gameTicketMinutesRequested = 0;
+  let gameTicketMinutesCapped = 0;
+  let gameTicketGrant: ScreenTimeGrantResult | null = null;
 
   await withTransaction(async () => {
     const updateResult = await db.run(
@@ -2943,7 +3322,7 @@ app.post('/api/parent/learning-sessions/:id/review', protect, async (req: any, r
     const actualMinutes = Number.isFinite(startTime) && Number.isFinite(submitTime)
       ? Math.max(1, Math.ceil((submitTime - startTime) / 60000))
       : 0;
-    gameTicketMinutesAwarded = await grantStudySavedGameTickets(db, {
+    gameTicketGrant = await grantStudySavedGameTickets(db, {
       familyId: request.user!.familyId,
       childId: session.childId,
       title: session.questTitle,
@@ -2951,10 +3330,23 @@ app.post('/api/parent/learning-sessions/:id/review', protect, async (req: any, r
       actualMinutes,
       learningSessionId: req.params.id,
     });
+    gameTicketMinutesAwarded = gameTicketGrant.grantedMinutes;
+    gameTicketMinutesRequested = gameTicketGrant.requestedMinutes;
+    gameTicketMinutesCapped = gameTicketGrant.cappedMinutes;
   });
 
   const unlockedAchievements = await checkAchievements(session.childId, db);
-  res.json({ message: '已通过', coinsAwarded: coinsToAward, xpAwarded: xpToAward, privilegePointsAwarded, gameTicketMinutesAwarded, unlockedAchievements });
+  res.json({
+    message: '已通过',
+    coinsAwarded: coinsToAward,
+    xpAwarded: xpToAward,
+    privilegePointsAwarded,
+    gameTicketMinutesAwarded,
+    gameTicketMinutesRequested,
+    gameTicketMinutesCapped,
+    gameTicketGrant,
+    unlockedAchievements
+  });
 });
 
 app.get('/api/child/learning-quests', protect, async (req: any, res) => {
@@ -3209,7 +3601,7 @@ app.get('/api/parent/screen-time-records', protect, async (req: any, res) => {
 
   const normalizedType = String(type || 'all');
   const childFilter = decodeQueryText(childId);
-  const includeLedger = ['all', 'adjustment', 'grant', 'deduct', 'study_saved_time'].includes(normalizedType);
+  const includeLedger = ['all', 'adjustment', 'grant', 'deduct', 'study_saved_time', 'morning_startup'].includes(normalizedType);
   const includeSessions = ['all', 'session', 'running', 'completed', 'cancelled'].includes(normalizedType);
   const maxRows = Math.max(1, Math.min(200, parseInt(String(limit), 10) || 80));
   const records: any[] = [];
@@ -3238,6 +3630,7 @@ app.get('/api/parent/screen-time-records', protect, async (req: any, res) => {
     if (normalizedType === 'grant') query += ' AND l.deltaMinutes > 0';
     if (normalizedType === 'deduct') query += ' AND l.deltaMinutes < 0';
     if (normalizedType === 'study_saved_time') query += " AND l.source = 'study_saved_time'";
+    if (normalizedType === 'morning_startup') query += " AND l.source IN ('morning_startup', 'morning_startup_streak_3')";
     query = addDateFilter(query, params, 'l.createdAt');
     const rows = await db.all(`${query} ORDER BY datetime(l.createdAt) DESC LIMIT ?`, ...params, maxRows);
     records.push(...rows);
@@ -3570,7 +3963,7 @@ app.post('/api/parent/breakfast-plans', protect, async (req: any, res) => {
 
   const itemIds = [defaultItemId, ...optionItemIds].filter(Boolean);
   const validItems = await db.all(
-    `SELECT id FROM breakfast_items WHERE familyId = ? AND isActive = 1 AND id IN (${itemIds.map(() => '?').join(',')})`,
+    `SELECT id FROM breakfast_items WHERE familyId = ? AND COALESCE(isActive, 1) != 0 AND id IN (${itemIds.map(() => '?').join(',')})`,
     request.user!.familyId,
     ...itemIds
   );
@@ -3626,7 +4019,6 @@ app.get('/api/parent/morning-overview', protect, async (req: any, res) => {
   await seedBreakfastItemsIfEmpty(db, request.user!.familyId);
   const children = await db.all("SELECT id, name, avatar FROM users WHERE familyId = ? AND role = 'child' ORDER BY createdAt ASC", request.user!.familyId);
   const rows = await Promise.all(children.map(async (child: any) => {
-    const plan = await getBreakfastPlanForChild(db, request.user!.familyId, child.id, date);
     const order = await db.get(
       `SELECT * FROM breakfast_orders
         WHERE familyId = ? AND childId = ? AND orderDate = ? AND status != 'cancelled'
@@ -3635,7 +4027,7 @@ app.get('/api/parent/morning-overview', protect, async (req: any, res) => {
       child.id,
       date
     );
-    return { ...child, plan, order: hydrateBreakfastOrder(order) };
+    return { ...child, plan: null, order: hydrateBreakfastOrder(order) };
   }));
   res.json({ date, rows });
 });
@@ -3667,11 +4059,6 @@ app.get('/api/child/morning', protect, async (req: any, res) => {
   const db = getDb();
   const today = normalizeBreakfastDate(req.query.date);
   const allItems = await getBreakfastItems(db, request.user!.familyId, true);
-  const plan = await getBreakfastPlanForChild(db, request.user!.familyId, request.user!.id, today);
-  const plannedItems = plan
-    ? Array.from(new Map([plan.defaultItem, ...(plan.optionItems || [])].filter(Boolean).map((item: any) => [item.id, item])).values())
-    : [];
-  const items = plannedItems.length > 0 ? plannedItems : allItems;
   const order = await db.get(
     `SELECT * FROM breakfast_orders
       WHERE familyId = ? AND childId = ? AND orderDate = ? AND status != 'cancelled'
@@ -3682,10 +4069,10 @@ app.get('/api/child/morning', protect, async (req: any, res) => {
   );
   res.json({
     date: today,
-    plan,
-    plannedItems,
+    plan: null,
+    plannedItems: [],
     allItems,
-    items,
+    items: allItems,
     order: hydrateBreakfastOrder(order),
   });
 });
@@ -3694,7 +4081,6 @@ app.post('/api/child/breakfast-orders', protect, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
   const today = normalizeBreakfastDate(req.body?.date);
-  const plan = await getBreakfastPlanForChild(db, request.user!.familyId, request.user!.id, today);
   const existing = await db.get(
     `SELECT * FROM breakfast_orders
       WHERE familyId = ? AND childId = ? AND orderDate = ? AND status != 'cancelled'
@@ -3710,16 +4096,9 @@ app.post('/api/child/breakfast-orders', protect, async (req: any, res) => {
     : uniqueBreakfastIds([req.body?.itemId]);
   if (requestedIds.length === 0) return res.status(400).json({ message: '请至少选择一个早餐内容' });
 
-  const allowedIds = plan
-    ? new Set([plan.defaultItem?.id, ...(plan.optionItems || []).map((item: any) => item.id)].filter(Boolean))
-    : null;
-  if (allowedIds && requestedIds.some(id => !allowedIds.has(id))) {
-    return res.status(400).json({ message: '请选择家长今天提供的早餐内容' });
-  }
-
   const selectedItems = await db.all(
     `SELECT * FROM breakfast_items
-      WHERE familyId = ? AND isActive = 1 AND id IN (${requestedIds.map(() => '?').join(',')})`,
+      WHERE familyId = ? AND COALESCE(isActive, 1) != 0 AND id IN (${requestedIds.map(() => '?').join(',')})`,
     request.user!.familyId,
     ...requestedIds
   );
@@ -3760,7 +4139,7 @@ app.post('/api/child/breakfast-orders', protect, async (req: any, res) => {
         requestedIds[0],
         itemIdsJson,
         itemsSnapshot,
-        plan?.id || null,
+        null,
         summary.title,
         summary.icon,
         cost,
@@ -3789,7 +4168,7 @@ app.post('/api/child/breakfast-orders', protect, async (req: any, res) => {
       requestedIds[0],
       itemIdsJson,
       itemsSnapshot,
-      plan?.id || null,
+      null,
       summary.title,
       summary.icon,
       cost,
@@ -4592,14 +4971,8 @@ app.post('/api/parent/achievements/:id/award', protect, async (req: any, res) =>
             'INSERT INTO user_achievements (id, childId, achievementId, unlockedAt) VALUES (?, ?, ?, ?)',
             randomUUID(), childId, achievement.id, new Date().toISOString()
         );
-        if (rewardCoins > 0 || rewardXp > 0 || rewardPrivilegePoints > 0) {
-            await db.run(
-                'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-                rewardCoins, rewardXp, rewardPrivilegePoints, childId
-            );
-        }
         await db.run('COMMIT');
-        res.json({ message: '颁发成功', rewardCoins, rewardXp, rewardPrivilegePoints });
+        res.json({ message: '颁发成功，奖励等待孩子领取', rewardCoins, rewardXp, rewardPrivilegePoints });
     } catch (error) {
         await db.run('ROLLBACK');
         console.error('颁发成就失败:', error);
@@ -4628,9 +5001,9 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         // 统计当日收入（任务奖励）
         const dayEarned = (await db.get(`SELECT COALESCE(sum(earnedCoins), 0) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt, '+8 hours') = ?`, childId, dateStr)).s || 0;
         // 统计当日消耗（商店购买，只统计金币购买的）
-        const dayShopSpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt) = ?`, childId, dateStr)).s || 0;
+        const dayShopSpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt, '+8 hours') = ?`, childId, dateStr)).s || 0;
         // 统计当日惩罚扣款
-        const dayPunishment = (await db.get(`SELECT COALESCE(sum(deductedCoins), 0) as s FROM punishment_records WHERE childId = ? AND date(createdAt) = ?`, childId, dateStr)).s || 0;
+        const dayPunishment = (await db.get(`SELECT COALESCE(sum(deductedCoins), 0) as s FROM punishment_records WHERE childId = ? AND date(createdAt, '+8 hours') = ?`, childId, dateStr)).s || 0;
         const daySpent = dayShopSpent + dayPunishment;
         last7Days.push({ date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent });
     }
@@ -4686,9 +5059,9 @@ app.post('/api/child/tasks/:taskId/start', protect, requireChild, async (req: an
         `SELECT ts.*, t.title, t.isParallel
          FROM task_sessions ts
          JOIN tasks t ON ts.taskId = t.id
-         WHERE ts.childId = ? AND ts.status = 'running'
+         WHERE ts.familyId = ? AND ts.childId = ? AND ts.status = 'running'
          AND date(ts.startedAt, '+8 hours') = ?`,
-        childId, today
+        familyId, childId, today
     );
     const existingSession = runningSessions.find((s: any) => s.taskId === taskId);
     if (existingSession) return res.json({ session: existingSession });
@@ -4715,25 +5088,24 @@ app.post('/api/child/tasks/:taskId/abandon', protect, requireChild, async (req: 
     const childId = request.user!.id;
     const familyId = request.user!.familyId;
     const today = getLocalDateString();
+    await finalizeOverdueTaskSessions(db, { familyId, childId });
+
     const runningSession = await db.get(
         `SELECT * FROM task_sessions
-         WHERE taskId = ? AND childId = ? AND status = 'running'
+         WHERE familyId = ? AND taskId = ? AND childId = ? AND status = 'running'
+         AND date(startedAt, '+8 hours') = ?
          ORDER BY startedAt DESC
          LIMIT 1`,
-        taskId, childId
+        familyId, taskId, childId, today
     );
-
-    if (runningSession && getLocalDateString(new Date(runningSession.startedAt)) < today) {
-        await finalizeOverdueTaskSessions(db, { familyId, childId });
-        return res.status(409).json({ message: '这个任务已经跨天，系统已按常规时长自动提交。' });
-    }
+    if (!runningSession) return res.status(409).json({ message: '没有找到今天正在进行的任务。' });
 
     await db.run(
         `UPDATE task_sessions
          SET status = 'abandoned', endedAt = ?
-         WHERE taskId = ? AND childId = ? AND status = 'running'
+         WHERE id = ? AND taskId = ? AND childId = ? AND status = 'running'
          AND date(startedAt, '+8 hours') = ?`,
-        new Date().toISOString(), taskId, childId, today
+        new Date().toISOString(), runningSession.id, taskId, childId, today
     );
     res.json({ message: 'abandoned' });
 });
@@ -4747,18 +5119,20 @@ app.post('/api/child/tasks/:taskId/complete', protect, requireChild, async (req:
     const familyId = request.user!.familyId;
     const now = new Date().toISOString();
     const today = getLocalDateString();
+    await finalizeOverdueTaskSessions(db, { familyId, childId });
+
     const runningSession = await db.get(
         `SELECT * FROM task_sessions
-         WHERE taskId = ? AND childId = ? AND status = 'running'
+         WHERE familyId = ? AND taskId = ? AND childId = ? AND status = 'running'
+         AND date(startedAt, '+8 hours') = ?
          ORDER BY startedAt DESC
          LIMIT 1`,
-        taskId, childId
+        familyId, taskId, childId, today
     );
-    if (runningSession && getLocalDateString(new Date(runningSession.startedAt)) < today) {
-        await finalizeOverdueTaskSessions(db, { familyId, childId });
-        return res.status(409).json({ message: '这个任务已经跨天，系统已按常规时长自动提交；请重新开始今天的任务。' });
+    if (!runningSession) {
+        return res.status(409).json({ message: '没有找到今天正在进行的任务，请重新开始后再提交。' });
     }
-    await finalizeOverdueTaskSessions(db, { familyId, childId });
+
     const task = await db.get(
         'SELECT * FROM tasks WHERE id = ? AND familyId = ? AND isEnabled = 1',
         taskId, familyId
@@ -4803,9 +5177,9 @@ app.post('/api/child/tasks/:taskId/complete', protect, requireChild, async (req:
     await db.run(
         `UPDATE task_sessions
          SET status = 'completed', endedAt = ?, taskEntryId = ?
-         WHERE childId = ? AND taskId = ? AND status = 'running'
+         WHERE id = ? AND childId = ? AND taskId = ? AND status = 'running'
          AND date(startedAt, '+8 hours') = ?`,
-        now, entryId, childId, taskId, today
+        now, entryId, runningSession.id, childId, taskId, today
     );
 
     const verifyEntry = await db.get('SELECT id, status, submittedAt, isOverdue FROM task_entries WHERE id = ?', entryId);
@@ -4844,7 +5218,57 @@ app.post('/api/child/tasks/:taskId/complete', protect, requireChild, async (req:
       }
     } catch (err) { console.error('宝箱触发出错:', err); }
 
-    res.json({ message: 'submitted', entryId, chest: chestReward });
+    let gameTicketPreview: any = null;
+    try {
+      const reviewCategory = normalizeRewardCategory(task.category);
+      const rules = await getOrCreateScreenTimeRules(db, familyId);
+      if (Boolean(rules?.isEnabled) && reviewCategory === '学习' && Number(rules?.studySavedTimeEnabled ?? 1) === 1) {
+        const expected = Math.max(0, Math.round(Number(task.durationMinutes || 0)));
+        const actual = Math.max(0, Math.ceil(Number(duration || 0)));
+        const savedMinutes = Math.max(0, Math.floor(expected - actual));
+        const ratio = Math.max(0, Math.min(2, Number(rules.studySavedTimeRatio ?? 1) || 1));
+        const requestedMinutes = Math.max(0, Math.floor(savedMinutes * ratio));
+        if (requestedMinutes > 0) {
+          gameTicketPreview = await getScreenTimeGrantResult(
+            db,
+            familyId,
+            childId,
+            requestedMinutes,
+            SCREEN_TIME_SOURCES.STUDY_SAVED_TIME,
+            'study_saved_time_preview'
+          );
+          gameTicketPreview.label = '学习节省游戏票';
+          gameTicketPreview.awardTiming = 'after_parent_approval';
+        }
+      } else if (Boolean(rules?.isEnabled) && reviewCategory === MORNING_STARTUP_CATEGORY) {
+        const existingToday = await db.get(
+          `SELECT id
+             FROM screen_time_ledger
+            WHERE familyId = ? AND childId = ? AND source = ?
+              AND date(createdAt, '+8 hours') = date('now', '+8 hours')
+            LIMIT 1`,
+          familyId,
+          childId,
+          SCREEN_TIME_SOURCES.MORNING_STARTUP
+        );
+        if (!existingToday) {
+          gameTicketPreview = await getScreenTimeGrantResult(
+            db,
+            familyId,
+            childId,
+            1,
+            SCREEN_TIME_SOURCES.MORNING_STARTUP,
+            'morning_startup_preview'
+          );
+          gameTicketPreview.label = '早晨启动游戏票';
+          gameTicketPreview.awardTiming = 'after_parent_approval';
+        }
+      }
+    } catch (err) {
+      console.error('游戏票预估失败:', err);
+    }
+
+    res.json({ message: 'submitted', entryId, chest: chestReward, gameTicketPreview });
 });
 
 app.get('/api/child/task-session-reminders', protect, requireChild, async (req: any, res) => {
@@ -5331,8 +5755,8 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
     const allDefs = await db.all('SELECT * FROM achievement_defs WHERE familyId = ?', familyId);
 
     // 获取已解锁的成就
-    const unlocked = await db.all('SELECT achievementId, unlockedAt FROM user_achievements WHERE childId = ?', childId);
-    const unlockedMap = new Map(unlocked.map(u => [u.achievementId, u.unlockedAt]));
+    const unlocked = await db.all('SELECT achievementId, unlockedAt, rewardClaimedAt, rewardInventoryId FROM user_achievements WHERE childId = ?', childId);
+    const unlockedMap = new Map(unlocked.map(u => [u.achievementId, u]));
 
     // 获取进度数据
     const taskCount = (await db.get('SELECT COUNT(*) as count FROM task_entries WHERE childId = ? AND status = "approved"', childId))?.count || 0;
@@ -5411,14 +5835,15 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
     // 预先计算所有需要的连续天数
     const streakCache: Record<string, number> = {};
     streakCache['__all__'] = await getStreakDays();
-    for (const cat of ['生活', '学习', '运动', '活动', '其他', '劳动', '兴趣']) {
+    for (const cat of ['生活', '学习', '早晨启动', '运动', '活动', '其他', '劳动', '兴趣']) {
       streakCache[cat] = await getStreakDays(cat);
     }
 
     // 组装结果
     const result = allDefs.map(def => {
         const display = buildAchievementDisplay(def);
-        const isUnlocked = unlockedMap.has(def.id);
+        const unlockedState = unlockedMap.get(def.id);
+        const isUnlocked = Boolean(unlockedState);
         let progress = 0;
 
         if (!isUnlocked) {
@@ -5452,7 +5877,14 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
             rewardPrivilegePoints: def.rewardPrivilegePoints || 0,
             rewardDelivery: def.rewardDelivery || 'instant',
             unlocked: isUnlocked,
-            unlockedAt: unlockedMap.get(def.id) || null,
+            unlockedAt: unlockedState?.unlockedAt || null,
+            rewardClaimedAt: unlockedState?.rewardClaimedAt || null,
+            rewardInventoryId: unlockedState?.rewardInventoryId || null,
+            rewardClaimable: isUnlocked && !unlockedState?.rewardClaimedAt && (
+              Number(def.rewardCoins || 0) > 0 ||
+              Number(def.rewardXp || 0) > 0 ||
+              Number(def.rewardPrivilegePoints || 0) > 0
+            ),
             progress
         };
     });
@@ -5469,6 +5901,87 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
     });
 
     res.json(result);
+});
+
+app.post('/api/child/achievements/:achievementId/claim', protect, requireChild, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const childId = request.user!.id;
+    const familyId = request.user!.familyId;
+    const achievementId = req.params.achievementId;
+
+    const achievement = await db.get(
+      `SELECT ua.id as userAchievementId, ua.rewardClaimedAt, ad.*
+       FROM user_achievements ua
+       JOIN achievement_defs ad ON ua.achievementId = ad.id
+       WHERE ua.childId = ? AND ua.achievementId = ? AND ad.familyId = ?`,
+      childId,
+      achievementId,
+      familyId
+    );
+
+    if (!achievement) return res.status(404).json({ message: '成就尚未解锁' });
+    if (achievement.rewardClaimedAt) return res.status(400).json({ message: '该成就奖励已领取' });
+
+    const rewardCoins = Math.max(0, Number(achievement.rewardCoins || 0));
+    const rewardXp = Math.max(0, Number(achievement.rewardXp || 0));
+    const rewardPrivilegePoints = Math.max(0, Number(achievement.rewardPrivilegePoints || 0));
+    if (rewardCoins <= 0 && rewardXp <= 0 && rewardPrivilegePoints <= 0) {
+      await db.run('UPDATE user_achievements SET rewardClaimedAt = ? WHERE id = ?', new Date().toISOString(), achievement.userAchievementId);
+      return res.json({ message: '该成就没有额外奖励', rewardCoins: 0, rewardXp: 0, rewardPrivilegePoints: 0 });
+    }
+
+    const rewardDelivery = achievement.rewardDelivery === 'backpack' ? 'backpack' : 'instant';
+    const now = new Date().toISOString();
+    try {
+      await db.run('BEGIN');
+      let inventoryId: string | null = null;
+      if (rewardDelivery === 'backpack') {
+        inventoryId = randomUUID();
+        await db.run(
+          `INSERT INTO user_inventory (
+             id, childId, title, icon, cost, costType, source, status,
+             rewardCoins, rewardXp, rewardPrivilegePoints, acquiredAt
+           ) VALUES (?, ?, ?, ?, 0, 'coins', 'achievement_reward', 'pending', ?, ?, ?, ?)`,
+          inventoryId,
+          childId,
+          `${achievement.title}成就礼包`,
+          achievement.icon || '🏆',
+          rewardCoins,
+          rewardXp,
+          rewardPrivilegePoints,
+          now
+        );
+      } else {
+        await db.run(
+          'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+          rewardCoins,
+          rewardXp,
+          rewardPrivilegePoints,
+          childId
+        );
+      }
+
+      await db.run(
+        'UPDATE user_achievements SET rewardClaimedAt = ?, rewardInventoryId = ? WHERE id = ? AND rewardClaimedAt IS NULL',
+        now,
+        inventoryId,
+        achievement.userAchievementId
+      );
+      await db.run('COMMIT');
+      res.json({
+        message: rewardDelivery === 'backpack' ? '成就礼包已放入背包' : '成就奖励已领取',
+        rewardCoins,
+        rewardXp,
+        rewardPrivilegePoints,
+        rewardDelivery,
+        inventoryId
+      });
+    } catch (error) {
+      try { await db.run('ROLLBACK'); } catch {}
+      console.error('领取成就奖励失败:', error);
+      res.status(500).json({ message: '领取失败，请重试' });
+    }
 });
 
 // Child Privileges (read-only list)
@@ -6124,6 +6637,7 @@ initializeDatabase()
     await initRewardTables();
     await initLotteryTables();
     console.log('✅ Reward system routes registered');
+    startTaskSessionFinalizer();
     if (process.env.ENABLE_DB_BACKUP === 'true' || process.env.NODE_ENV === 'production') {
       startBackupScheduler();
     }

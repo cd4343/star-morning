@@ -1,56 +1,18 @@
-# Scripts 目录说明
+# Scripts
 
-本目录包含项目的各种脚本工具。
-
-## 启动脚本
+保留的脚本都围绕“本地打包、服务器设置、服务器启动”三件事：
 
 | 脚本 | 用途 |
-|------|------|
-| `start_app.bat` | 智能启动器，可选择开发或生产环境 |
-| `start_app_local.bat` | 本地开发环境启动（端口 3000/3001） |
-| `start_app_production.bat` | 生产环境启动（端口 80） |
-| `start_dev.ps1` | PowerShell 版本开发启动器 |
+| --- | --- |
+| `prepare_server_package.bat` | 本机生成可上传服务器的干净 `starcoin` 文件夹 |
+| `prepare_server_package.ps1` | 打包脚本的实际 PowerShell 实现 |
+| `setup_server_production.bat` | 服务器首次部署/升级后运行，安装依赖、构建并检查数据库 |
+| `start_server_simple.bat` | 服务器生产启动脚本 |
+| `server.py` | 前端静态服务和 `/api` 代理 |
 
-### 启动脚本使用方法
+推荐流程：
 
-直接双击 `scripts/start_app.bat` 即可，脚本会自动切换到项目根目录。
-
-```bash
-# 或者在命令行中运行
-cd "项目根目录/scripts"
-start_app.bat
-```
-
-## 配置脚本
-
-| 脚本 | 用途 |
-|------|------|
-| `setup_hosts.bat` | 配置本地 hosts 文件（需要管理员权限） |
-| `server.py` | Python HTTP 代理服务器（生产环境使用） |
-
-## 数据库工具 (db-tools/)
-
-| 脚本 | 用途 |
-|------|------|
-| `fix-auto-approved.js` | 修复被错误自动审批的任务 |
-| `fix-db.js` | 修复 user_inventory 表结构 |
-
-### 数据库工具使用方法
-
-这些脚本会自动找到项目根目录的 `stellar.db` 数据库文件，可以在任意位置运行：
-
-```bash
-# 方法1：在 scripts/db-tools 目录下运行
-cd scripts/db-tools
-node fix-auto-approved.js
-
-# 方法2：使用完整路径
-node scripts/db-tools/fix-auto-approved.js
-```
-
-## 注意事项
-
-- 所有 `.bat` 脚本需要在 Windows 环境下运行
-- `server.py` 需要 Python 3.x
-- 数据库工具脚本需要 Node.js 和 `sqlite3` 模块
-- **重要**: 脚本会自动切换到项目根目录，无需手动 cd
+1. 本机运行 `scripts\prepare_server_package.bat`。
+2. 把生成的 `starcoin` 文件夹整体复制到服务器。
+3. 服务器运行 `scripts\setup_server_production.bat`。
+4. 服务器运行 `scripts\start_server_simple.bat`。

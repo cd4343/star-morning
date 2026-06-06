@@ -192,6 +192,8 @@ const TEMPLATES: LearningTemplate[] = [
 
 const emptyStep = (): LearningStep => ({ title: '新的小关卡', minutes: 5, coins: 2, xp: 4, prompt: '' });
 
+const normalizeQuestTitle = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
 export default function ParentLearning() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -213,6 +215,13 @@ export default function ParentLearning() {
   const totalCoins = steps.reduce((sum, step) => sum + Number(step.coins || 0), 0);
   const totalXp = steps.reduce((sum, step) => sum + Number(step.xp || 0), 0);
   const totalMinutes = steps.reduce((sum, step) => sum + Number(step.minutes || 0), 0);
+  const titleAlreadyExists = Boolean(normalizeQuestTitle(title)) && quests.some(quest =>
+    Number(quest.isActive) !== 0 && normalizeQuestTitle(quest.title) === normalizeQuestTitle(title)
+  );
+
+  const hasActiveQuest = (questTitle: string) => quests.some(quest =>
+    Number(quest.isActive) !== 0 && normalizeQuestTitle(quest.title) === normalizeQuestTitle(questTitle)
+  );
 
   const fetchData = async () => {
     try {
@@ -259,6 +268,10 @@ export default function ParentLearning() {
   };
 
   const openTemplateSheet = (tpl: LearningTemplate) => {
+    if (hasActiveQuest(tpl.title)) {
+      toast.info('这个学习关卡已经添加过了');
+      return;
+    }
     resetForm();
     applyTemplate(tpl);
     setShowAdd(true);
@@ -270,6 +283,7 @@ export default function ParentLearning() {
 
   const saveQuest = async () => {
     if (!title.trim()) return toast.warning('请输入关卡名称');
+    if (titleAlreadyExists) return toast.warning('这个学习关卡已经添加过了');
     if (steps.some(step => !step.title.trim())) return toast.warning('每个小关卡都需要名称');
     try {
       await api.post('/parent/learning-quests', {
@@ -313,7 +327,16 @@ export default function ParentLearning() {
         finalCoins: session.totalCoins,
         finalXp: session.totalXp,
       });
-      const ticketText = res.data?.gameTicketMinutesAwarded ? `，学习节省 +${res.data.gameTicketMinutesAwarded} 分钟游戏票` : '';
+      const awarded = Number(res.data?.gameTicketMinutesAwarded || 0);
+      const capped = Number(res.data?.gameTicketMinutesCapped || 0);
+      const requested = Number(res.data?.gameTicketMinutesRequested || res.data?.gameTicketGrant?.requestedMinutes || 0);
+      const ticketText = awarded > 0
+        ? `，学习节省 +${awarded} 分钟游戏票${capped > 0 ? `，${capped} 分钟因今日上限未发放` : ''}`
+        : capped > 0
+          ? `，学习节省已记录，但今日游戏时间已满，${capped} 分钟未发放`
+          : requested > 0
+            ? '，符合游戏票规则，但暂无可发放分钟'
+            : '';
       toast.success(action === 'approve' ? `学习关卡已通过${ticketText}` : '已打回');
       fetchData();
     } catch (e: any) {
@@ -348,24 +371,36 @@ export default function ParentLearning() {
             </span>
           </div>
           <div className="grid grid-cols-1 gap-2">
-            {TEMPLATES.slice(0, 5).map(tpl => (
-              <button
-                key={tpl.title}
-                type="button"
-                onClick={() => openTemplateSheet(tpl)}
-                className="rounded-2xl border border-gray-100 bg-gray-50 p-3 text-left hover:bg-indigo-50 hover:border-indigo-100 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-2xl shadow-sm">{tpl.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-gray-900 truncate">{tpl.title}</div>
-                    <div className="text-[10px] text-gray-500 truncate">{tpl.subject} · {tpl.focus} · {tpl.steps.length} 步 · {tpl.steps.reduce((sum, step) => sum + Number(step.minutes || 0), 0)} 分钟</div>
+            {TEMPLATES.slice(0, 5).map(tpl => {
+              const duplicated = hasActiveQuest(tpl.title);
+              return (
+                <button
+                  key={tpl.title}
+                  type="button"
+                  disabled={duplicated}
+                  onClick={() => openTemplateSheet(tpl)}
+                  className={`rounded-2xl border p-3 text-left transition-colors ${
+                    duplicated
+                      ? 'bg-gray-100 border-gray-100 opacity-60 cursor-not-allowed'
+                      : 'bg-gray-50 border-gray-100 hover:bg-indigo-50 hover:border-indigo-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-2xl shadow-sm">{tpl.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-black text-gray-900 truncate">{tpl.title}</div>
+                      <div className="text-[10px] text-gray-500 truncate">{tpl.subject} · {tpl.focus} · {tpl.steps.length} 步 · {tpl.steps.reduce((sum, step) => sum + Number(step.minutes || 0), 0)} 分钟</div>
+                    </div>
+                    {duplicated ? (
+                      <span className="text-[10px] font-black text-gray-400 bg-white px-2 py-1 rounded-full">已添加</span>
+                    ) : (
+                      <Sparkles size={16} className="text-indigo-400 flex-shrink-0" />
+                    )}
                   </div>
-                  <Sparkles size={16} className="text-indigo-400 flex-shrink-0" />
-                </div>
-                <div className="mt-2 text-[11px] text-gray-500 leading-relaxed">{tpl.gradeNote}</div>
-              </button>
-            ))}
+                  <div className="mt-2 text-[11px] text-gray-500 leading-relaxed">{tpl.gradeNote}</div>
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
@@ -437,7 +472,7 @@ export default function ParentLearning() {
         title="🗺️ 新建学习关卡"
         footer={
           <div className="flex gap-3">
-            <Button onClick={saveQuest} className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-sky-500 border-none">保存关卡</Button>
+            <Button onClick={saveQuest} disabled={titleAlreadyExists} className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-sky-500 border-none">保存关卡</Button>
             <Button variant="ghost" onClick={() => { setShowAdd(false); resetForm(); }} className="flex-1 py-3">取消</Button>
           </div>
         }
@@ -446,17 +481,32 @@ export default function ParentLearning() {
           <div>
             <label className="text-xs text-gray-500 font-bold block mb-2">模板</label>
             <div className="grid grid-cols-1 gap-2">
-              {TEMPLATES.map(tpl => (
-                <button key={tpl.title} type="button" onClick={() => applyTemplate(tpl)} className="p-3 rounded-xl border bg-white text-left flex items-center gap-3">
-                  <span className="text-2xl">{tpl.icon}</span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-black">{tpl.title}</div>
-                    <div className="text-[10px] text-gray-400">{tpl.subject} · {tpl.focus} · {tpl.steps.length} 步</div>
-                    <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-2">{tpl.description}</div>
-                  </div>
-                  <Sparkles size={14} className="ml-auto text-indigo-400" />
-                </button>
-              ))}
+              {TEMPLATES.map(tpl => {
+                const duplicated = hasActiveQuest(tpl.title);
+                return (
+                  <button
+                    key={tpl.title}
+                    type="button"
+                    disabled={duplicated}
+                    onClick={() => applyTemplate(tpl)}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-3 ${
+                      duplicated ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed' : 'bg-white'
+                    }`}
+                  >
+                    <span className="text-2xl">{tpl.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-black">{tpl.title}</div>
+                      <div className="text-[10px] text-gray-400">{tpl.subject} · {tpl.focus} · {tpl.steps.length} 步</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-2">{duplicated ? '已添加，不能重复创建同名关卡。' : tpl.description}</div>
+                    </div>
+                    {duplicated ? (
+                      <span className="ml-auto text-[10px] font-black text-gray-400 bg-white px-2 py-1 rounded-full">已添加</span>
+                    ) : (
+                      <Sparkles size={14} className="ml-auto text-indigo-400" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -468,6 +518,9 @@ export default function ParentLearning() {
             <div className="flex-1">
               <label className="text-xs text-gray-500 font-bold block mb-1">关卡名称</label>
               <input value={title} onChange={e => setTitle(e.target.value)} className="w-full p-2.5 rounded-xl border bg-gray-50 outline-none" placeholder="例如：数学作业闯关" />
+              {titleAlreadyExists && (
+                <div className="mt-1 text-[10px] font-bold text-orange-600">这个学习关卡已经添加过了，不能重复创建。</div>
+              )}
             </div>
           </div>
 

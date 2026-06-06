@@ -299,7 +299,7 @@ export default function Login() {
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   <span>登录中...</span>
                 </div>
-              ) : quickLoginAvailable && !showPasswordField ? '一键进入' : '登录'}
+              ) : quickLoginAvailable && !showPasswordField ? '一键进入' : '登录并记住本机'}
             </Button>
           </form>
 
@@ -419,7 +419,7 @@ export default function Login() {
           )}
 
           <Button type="submit" size="lg" className="w-full" disabled={loading}>
-            {loading ? '登录中...' : loginMode === 'sms' ? '验证码登录' : '登录'}
+            {loading ? '登录中...' : loginMode === 'sms' ? '验证码登录' : '登录并开启一键进入'}
           </Button>
         </form>
 

@@ -20,10 +20,18 @@ type ScreenTimeSummary = {
     ticketMinutes: number;
     cooldownMinutes: number;
   };
+  dailyBaseMinutes: number;
+  dailyMaxMinutes: number;
   earnedMinutes: number;
   todayUsed: number;
   allowance: number;
   balance: number;
+  breakdown?: {
+    base: number;
+    studySaved: number;
+    morningStartup: number;
+    morningStreak: number;
+  };
   activeSession?: {
     id: string;
     plannedMinutes: number;
@@ -396,19 +404,29 @@ export default function ChildCalm() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid grid-cols-4 gap-2 text-center">
             <div className="rounded-2xl bg-gray-50 p-3">
-              <div className="text-lg font-black text-gray-800">{summary?.allowance ?? 0}</div>
-              <div className="text-[10px] text-gray-400 font-bold">今日基础</div>
+              <div className="text-lg font-black text-gray-800">{summary?.dailyBaseMinutes ?? summary?.breakdown?.base ?? 0}</div>
+              <div className="text-[10px] text-gray-400 font-bold">基础</div>
             </div>
             <div className="rounded-2xl bg-gray-50 p-3">
               <div className="text-lg font-black text-gray-800">{summary?.earnedMinutes ?? 0}</div>
               <div className="text-[10px] text-gray-400 font-bold">额外获得</div>
             </div>
             <div className="rounded-2xl bg-gray-50 p-3">
-              <div className="text-lg font-black text-gray-800">{summary?.window?.beijingTime || '--'}</div>
-              <div className="text-[10px] text-gray-400 font-bold">北京时间</div>
+              <div className="text-lg font-black text-gray-800">{summary?.todayUsed ?? 0}</div>
+              <div className="text-[10px] text-gray-400 font-bold">已用</div>
             </div>
+            <div className="rounded-2xl bg-gray-50 p-3">
+              <div className="text-lg font-black text-gray-800">{summary?.dailyMaxMinutes ?? 0}</div>
+              <div className="text-[10px] text-gray-400 font-bold">上限</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-[10px] font-black">
+            <div className="rounded-xl bg-sky-50 text-sky-600 px-2 py-2 text-center">学习 +{summary?.breakdown?.studySaved ?? 0}</div>
+            <div className="rounded-xl bg-amber-50 text-amber-600 px-2 py-2 text-center">早晨 +{(summary?.breakdown?.morningStartup ?? 0) + (summary?.breakdown?.morningStreak ?? 0)}</div>
+            <div className="rounded-xl bg-slate-50 text-slate-500 px-2 py-2 text-center">现在 {summary?.window?.beijingTime || '--'}</div>
           </div>
 
           {summary?.activeSession && (

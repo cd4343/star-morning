@@ -182,7 +182,7 @@ export default function ParentDashboard() {
 
   // 预设原因
   const PRESET_REASONS = ['磨蹭拖拉', '态度消极', '未达要求', '说谎欺骗', '屡教不改'];
-  const HISTORY_CATEGORIES = ['all', '生活', '学习', '运动', '活动', '其他'];
+  const HISTORY_CATEGORIES = ['all', '生活', '学习', '早晨启动', '运动', '活动', '情绪调节', '其他'];
 
   // 任务详情弹窗状态
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -641,7 +641,17 @@ export default function ParentDashboard() {
       fetchDashboard();
 
       // 显示详细的奖励信息
-      const { coinsAwarded, xpAwarded, rewardXpAwarded, privilegePointsAwarded, gameTicketMinutesAwarded } = res.data;
+      const {
+        coinsAwarded,
+        xpAwarded,
+        rewardXpAwarded,
+        privilegePointsAwarded,
+        gameTicketMinutesAwarded,
+        gameTicketAwardLabel,
+        gameTicketMinutesRequested,
+        gameTicketMinutesCapped,
+        gameTicketGrant,
+      } = res.data;
       let message = `✅ 审核通过！\n\n`;
       message += `💰 金币：${coinsAwarded}\n`;
       message += `⭐ 经验：${xpAwarded}\n`;
@@ -650,7 +660,12 @@ export default function ParentDashboard() {
         message += `\n👑 特权点：+${privilegePointsAwarded}（累计奖励经验达到 ${Math.floor((rewardXpAwarded || 0) / 100) * 100} 点）`;
       }
       if (gameTicketMinutesAwarded > 0) {
-        message += `\n🎮 学习节省游戏票：+${gameTicketMinutesAwarded} 分钟`;
+        message += `\n🎮 ${gameTicketAwardLabel || '游戏票'}：+${gameTicketMinutesAwarded} 分钟`;
+      }
+      if (gameTicketMinutesCapped > 0) {
+        message += `\n🎮 今日游戏时间已到上限，${gameTicketMinutesCapped} 分钟游戏票未发放`;
+      } else if (Number(gameTicketMinutesRequested || gameTicketGrant?.requestedMinutes || 0) > 0 && !gameTicketMinutesAwarded) {
+        message += `\n🎮 本次符合游戏票规则，但没有可发放分钟`;
       }
       if (enablePunishment && savedPunishmentDeduction > 0) {
         message += `\n\n🚨 已执行惩罚\n`;
@@ -1118,10 +1133,6 @@ export default function ParentDashboard() {
           <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/punishment')}>
             <Lock size={28} className="text-orange-600"/>
             <span>惩罚设置</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => { fetchPunishmentStats(); navigate('/parent/punishment?tab=stats'); }}>
-            <BarChart3 size={28} className="text-red-600"/>
-            <span>惩罚分析</span>
           </Button>
         </div>
       </div>

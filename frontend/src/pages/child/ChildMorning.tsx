@@ -31,13 +31,6 @@ type BreakfastData = {
   date: string;
   items: BreakfastItem[];
   allItems?: BreakfastItem[];
-  plannedItems?: BreakfastItem[];
-  plan?: {
-    id: string;
-    note?: string;
-    defaultItem?: BreakfastItem | null;
-    optionItems?: BreakfastItem[];
-  } | null;
   order?: BreakfastOrder | null;
 };
 
@@ -102,8 +95,6 @@ export default function ChildMorning() {
       const orderIds = getOrderItemIds(nextData.order);
       if (orderIds.length) {
         setSelectedIds(orderIds);
-      } else if (nextData.plan?.defaultItem?.id) {
-        setSelectedIds([nextData.plan.defaultItem.id]);
       } else {
         setSelectedIds([]);
       }
@@ -234,12 +225,6 @@ export default function ChildMorning() {
         ) : (
           <div className="rounded-2xl bg-gray-50 border border-dashed border-gray-200 p-4 text-center text-sm font-bold text-gray-400">
             还没有选择内容，可以只选一项，也可以组成一份完整早餐。
-          </div>
-        )}
-
-        {data?.plan?.note && (
-          <div className="rounded-2xl bg-sky-50 border border-sky-100 p-3 text-xs font-bold text-sky-700 leading-relaxed">
-            {data.plan.note}
           </div>
         )}
 

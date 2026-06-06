@@ -27,6 +27,8 @@ interface Achievement {
   rewardXp?: number;
   rewardPrivilegePoints?: number;
   rewardDelivery?: string;
+  rewardClaimedAt?: string | null;
+  rewardClaimable?: boolean;
   unlocked?: boolean;
   unlockedAt?: string;
   progress?: number;
@@ -123,7 +125,13 @@ export default function ChildMe() {
   const [openCategories, setOpenCategories] = useState<string[]>([]);
   const [activePanel, setActivePanel] = useState<'achievements' | 'review' | 'chest'>('achievements');
   const [achievementsExpanded, setAchievementsExpanded] = useState(false);
+  const [claimingAchievementId, setClaimingAchievementId] = useState<string | null>(null);
   const chestDefaultDateRef = useRef(formatLocalDate(new Date()));
+
+  const fetchAchievements = useCallback(async () => {
+    const achRes = await api.get('/child/all-achievements');
+    setAllAchievements(achRes.data || []);
+  }, []);
 
   const fetchPunishmentRecords = useCallback(async (limit?: number) => {
     try {
@@ -186,8 +194,7 @@ export default function ChildMe() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const achRes = await api.get('/child/all-achievements');
-        setAllAchievements(achRes.data || []);
+        await fetchAchievements();
 
         // 获取惩罚统计
         try {
@@ -205,7 +212,29 @@ export default function ChildMe() {
       }
     };
     fetchData();
-  }, [toast]);
+  }, [toast, fetchAchievements]);
+
+  const claimAchievementReward = async (ach: Achievement) => {
+    if (!ach.unlocked || !ach.rewardClaimable || claimingAchievementId) return;
+    setClaimingAchievementId(ach.id);
+    try {
+      const res = await api.post(`/child/achievements/${ach.id}/claim`);
+      const parts = [
+        res.data?.rewardCoins ? `${res.data.rewardCoins} 金币` : '',
+        res.data?.rewardXp ? `${res.data.rewardXp} 经验` : '',
+        res.data?.rewardPrivilegePoints ? `${res.data.rewardPrivilegePoints} 特权点` : '',
+      ].filter(Boolean).join('、');
+      toast.success(res.data?.rewardDelivery === 'backpack'
+        ? '成就礼包已放入背包'
+        : `领取成功${parts ? `：${parts}` : ''}`);
+      await fetchAchievements();
+      context?.refresh?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '领取失败');
+    } finally {
+      setClaimingAchievementId(null);
+    }
+  };
 
   useEffect(() => {
     fetchPunishmentRecords();
@@ -477,6 +506,30 @@ export default function ChildMe() {
                           <div className="font-bold text-gray-700 mt-0.5">{getRewardText(ach)}</div>
                         </div>
                       </div>
+                      {isUnlocked && (
+                        <div className="mt-3">
+                          {ach.rewardClaimable ? (
+                            <button
+                              type="button"
+                              disabled={claimingAchievementId === ach.id}
+                              onClick={() => claimAchievementReward(ach)}
+                              className="w-full rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-60"
+                            >
+                              {claimingAchievementId === ach.id
+                                ? '领取中...'
+                                : ach.rewardDelivery === 'backpack'
+                                  ? '领取成就礼包'
+                                  : '领取奖励'}
+                            </button>
+                          ) : (
+                            <div className="rounded-2xl bg-white/70 px-3 py-2 text-[11px] font-bold text-emerald-700">
+                              {ach.rewardClaimedAt
+                                ? `奖励已领取：${new Date(ach.rewardClaimedAt).toLocaleDateString('zh-CN')}`
+                                : '这个成就没有额外奖励'}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="mt-3">
                         <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1">
                           <span>{isUnlocked ? '完成进度' : `当前 ${Math.min(Number(ach.progress || 0), Number(ach.conditionValue || 0))}/${ach.conditionValue || 0}`}</span>
