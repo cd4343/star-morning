@@ -5,6 +5,9 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+import path from 'path';
+import fs from 'fs/promises';
+import axios from 'axios';
 import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
@@ -25,7 +28,10 @@ console.log('🔧 Initializing Express app...');
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(origin => origin.trim()), credentials: true } : undefined));
 app.use(helmet());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
+
+const exploreUploadRoot = path.resolve(__dirname, '../../uploads/explore');
+app.use('/uploads/explore', express.static(exploreUploadRoot));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -140,6 +146,113 @@ const getTaskCategoryFilterValues = (value: unknown) => {
   return TASK_CATEGORY_ALIASES[text] || [text];
 };
 
+const EXPLORE_CATEGORIES = ['博物馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'];
+const EXPLORE_STATUSES = ['wishlist', 'planned', 'visited', 'archived'];
+const EXPLORE_MOODS = ['开心', '好奇', '勇敢', '惊喜', '有点累'];
+
+const normalizeExploreCategory = (value: unknown) => {
+  const text = decodeQueryText(value).trim();
+  return EXPLORE_CATEGORIES.includes(text) ? text : '其他';
+};
+
+const normalizeExploreStatus = (value: unknown) => {
+  const text = String(value || '').trim();
+  return EXPLORE_STATUSES.includes(text) ? text : 'wishlist';
+};
+
+const normalizeExploreMood = (value: unknown) => {
+  const text = decodeQueryText(value).trim();
+  return EXPLORE_MOODS.includes(text) ? text : '好奇';
+};
+
+const trimText = (value: unknown, max = 500) => String(value || '').trim().slice(0, max);
+
+function inferExploreCategoryFromText(text: string) {
+  if (/(博物馆|纪念馆|科技馆|美术馆|展览馆|文化馆)/.test(text)) return '博物馆';
+  if (/(公园|湿地|植物园|动物园)/.test(text)) return '公园';
+  if (/(山|湖|海|自然|森林|河|地质)/.test(text)) return '自然';
+  if (/(剧场|剧院|活动|演出|展览|营地|体验)/.test(text)) return '活动';
+  if (/(体育|运动|球馆|滑冰|攀岩|游泳)/.test(text)) return '运动体验';
+  if (/(志愿|公益|社区)/.test(text)) return '公益体验';
+  if (/(景区|旅游|度假|古镇|乐园)/.test(text)) return '旅行';
+  if (/(广场|地标|城市|街区|商圈)/.test(text)) return '城市';
+  return '其他';
+}
+
+const mapAmapPoi = (poi: any) => {
+  const [longitude, latitude] = String(poi.location || '').split(',').map((part) => Number(part));
+  return {
+    externalId: poi.id || '',
+    title: poi.name || '',
+    category: inferExploreCategoryFromText(`${poi.type || ''} ${poi.name || ''}`),
+    city: poi.cityname || poi.adname || '',
+    address: Array.isArray(poi.address) ? poi.address.join('') : (poi.address || ''),
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+    summary: poi.type || '',
+    source: 'amap'
+  };
+};
+
+const getExplorePlaceSelect = () => `
+  SELECT p.*,
+    (SELECT COUNT(*) FROM explore_checkins ec WHERE ec.placeId = p.id) as checkinCount,
+    (SELECT checkedInAt FROM explore_checkins ec WHERE ec.placeId = p.id ORDER BY checkedInAt DESC LIMIT 1) as lastCheckedInAt
+  FROM explore_places p
+`;
+
+const saveExploreMediaFile = async (payload: any, familyId: string, childId: string) => {
+  const type = payload?.type === 'audio' ? 'audio' : 'image';
+  const dataUrl = String(payload?.dataUrl || '');
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    const error: any = new Error('媒体格式不正确');
+    error.status = 400;
+    throw error;
+  }
+
+  const mimeType = match[1];
+  const base64 = match[2];
+  const buffer = Buffer.from(base64, 'base64');
+  const allowedImage = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  const allowedAudio = ['audio/webm', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg'];
+  const allowed = type === 'image' ? allowedImage : allowedAudio;
+  const maxSize = type === 'image' ? 2 * 1024 * 1024 : 5 * 1024 * 1024;
+  if (!allowed.includes(mimeType)) {
+    const error: any = new Error(type === 'image' ? '只支持 jpg/png/webp/gif 图片' : '只支持 webm/mp3/mp4/wav/ogg 语音');
+    error.status = 400;
+    throw error;
+  }
+  if (buffer.length > maxSize) {
+    const error: any = new Error(type === 'image' ? '单张图片不能超过 2MB' : '语音不能超过 5MB');
+    error.status = 400;
+    throw error;
+  }
+
+  const extMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'audio/webm': 'webm',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/wav': 'wav',
+    'audio/ogg': 'ogg'
+  };
+  const folder = path.join(exploreUploadRoot, familyId, childId);
+  await fs.mkdir(folder, { recursive: true });
+  const filename = `${randomUUID()}.${extMap[mimeType] || 'bin'}`;
+  await fs.writeFile(path.join(folder, filename), buffer);
+  return {
+    type,
+    mimeType,
+    sizeBytes: buffer.length,
+    durationSeconds: Math.max(0, Math.min(60, Math.round(Number(payload?.durationSeconds || 0)))),
+    filePath: `/uploads/explore/${familyId}/${childId}/${filename}`
+  };
+};
+
 const ACHIEVEMENT_DISPLAY_CATEGORIES = ['启动', '坚持', '生活', '学习', '早晨启动', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
 
 const inferAchievementCategory = (achievement: any) => {
@@ -154,6 +267,7 @@ const inferAchievementCategory = (achievement: any) => {
     (stored === '成长' && !['xp_count', 'level_reach'].includes(conditionType));
   if (!shouldInfer) return stored;
 
+  if (conditionType.startsWith('explore_')) return '探索';
   if (conditionType === 'task_count') return '启动';
   if (conditionType === 'coin_count') return '金币';
   if (conditionType === 'xp_count' || conditionType === 'level_reach') return '成长';
@@ -273,6 +387,14 @@ const ACHIEVEMENT_DISPLAY_THEMES: Record<string, Array<{ title: string; icon: st
     { title: '家庭星光', icon: '✨' },
     { title: '温暖同行', icon: '💝' },
   ],
+  探索: [
+    { title: '初次出发', icon: '🧭' },
+    { title: '博物初见', icon: '🏛️' },
+    { title: '自然观察员', icon: '🌿' },
+    { title: '城市小旅人', icon: '🗺️' },
+    { title: '勇敢表达', icon: '🎙️' },
+    { title: '行路少年', icon: '🎒' },
+  ],
   default: [
     { title: '小有收获', icon: '🏅' },
     { title: '渐有章法', icon: '🎯' },
@@ -308,6 +430,7 @@ const getAchievementThemeKey = (achievement: any, category: string, conditionCat
   if (achievement?.conditionType === 'coin_count') return 'coin_count';
   if (achievement?.conditionType === 'xp_count' || achievement?.conditionType === 'level_reach') return 'growth';
   if (achievement?.conditionType === 'streak_days') return 'streak';
+  if (String(achievement?.conditionType || '').startsWith('explore_')) return '探索';
   if (achievement?.conditionType === 'category_count') return conditionCategory || category || 'default';
   return category || 'default';
 };
@@ -394,6 +517,12 @@ type AchievementSeed = {
 };
 
 const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
+  { title: '初次出发', desc: '完成 1 次探索打卡', icon: '🧭', type: 'explore_checkin_count', value: 1, category: '探索', rewardCoins: 0, rewardXp: 5 },
+  { title: '博物初见', desc: '打卡 1 个博物馆', icon: '🏛️', type: 'explore_category_count', value: 1, conditionCategory: '博物馆', category: '探索', rewardCoins: 0, rewardXp: 5 },
+  { title: '自然观察员', desc: '打卡 3 个自然或公园地点', icon: '🌿', type: 'explore_category_count', value: 3, conditionCategory: '公园', category: '探索', rewardCoins: 0, rewardXp: 8 },
+  { title: '勇敢表达', desc: '留下 1 条语音留言', icon: '🎙️', type: 'explore_voice_count', value: 1, category: '探索', rewardCoins: 0, rewardXp: 5 },
+  { title: '小小记录家', desc: '上传 3 次照片纪念', icon: '📷', type: 'explore_media_count', value: 3, category: '探索', rewardCoins: 0, rewardXp: 8 },
+  { title: '亲子探索家', desc: '完成 3 次家长确认的探索', icon: '🎒', type: 'explore_confirmed_count', value: 3, category: '探索', rewardCoins: 0, rewardXp: 10 },
   { title: '启程有光', desc: '完成 1 个任务', icon: '🌱', type: 'task_count', value: 1, category: '启动', rewardCoins: 5, rewardXp: 5 },
   { title: '小步成章', desc: '完成 10 个任务', icon: '🧭', type: 'task_count', value: 10, category: '启动', rewardCoins: 8, rewardXp: 10 },
   { title: '百炼成章', desc: '完成 50 个任务', icon: '🏆', type: 'task_count', value: 50, category: '启动', rewardCoins: 25, rewardXp: 50 },
@@ -805,6 +934,20 @@ const checkAchievements = async (childId: string, db: any) => {
     return values.reduce((sum, value) => sum + (categoryCountMap[value] || 0), 0);
   };
 
+  const exploreCheckinCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId))?.count || 0;
+  const exploreMediaCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId))?.count || 0;
+  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio'", childId))?.count || 0;
+  const exploreConfirmedCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId))?.count || 0;
+  const exploreCategoryStats = await db.all(`
+    SELECT p.category, COUNT(*) as count
+    FROM explore_checkins ec
+    JOIN explore_places p ON ec.placeId = p.id
+    WHERE ec.childId = ?
+    GROUP BY p.category
+  `, childId);
+  const exploreCategoryCountMap: Record<string, number> = {};
+  exploreCategoryStats.forEach((s: any) => { exploreCategoryCountMap[s.category] = s.count; });
+
   // 连续天数统计（按类别）- 使用北京时间
   const getStreakDays = async (category?: string): Promise<number> => {
     // 获取所有已完成任务的提交时间
@@ -880,6 +1023,21 @@ const checkAchievements = async (childId: string, db: any) => {
         case 'streak_days':
           const streak = await getStreakDays(def.conditionCategory || undefined);
           unlocked = streak >= def.conditionValue;
+          break;
+        case 'explore_checkin_count':
+          unlocked = exploreCheckinCount >= def.conditionValue;
+          break;
+        case 'explore_category_count':
+          unlocked = (exploreCategoryCountMap[def.conditionCategory] || 0) >= def.conditionValue;
+          break;
+        case 'explore_media_count':
+          unlocked = exploreMediaCount >= def.conditionValue;
+          break;
+        case 'explore_voice_count':
+          unlocked = exploreVoiceCount >= def.conditionValue;
+          break;
+        case 'explore_confirmed_count':
+          unlocked = exploreConfirmedCount >= def.conditionValue;
           break;
       }
 
@@ -4579,6 +4737,274 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
       netCoins,
     },
   });
+});
+
+// ============================================================
+// Family Explore routes
+// Places are prepared by parents and checked in by children.
+// ============================================================
+app.get('/api/parent/explore/search', protect, requireParent, async (req: any, res) => {
+  try {
+    const key = process.env.AMAP_WEB_SERVICE_KEY;
+    if (!key) return res.status(400).json({ message: '尚未配置高德 Web 服务 Key，可先手动添加地点。', configured: false });
+    const keywords = trimText(req.query.keywords, 80);
+    const city = trimText(req.query.city, 40);
+    if (!keywords) return res.status(400).json({ message: '请输入想搜索的地点或活动' });
+
+    const result = await axios.get('https://restapi.amap.com/v3/place/text', {
+      params: {
+        key,
+        keywords,
+        city,
+        offset: 12,
+        page: 1,
+        extensions: 'base'
+      },
+      timeout: 8000
+    });
+
+    if (String(result.data?.status) !== '1') {
+      return res.status(502).json({ message: result.data?.info || '高德搜索暂时不可用' });
+    }
+
+    res.json({
+      configured: true,
+      places: (result.data?.pois || []).map(mapAmapPoi).filter((poi: any) => poi.title)
+    });
+  } catch (error: any) {
+    console.error('Amap explore search failed:', error?.message || error);
+    res.status(502).json({ message: '地点搜索失败，请稍后再试或手动添加。' });
+  }
+});
+
+app.get('/api/parent/explore/places', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const status = String(req.query.status || '').trim();
+  const category = String(req.query.category || '').trim();
+  const params: any[] = [request.user!.familyId];
+  let where = 'WHERE p.familyId = ?';
+  if (status && status !== 'all') {
+    where += ' AND p.status = ?';
+    params.push(normalizeExploreStatus(status));
+  } else {
+    where += " AND p.status != 'archived'";
+  }
+  if (category && category !== 'all') {
+    where += ' AND p.category = ?';
+    params.push(normalizeExploreCategory(category));
+  }
+  const rows = await db.all(`${getExplorePlaceSelect()} ${where} ORDER BY p.createdAt DESC`, ...params);
+  res.json(rows);
+});
+
+app.post('/api/parent/explore/places', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const title = trimText(req.body.title, 80);
+  if (!title) return res.status(400).json({ message: '地点名称不能为空' });
+  const id = randomUUID();
+  await db.run(
+    `INSERT INTO explore_places (
+      id, familyId, title, category, city, address, latitude, longitude, source, externalId,
+      summary, whyGo, observeTips, questionPrompts, tags, status, createdBy, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    request.user!.familyId,
+    title,
+    normalizeExploreCategory(req.body.category),
+    trimText(req.body.city, 40),
+    trimText(req.body.address, 160),
+    req.body.latitude === null || req.body.latitude === undefined || req.body.latitude === '' ? null : Number(req.body.latitude),
+    req.body.longitude === null || req.body.longitude === undefined || req.body.longitude === '' ? null : Number(req.body.longitude),
+    req.body.source === 'amap' ? 'amap' : 'manual',
+    trimText(req.body.externalId, 80),
+    trimText(req.body.summary, 300),
+    trimText(req.body.whyGo, 500),
+    trimText(req.body.observeTips, 500),
+    trimText(req.body.questionPrompts, 500),
+    trimText(req.body.tags, 200),
+    normalizeExploreStatus(req.body.status),
+    request.user!.id,
+    new Date().toISOString()
+  );
+  res.json({ message: '探索地点已加入', id });
+});
+
+app.put('/api/parent/explore/places/:id', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const place = await db.get('SELECT * FROM explore_places WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  if (!place) return res.status(404).json({ message: '探索地点不存在' });
+  const title = trimText(req.body.title ?? place.title, 80);
+  if (!title) return res.status(400).json({ message: '地点名称不能为空' });
+  await db.run(
+    `UPDATE explore_places SET
+      title = ?, category = ?, city = ?, address = ?, latitude = ?, longitude = ?,
+      summary = ?, whyGo = ?, observeTips = ?, questionPrompts = ?, tags = ?, status = ?, updatedAt = ?
+     WHERE id = ? AND familyId = ?`,
+    title,
+    normalizeExploreCategory(req.body.category ?? place.category),
+    trimText(req.body.city ?? place.city, 40),
+    trimText(req.body.address ?? place.address, 160),
+    req.body.latitude === null || req.body.latitude === '' ? null : Number(req.body.latitude ?? place.latitude),
+    req.body.longitude === null || req.body.longitude === '' ? null : Number(req.body.longitude ?? place.longitude),
+    trimText(req.body.summary ?? place.summary, 300),
+    trimText(req.body.whyGo ?? place.whyGo, 500),
+    trimText(req.body.observeTips ?? place.observeTips, 500),
+    trimText(req.body.questionPrompts ?? place.questionPrompts, 500),
+    trimText(req.body.tags ?? place.tags, 200),
+    normalizeExploreStatus(req.body.status ?? place.status),
+    new Date().toISOString(),
+    req.params.id,
+    request.user!.familyId
+  );
+  res.json({ message: '探索地点已更新' });
+});
+
+app.delete('/api/parent/explore/places/:id', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const place = await db.get('SELECT * FROM explore_places WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  if (!place) return res.status(404).json({ message: '探索地点不存在' });
+  const checkins = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE placeId = ?', req.params.id))?.count || 0;
+  if (checkins > 0) {
+    await db.run("UPDATE explore_places SET status = 'archived', updatedAt = ? WHERE id = ? AND familyId = ?", new Date().toISOString(), req.params.id, request.user!.familyId);
+    return res.json({ message: '已有打卡记录，地点已归档' });
+  }
+  await db.run('DELETE FROM explore_places WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  res.json({ message: '探索地点已删除' });
+});
+
+app.get('/api/parent/explore/checkins', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const rows = await db.all(`
+    SELECT ec.*, p.title as placeTitle, p.category as placeCategory, p.address, u.name as childName,
+      (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id) as mediaCount
+    FROM explore_checkins ec
+    JOIN explore_places p ON ec.placeId = p.id
+    JOIN users u ON ec.childId = u.id
+    WHERE ec.familyId = ?
+    ORDER BY ec.checkedInAt DESC
+    LIMIT 100
+  `, request.user!.familyId);
+  res.json(rows);
+});
+
+app.post('/api/parent/explore/checkins/:id/confirm', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const checkin = await db.get('SELECT * FROM explore_checkins WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  if (!checkin) return res.status(404).json({ message: '打卡记录不存在' });
+  await db.run(
+    'UPDATE explore_checkins SET parentConfirmed = 1, parentNote = ?, confirmedAt = ?, updatedAt = ? WHERE id = ? AND familyId = ?',
+    trimText(req.body.parentNote, 500),
+    new Date().toISOString(),
+    new Date().toISOString(),
+    req.params.id,
+    request.user!.familyId
+  );
+  const unlockedAchievements = await checkAchievements(checkin.childId, db);
+  res.json({ message: '探索记录已确认', unlockedAchievements });
+});
+
+app.get('/api/child/explore/places', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const category = String(req.query.category || '').trim();
+  const params: any[] = [request.user!.familyId];
+  let where = "WHERE p.familyId = ? AND p.status != 'archived'";
+  if (category && category !== 'all') {
+    where += ' AND p.category = ?';
+    params.push(normalizeExploreCategory(category));
+  }
+  const rows = await db.all(`${getExplorePlaceSelect()} ${where} ORDER BY CASE p.status WHEN 'planned' THEN 0 WHEN 'wishlist' THEN 1 WHEN 'visited' THEN 2 ELSE 3 END, p.createdAt DESC`, ...params);
+  res.json(rows);
+});
+
+app.get('/api/child/explore/places/:id', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const place = await db.get(`${getExplorePlaceSelect()} WHERE p.id = ? AND p.familyId = ?`, req.params.id, request.user!.familyId);
+  if (!place) return res.status(404).json({ message: '探索地点不存在' });
+  const checkins = await db.all('SELECT * FROM explore_checkins WHERE placeId = ? AND childId = ? ORDER BY checkedInAt DESC', req.params.id, request.user!.id);
+  const media = checkins.length
+    ? await db.all(`SELECT em.* FROM explore_media em JOIN explore_checkins ec ON em.checkinId = ec.id WHERE ec.placeId = ? AND ec.childId = ? ORDER BY em.createdAt DESC`, req.params.id, request.user!.id)
+    : [];
+  res.json({ place, checkins, media });
+});
+
+app.get('/api/child/explore/checkins', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const rows = await db.all(`
+    SELECT ec.*, p.title as placeTitle, p.category as placeCategory, p.address,
+      (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id) as mediaCount
+    FROM explore_checkins ec
+    JOIN explore_places p ON ec.placeId = p.id
+    WHERE ec.familyId = ? AND ec.childId = ?
+    ORDER BY ec.checkedInAt DESC
+    LIMIT 100
+  `, request.user!.familyId, request.user!.id);
+  res.json(rows);
+});
+
+app.post('/api/child/explore/checkins', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const place = await db.get("SELECT * FROM explore_places WHERE id = ? AND familyId = ? AND status != 'archived'", req.body.placeId, request.user!.familyId);
+  if (!place) return res.status(404).json({ message: '探索地点不存在' });
+  const id = randomUUID();
+  const checkedInAt = new Date().toISOString();
+  await db.run(
+    `INSERT INTO explore_checkins (id, familyId, placeId, childId, mood, note, checkedInAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    request.user!.familyId,
+    place.id,
+    request.user!.id,
+    normalizeExploreMood(req.body.mood),
+    trimText(req.body.note, 800),
+    checkedInAt,
+    checkedInAt
+  );
+  await db.run("UPDATE explore_places SET status = CASE WHEN status = 'wishlist' THEN 'visited' ELSE status END, updatedAt = ? WHERE id = ?", checkedInAt, place.id);
+  const unlockedAchievements = await checkAchievements(request.user!.id, db);
+  res.json({ message: '探索打卡已保存', id, unlockedAchievements });
+});
+
+app.post('/api/child/explore/checkins/:id/media', protect, requireChild, async (req: any, res) => {
+  try {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const checkin = await db.get('SELECT * FROM explore_checkins WHERE id = ? AND familyId = ? AND childId = ?', req.params.id, request.user!.familyId, request.user!.id);
+    if (!checkin) return res.status(404).json({ message: '打卡记录不存在' });
+    const type = req.body?.type === 'audio' ? 'audio' : 'image';
+    const existing = (await db.get('SELECT COUNT(*) as count FROM explore_media WHERE checkinId = ? AND type = ?', req.params.id, type))?.count || 0;
+    if (type === 'image' && existing >= 3) return res.status(400).json({ message: '每次打卡最多上传 3 张照片' });
+    if (type === 'audio' && existing >= 1) return res.status(400).json({ message: '每次打卡最多保留 1 条语音' });
+    const saved = await saveExploreMediaFile(req.body, request.user!.familyId, request.user!.id);
+    const id = randomUUID();
+    await db.run(
+      `INSERT INTO explore_media (id, familyId, checkinId, childId, type, filePath, mimeType, sizeBytes, durationSeconds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      request.user!.familyId,
+      req.params.id,
+      request.user!.id,
+      saved.type,
+      saved.filePath,
+      saved.mimeType,
+      saved.sizeBytes,
+      saved.durationSeconds
+    );
+    const unlockedAchievements = await checkAchievements(request.user!.id, db);
+    res.json({ message: saved.type === 'audio' ? '语音留言已保存' : '照片纪念已保存', media: { id, ...saved }, unlockedAchievements });
+  } catch (error: any) {
+    console.error('explore media upload failed:', error);
+    res.status(error.status || 500).json({ message: error.message || '媒体上传失败' });
+  }
 });
 
 // ============================================================

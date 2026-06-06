@@ -4,7 +4,7 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2, BarChart3, TrendingUp, TrendingDown, Minus, AlertTriangle, BookOpen, HeartPulse, Utensils, Brain, CheckCircle2 } from 'lucide-react';
+import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2, BarChart3, TrendingUp, TrendingDown, Minus, AlertTriangle, BookOpen, HeartPulse, Utensils, Brain, CheckCircle2, Compass } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
@@ -1113,6 +1113,10 @@ export default function ParentDashboard() {
           <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/rules-insights')}>
             <Brain size={28} className="text-blue-600"/>
             <span>规则/洞察</span>
+          </Button>
+          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/explore')}>
+            <Compass size={28} className="text-teal-600"/>
+            <span>家庭探索</span>
           </Button>
           <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/wishes')}>
             <Gift size={28} className="text-pink-600"/>

@@ -50,6 +50,70 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE tasks ADD COLUMN validDate TEXT'); } catch (e) {} // 单次任务的有效日期（YYYY-MM-DD）
 
   // 每日登录奖励字段
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS explore_places (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT DEFAULT '其他',
+      city TEXT,
+      address TEXT,
+      latitude REAL,
+      longitude REAL,
+      source TEXT DEFAULT 'manual',
+      externalId TEXT,
+      summary TEXT,
+      whyGo TEXT,
+      observeTips TEXT,
+      questionPrompts TEXT,
+      tags TEXT,
+      status TEXT DEFAULT 'wishlist',
+      createdBy TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE,
+      FOREIGN KEY (createdBy) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS explore_checkins (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      placeId TEXT NOT NULL,
+      childId TEXT NOT NULL,
+      mood TEXT,
+      note TEXT,
+      checkedInAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      parentConfirmed INTEGER DEFAULT 0,
+      parentNote TEXT,
+      confirmedAt DATETIME,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE,
+      FOREIGN KEY (placeId) REFERENCES explore_places(id) ON DELETE CASCADE,
+      FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS explore_media (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      checkinId TEXT NOT NULL,
+      childId TEXT NOT NULL,
+      type TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      mimeType TEXT,
+      sizeBytes INTEGER DEFAULT 0,
+      durationSeconds INTEGER,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE,
+      FOREIGN KEY (checkinId) REFERENCES explore_checkins(id) ON DELETE CASCADE,
+      FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}
 
@@ -805,6 +869,12 @@ const createTables = async () => {
     // chest_records 表索引
     await db.run('CREATE INDEX IF NOT EXISTS idx_chest_records_childId ON chest_records(childId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_chest_records_familyId ON chest_records(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_places_familyId ON explore_places(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_places_status ON explore_places(status)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_familyId ON explore_checkins(familyId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_childId ON explore_checkins(childId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_placeId ON explore_checkins(placeId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_media_checkinId ON explore_media(checkinId)');
 
     console.log('✅ Database indexes created');
   } catch (e) {

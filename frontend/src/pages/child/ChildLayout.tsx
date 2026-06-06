@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
-import { CheckSquare, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
+import { CheckSquare, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
@@ -255,9 +255,10 @@ export default function ChildLayout() {
             </button>
           )}
 
-          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full grid grid-cols-4 px-3 py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
+          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full grid grid-cols-5 px-2 py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
             <NavLink onClick={() => navigate('/child/challenge')} icon={<CheckSquare size={22}/>} label="挑战" active={['challenge', 'tasks', 'learning'].some(path => location.pathname.includes(path)) || location.pathname === '/child'} />
             <NavLink onClick={() => navigate('/child/morning')} icon={<Utensils size={22}/>} label="早餐" active={location.pathname.includes('morning')} />
+            <NavLink onClick={() => navigate('/child/explore')} icon={<Compass size={22}/>} label="探索" active={location.pathname.includes('explore')} />
             <NavLink onClick={() => navigate('/child/wishes')} icon={<Gift size={22}/>} label="奖励" active={location.pathname.includes('wishes')} />
             <NavLink onClick={() => navigate('/child/me')} icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
           </div>

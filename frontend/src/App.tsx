@@ -18,6 +18,7 @@ const ParentPrivileges = lazy(() => import('./pages/parent/ParentPrivileges'));
 const ParentFamily = lazy(() => import('./pages/parent/ParentFamily'));
 const ParentAchievements = lazy(() => import('./pages/parent/ParentAchievements'));
 const ParentPunishment = lazy(() => import('./pages/parent/ParentPunishment'));
+const ParentExplore = lazy(() => import('./pages/parent/ParentExplore'));
 const ChildLayout = lazy(() => import('./pages/child/ChildLayout'));
 const ChildChallenge = lazy(() => import('./pages/child/ChildChallenge'));
 const ChildTasks = lazy(() => import('./pages/child/ChildTasks'));
@@ -26,6 +27,7 @@ const ChildCalm = lazy(() => import('./pages/child/ChildCalm'));
 const ChildMorning = lazy(() => import('./pages/child/ChildMorning'));
 const ChildWishes = lazy(() => import('./pages/child/ChildWishes'));
 const ChildMe = lazy(() => import('./pages/child/ChildMe'));
+const ChildExplore = lazy(() => import('./pages/child/ChildExplore'));
 
 // 页面加载占位符
 const PageLoader = () => (
@@ -117,6 +119,7 @@ function App() {
         <Route path="/parent/family" element={<RoleRoute role="parent"><ParentFamily /></RoleRoute>} />
         <Route path="/parent/achievements" element={<RoleRoute role="parent"><ParentAchievements /></RoleRoute>} />
         <Route path="/parent/punishment" element={<RoleRoute role="parent"><ParentPunishment /></RoleRoute>} />
+        <Route path="/parent/explore" element={<RoleRoute role="parent"><ParentExplore /></RoleRoute>} />
 
         {/* Child Routes */}
         <Route path="/child" element={<RoleRoute role="child"><ChildLayout /></RoleRoute>}>
@@ -126,6 +129,7 @@ function App() {
           <Route path="learning" element={<Suspense fallback={<PageLoader />}><ChildLearning /></Suspense>} />
           <Route path="calm" element={<Suspense fallback={<PageLoader />}><ChildCalm /></Suspense>} />
           <Route path="morning" element={<Suspense fallback={<PageLoader />}><ChildMorning /></Suspense>} />
+          <Route path="explore" element={<Suspense fallback={<PageLoader />}><ChildExplore /></Suspense>} />
           <Route path="wishes" element={<Suspense fallback={<PageLoader />}><ChildWishes /></Suspense>} />
           <Route path="me" element={<Suspense fallback={<PageLoader />}><ChildMe /></Suspense>} />
           <Route index element={<Navigate to="challenge" replace />} />
