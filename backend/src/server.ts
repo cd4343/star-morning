@@ -1217,6 +1217,31 @@ const seedFamilyData = async (familyId: string, db: any) => {
     }
 };
 
+// 探索模块晚于部分老家庭上线，老家庭缺少默认探索成就定义；按需幂等补齐
+const ensureExploreAchievementDefs = async (db: any, familyId: string) => {
+  const existing = (await db.get(
+    `SELECT COUNT(*) as c FROM achievement_defs WHERE familyId = ? AND conditionType LIKE 'explore_%'`,
+    familyId
+  ))?.c || 0;
+  if (existing > 0) return;
+  for (const ach of DEFAULT_ACHIEVEMENT_SEEDS) {
+    if (!String(ach.type).startsWith('explore_')) continue;
+    await db.run(
+      `INSERT INTO achievement_defs (
+          id, familyId, title, description, icon, conditionType, conditionValue,
+          conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), familyId, ach.title, ach.desc, ach.icon, ach.type, ach.value,
+      ach.conditionCategory || null, ach.category,
+      Math.max(0, Number(ach.rewardCoins || 0)),
+      Math.max(0, Number(ach.rewardXp || 0)),
+      Math.max(0, Number((ach as any).rewardPrivilegePoints || 0)),
+      'instant'
+    );
+  }
+  console.log(`✅ 已为家庭 ${familyId} 补齐默认探索成就定义`);
+};
+
 const SMS_CODE_TTL_MINUTES = 5;
 const SMS_CODE_RESEND_SECONDS = 60;
 const SMS_CODE_MAX_ATTEMPTS = 5;
@@ -5136,6 +5161,7 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
   const db = getDb();
   const childId = request.user!.id;
   const familyId = request.user!.familyId;
+  await ensureExploreAchievementDefs(db, familyId);
 
   const exploreDefs = await db.all(
     `SELECT * FROM achievement_defs WHERE familyId = ? AND conditionType LIKE 'explore_%'`,
@@ -5198,6 +5224,7 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
 app.post('/api/child/explore/checkins', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
+  await ensureExploreAchievementDefs(db, request.user!.familyId);
   const place = await db.get("SELECT * FROM explore_places WHERE id = ? AND familyId = ? AND status != 'archived' AND deletedAt IS NULL", req.body.placeId, request.user!.familyId);
   if (!place) return res.status(404).json({ message: '探索地点不存在' });
   // B2-2: 同日重复打卡检查（多孩子场景下，同一孩子同日同地点只能打卡一次）
