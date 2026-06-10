@@ -929,11 +929,20 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const transfer = await db.get('SELECT * FROM inventory_transfers WHERE id = ? AND toChildId = ? AND status = "pending"', req.params.id, request.user!.id);
     if (!transfer) return res.status(404).json({ message: '转让不存在或已处理' });
     
-    await db.run('BEGIN');
-    await db.run("UPDATE inventory_transfers SET status = 'accepted' WHERE id = ?", transfer.id);
-    await db.run('UPDATE user_inventory SET childId = ?, status = "pending" WHERE id = ?', request.user!.id, transfer.itemId);
-    await db.run('COMMIT');
-    
+    try {
+      await db.run('BEGIN');
+      // 状态守卫：防止并发重复接受
+      const upd = await db.run("UPDATE inventory_transfers SET status = 'accepted' WHERE id = ? AND status = 'pending'", transfer.id);
+      if ((upd.changes || 0) !== 1) throw new Error('TRANSFER_ALREADY_PROCESSED');
+      await db.run('UPDATE user_inventory SET childId = ?, status = "pending" WHERE id = ?', request.user!.id, transfer.itemId);
+      await db.run('COMMIT');
+    } catch (err: any) {
+      try { await db.run('ROLLBACK'); } catch {}
+      if (err.message === 'TRANSFER_ALREADY_PROCESSED') return res.status(409).json({ message: '转让已被处理' });
+      console.error('接受转让失败:', err);
+      return res.status(500).json({ message: '操作失败，请重试' });
+    }
+
     res.json({ message: '已接受转让，物品已放入你的背包' });
   });
 
@@ -944,11 +953,19 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const transfer = await db.get('SELECT * FROM inventory_transfers WHERE id = ? AND toChildId = ? AND status = "pending"', req.params.id, request.user!.id);
     if (!transfer) return res.status(404).json({ message: '转让不存在或已处理' });
     
-    await db.run('BEGIN');
-    await db.run("UPDATE inventory_transfers SET status = 'rejected' WHERE id = ?", transfer.id);
-    await db.run('UPDATE user_inventory SET status = "pending" WHERE id = ?', transfer.itemId);
-    await db.run('COMMIT');
-    
+    try {
+      await db.run('BEGIN');
+      const upd = await db.run("UPDATE inventory_transfers SET status = 'rejected' WHERE id = ? AND status = 'pending'", transfer.id);
+      if ((upd.changes || 0) !== 1) throw new Error('TRANSFER_ALREADY_PROCESSED');
+      await db.run('UPDATE user_inventory SET status = "pending" WHERE id = ?', transfer.itemId);
+      await db.run('COMMIT');
+    } catch (err: any) {
+      try { await db.run('ROLLBACK'); } catch {}
+      if (err.message === 'TRANSFER_ALREADY_PROCESSED') return res.status(409).json({ message: '转让已被处理' });
+      console.error('拒绝转让失败:', err);
+      return res.status(500).json({ message: '操作失败，请重试' });
+    }
+
     res.json({ message: '已拒绝转让，物品已退回对方背包' });
   });
 

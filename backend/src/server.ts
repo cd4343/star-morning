@@ -642,18 +642,26 @@ const dbRunWithRetry = async (sql: string, ...params: any[]) => {
   throw lastError;
 };
 
-// 事务封装：自动处理 BEGIN/COMMIT/ROLLBACK
+// 事务封装：自动处理 BEGIN/COMMIT/ROLLBACK。
+// 全应用共享单条 SQLite 连接，并发事务的语句会交错进入彼此的事务
+// （嵌套 BEGIN 直接报错、A 回滚连带 B），因此用队列串行化所有事务。
+let txQueue: Promise<unknown> = Promise.resolve();
 const withTransaction = async <T>(fn: () => Promise<T>): Promise<T> => {
-  const db = getDb();
-  await db.run('BEGIN');
-  try {
-    const result = await fn();
-    await db.run('COMMIT');
-    return result;
-  } catch (err) {
-    await db.run('ROLLBACK');
-    throw err;
-  }
+  const exec = async (): Promise<T> => {
+    const db = getDb();
+    await db.run('BEGIN');
+    try {
+      const result = await fn();
+      await db.run('COMMIT');
+      return result;
+    } catch (err) {
+      try { await db.run('ROLLBACK'); } catch { /* 连接上可能已无活动事务 */ }
+      throw err;
+    }
+  };
+  const next = txQueue.then(exec, exec);
+  txQueue = next.then(() => undefined, () => undefined);
+  return next;
 };
 
 
