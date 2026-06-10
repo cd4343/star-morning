@@ -43,6 +43,7 @@ export const initializeDatabase = async () => {
     { version: '006', description: '早餐/早晨流程表' },
     { version: '007', description: '探索表及索引' },
     { version: '008', description: '探索地点软删除' },
+    { version: '009', description: '探索媒体 senderRole 与家庭照片要求开关' },
   ];
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);
@@ -138,6 +139,10 @@ export const initializeDatabase = async () => {
 
   // B2-3: 探索地点软删除字段
   try { await db.run('ALTER TABLE explore_places ADD COLUMN deletedAt TEXT'); } catch (e) {}
+  // 探索改版①：媒体发送者角色——child=孩子打卡上传，parent=家长语音回应
+  try { await db.run("ALTER TABLE explore_media ADD COLUMN senderRole TEXT DEFAULT 'child'"); } catch (e) {}
+  // 探索改版②：打卡照片要求开关（仅前端引导提示，后端不强制）
+  try { await db.run('ALTER TABLE families ADD COLUMN exploreRequirePhoto INTEGER DEFAULT 0'); } catch (e) {}
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}

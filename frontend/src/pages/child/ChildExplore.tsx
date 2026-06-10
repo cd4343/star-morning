@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Camera, CheckCircle2, Compass, FileText, MapPin, Mic, PauseCircle, Send, Sparkles, Upload, X } from 'lucide-react';
 import api from '../../services/api';
-import { getDateLocale } from '../../i18n';
+import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
-import { ExplorePlace, ExploreCheckin, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import { ExplorePlace, ExploreCheckin, ExploreMedium, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
 
 
@@ -38,6 +38,11 @@ export default function ChildExplore() {
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const recordStartedAt = useRef(0);
   const chunks = useRef<Blob[]>([]);
+  // 探索改版②：照片要求开关（家长设置，提交前前端引导）
+  const [requirePhoto, setRequirePhoto] = useState(false);
+  // 探索改版①：打卡媒体展开（含爸爸/妈妈的语音回应）
+  const [checkinMedia, setCheckinMedia] = useState<Record<string, ExploreMedium[]>>({});
+  const [loadingCheckinMedia, setLoadingCheckinMedia] = useState<Record<string, boolean>>({});
 
   const visiblePlaces = useMemo(() => {
     if (category === 'all') return places;
@@ -55,6 +60,9 @@ export default function ChildExplore() {
 
   useEffect(() => {
     loadData().catch(() => toast.error('探索数据加载失败'));
+    api.get('/child/explore/settings')
+      .then(res => setRequirePhoto(!!res.data?.exploreRequirePhoto))
+      .catch(() => {});
   }, []);
 
   // B3-2: iOS Safari 兼容——自动检测支持的 MIME 类型
@@ -107,8 +115,30 @@ export default function ChildExplore() {
     setRecording(false);
   };
 
+  // 探索改版①：展开/收起打卡媒体（孩子自己的照片语音 + 家长语音回应）
+  const toggleCheckinMedia = async (checkinId: string) => {
+    if (checkinMedia[checkinId]) {
+      setCheckinMedia(prev => { const next = { ...prev }; delete next[checkinId]; return next; });
+      return;
+    }
+    setLoadingCheckinMedia(prev => ({ ...prev, [checkinId]: true }));
+    try {
+      const res = await api.get(`/child/explore/checkins/${checkinId}/media`);
+      setCheckinMedia(prev => ({ ...prev, [checkinId]: res.data || [] }));
+    } catch {
+      toast.error('照片和声音加载失败');
+    } finally {
+      setLoadingCheckinMedia(prev => ({ ...prev, [checkinId]: false }));
+    }
+  };
+
   const submitCheckin = async () => {
     if (!selected) return;
+    // 探索改版②：家长开启照片要求时，提交前提醒先拍照（仅前端引导，后端不强制）
+    if (requirePhoto && photos.length === 0) {
+      toast.warning(t('explore.requirePhotoHint'));
+      return;
+    }
     // B2-4: 仅心情为必填，文字/照片/语音为可选补充
     setSaving(true);
     try {
@@ -231,6 +261,52 @@ export default function ChildExplore() {
               </span>
             </div>
             {item.note && <p className="mt-3 text-sm text-slate-600 leading-relaxed">{item.note}</p>}
+            {/* 探索改版①：家长确认时留下的文字反馈 */}
+            {!!item.parentConfirmed && item.parentNote && (
+              <div className="mt-3 rounded-2xl bg-rose-50 border border-rose-100 px-3 py-2 text-sm font-bold text-rose-600 leading-relaxed">
+                {t('explore.parentSaid')}：{item.parentNote}
+              </div>
+            )}
+            {/* 探索改版①：打卡媒体（含爸爸/妈妈的语音回应卡片） */}
+            {(item.mediaCount || 0) > 0 && (
+              <div className="mt-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => toggleCheckinMedia(item.id)}
+                  className="text-xs font-black text-sky-600"
+                >
+                  {loadingCheckinMedia[item.id]
+                    ? t('common.loading')
+                    : checkinMedia[item.id]
+                      ? t('explore.mediaToggleClose')
+                      : (item.parentVoiceCount ? t('explore.parentReplyHint') : t('explore.mediaToggleOpen'))}
+                </button>
+                {checkinMedia[item.id] && (
+                  <div className="space-y-2">
+                    {checkinMedia[item.id].filter(m => m.type === 'image').length > 0 && (
+                      <div className="flex gap-2 flex-wrap">
+                        {checkinMedia[item.id].filter(m => m.type === 'image').map(m => (
+                          <img key={m.id} src={m.filePath} alt="探索照片" className="w-16 h-16 rounded-xl object-cover border border-slate-100" />
+                        ))}
+                      </div>
+                    )}
+                    {checkinMedia[item.id].filter(m => m.type === 'audio').map(m => (
+                      m.senderRole === 'parent' ? (
+                        <div key={m.id} className="rounded-2xl bg-rose-50 border border-rose-100 p-3">
+                          <div className="text-sm font-black text-rose-600">{t('explore.parentReplyCard')}</div>
+                          <audio src={m.filePath} controls preload="none" className="mt-2 h-8 w-full" />
+                        </div>
+                      ) : (
+                        <div key={m.id} className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
+                          <Mic size={14} className="text-slate-500 shrink-0" />
+                          <audio src={m.filePath} controls preload="none" className="h-8 min-w-0 flex-1" />
+                        </div>
+                      )
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </section>

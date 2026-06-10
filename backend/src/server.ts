@@ -1049,7 +1049,7 @@ const checkAchievements = async (childId: string, db: any) => {
 
   const exploreCheckinCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId))?.count || 0;
   const exploreMediaCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId))?.count || 0;
-  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio'", childId))?.count || 0;
+  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio' AND senderRole = 'child'", childId))?.count || 0;
   const exploreConfirmedCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId))?.count || 0;
   const exploreCategoryStats = await db.all(`
     SELECT p.category, COUNT(*) as count
@@ -5114,6 +5114,107 @@ app.post('/api/parent/explore/checkins/:id/confirm', protect, requireParent, asy
   res.json({ message: '探索记录已确认', unlockedAchievements });
 });
 
+// 探索改版①：家长语音回应——随确认上传，senderRole='parent'，childId 保持打卡孩子（外键语义）
+app.post('/api/parent/explore/checkins/:id/reply-voice', protect, requireParent, async (req: any, res) => {
+  try {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const checkin = await db.get('SELECT * FROM explore_checkins WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!checkin) return res.status(404).json({ message: '打卡记录不存在' });
+    const quotaOk = await checkFamilyUploadQuota(request.user!.familyId);
+    if (!quotaOk) return res.status(429).json({ message: '家庭探索存储空间已满，请先清理旧记录' });
+    const existing = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE checkinId = ? AND type = 'audio' AND senderRole = 'parent'", req.params.id))?.count || 0;
+    if (existing >= 1) return res.status(400).json({ message: '每次打卡只能保留 1 条语音回应' });
+    const saved = await saveExploreMediaFile({ ...req.body, type: 'audio' }, request.user!.familyId, checkin.childId);
+    const id = randomUUID();
+    await db.run(
+      `INSERT INTO explore_media (id, familyId, checkinId, childId, type, filePath, mimeType, sizeBytes, durationSeconds, senderRole)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'parent')`,
+      id,
+      request.user!.familyId,
+      req.params.id,
+      checkin.childId,
+      saved.type,
+      saved.filePath,
+      saved.mimeType,
+      saved.sizeBytes,
+      saved.durationSeconds
+    );
+    res.json({ message: '语音回应已发送', media: { id, ...saved, senderRole: 'parent' } });
+  } catch (error: any) {
+    console.error('explore reply voice failed:', error);
+    res.status(error.status || 500).json({ message: error.message || '语音回应发送失败' });
+  }
+});
+
+// 探索改版②：家庭媒体配额可视化
+app.get('/api/parent/explore/quota', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const row = await getDb().get(
+    'SELECT COALESCE(SUM(sizeBytes), 0) as usedBytes FROM explore_media WHERE familyId = ?',
+    request.user!.familyId
+  );
+  res.json({ usedBytes: row?.usedBytes || 0, totalBytes: FAMILY_UPLOAD_QUOTA_MB * 1024 * 1024 });
+});
+
+// 探索改版②：探索设置读写（当前仅照片要求开关）
+app.get('/api/parent/explore/settings', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const family = await getDb().get('SELECT exploreRequirePhoto FROM families WHERE id = ?', request.user!.familyId);
+  res.json({ exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0 });
+});
+
+app.put('/api/parent/explore/settings', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const requirePhotoValue = req.body?.exploreRequirePhoto ? 1 : 0;
+  await getDb().run('UPDATE families SET exploreRequirePhoto = ? WHERE id = ?', requirePhotoValue, request.user!.familyId);
+  res.json({ message: '探索设置已更新', exploreRequirePhoto: requirePhotoValue });
+});
+
+// 探索改版③：回忆时间线——最近 6 个月已确认打卡，按北京时间月份分组
+app.get('/api/parent/explore/timeline', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const rows = await db.all(`
+    SELECT ec.id, ec.placeId, ec.mood, ec.note, ec.parentNote, ec.checkedInAt,
+      strftime('%Y-%m', ec.checkedInAt, '+8 hours') as month,
+      p.title as placeTitle, p.category as placeCategory, u.name as childName
+    FROM explore_checkins ec
+    LEFT JOIN explore_places p ON ec.placeId = p.id
+    JOIN users u ON ec.childId = u.id
+    WHERE ec.familyId = ? AND ec.parentConfirmed = 1
+      AND date(ec.checkedInAt, '+8 hours') >= date('now', '+8 hours', 'start of month', '-5 months')
+    ORDER BY ec.checkedInAt DESC
+  `, request.user!.familyId);
+  const mediaByCheckin: Record<string, any[]> = {};
+  if (rows.length) {
+    const placeholders = rows.map(() => '?').join(',');
+    const media = await db.all(
+      `SELECT id, checkinId, type, filePath, durationSeconds, senderRole
+       FROM explore_media WHERE checkinId IN (${placeholders}) ORDER BY createdAt ASC`,
+      ...rows.map((row: any) => row.id)
+    );
+    media.forEach((m: any) => {
+      (mediaByCheckin[m.checkinId] = mediaByCheckin[m.checkinId] || []).push(m);
+    });
+  }
+  const monthMap = new Map<string, { month: string; placeIds: Set<string>; checkins: any[] }>();
+  for (const row of rows) {
+    let group = monthMap.get(row.month);
+    if (!group) {
+      group = { month: row.month, placeIds: new Set<string>(), checkins: [] };
+      monthMap.set(row.month, group);
+    }
+    if (row.placeId) group.placeIds.add(row.placeId);
+    group.checkins.push({ ...row, media: mediaByCheckin[row.id] || [] });
+  }
+  res.json(Array.from(monthMap.values()).map(group => ({
+    month: group.month,
+    newPlaceCount: group.placeIds.size,
+    checkins: group.checkins
+  })));
+});
+
 app.get('/api/child/explore/places', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
@@ -5145,7 +5246,8 @@ app.get('/api/child/explore/checkins', protect, requireChild, async (req: any, r
   const db = getDb();
   const rows = await db.all(`
     SELECT ec.*, p.title as placeTitle, p.category as placeCategory, p.address,
-      (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id) as mediaCount
+      (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id) as mediaCount,
+      (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id AND em.type = 'audio' AND em.senderRole = 'parent') as parentVoiceCount
     FROM explore_checkins ec
     LEFT JOIN explore_places p ON ec.placeId = p.id
     WHERE ec.familyId = ? AND ec.childId = ?
@@ -5153,6 +5255,23 @@ app.get('/api/child/explore/checkins', protect, requireChild, async (req: any, r
     LIMIT 100
   `, request.user!.familyId, request.user!.id);
   res.json(rows);
+});
+
+// 探索改版①：孩子查看自己打卡的媒体（含家长语音回应，senderRole 区分）
+app.get('/api/child/explore/checkins/:id/media', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const checkin = await db.get('SELECT id FROM explore_checkins WHERE id = ? AND familyId = ? AND childId = ?', req.params.id, request.user!.familyId, request.user!.id);
+  if (!checkin) return res.status(404).json({ message: '打卡记录不存在' });
+  const media = await db.all('SELECT * FROM explore_media WHERE checkinId = ? ORDER BY createdAt ASC', req.params.id);
+  res.json(media);
+});
+
+// 探索改版②：孩子端读取照片要求开关（提交前的前端引导用）
+app.get('/api/child/explore/settings', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const family = await getDb().get('SELECT exploreRequirePhoto FROM families WHERE id = ?', request.user!.familyId);
+  res.json({ exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0 });
 });
 
 // B4-07: 探索成就进度接口 — 返回当前孩子的探索类成就完成进度
@@ -5177,7 +5296,7 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
   // 基础统计（与 checkAchievements 一致）
   const exploreCheckinCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId))?.count || 0;
   const exploreMediaCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId))?.count || 0;
-  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio'", childId))?.count || 0;
+  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio' AND senderRole = 'child'", childId))?.count || 0;
   const exploreConfirmedCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId))?.count || 0;
   const exploreCategoryStats = await db.all(
     `SELECT p.category, COUNT(*) as count FROM explore_checkins ec JOIN explore_places p ON ec.placeId = p.id WHERE ec.childId = ? GROUP BY p.category`,
@@ -5261,7 +5380,7 @@ app.post('/api/child/explore/checkins/:id/media', protect, requireChild, async (
     const quotaOk = await checkFamilyUploadQuota(request.user!.familyId);
     if (!quotaOk) return res.status(429).json({ message: '家庭探索存储空间已满，请联系家长清理' });
     const type = req.body?.type === 'audio' ? 'audio' : 'image';
-    const existing = (await db.get('SELECT COUNT(*) as count FROM explore_media WHERE checkinId = ? AND type = ?', req.params.id, type))?.count || 0;
+    const existing = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE checkinId = ? AND type = ? AND senderRole = 'child'", req.params.id, type))?.count || 0;
     if (type === 'image' && existing >= 3) return res.status(400).json({ message: '每次打卡最多上传 3 张照片' });
     if (type === 'audio' && existing >= 1) return res.status(400).json({ message: '每次打卡最多保留 1 条语音' });
     const saved = await saveExploreMediaFile(req.body, request.user!.familyId, request.user!.id);

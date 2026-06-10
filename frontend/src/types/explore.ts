@@ -33,7 +33,9 @@ export type ExploreCheckin = {
   note?: string;
   checkedInAt: string;
   parentConfirmed?: number;
+  parentNote?: string;
   mediaCount?: number;
+  parentVoiceCount?: number;
 };
 
 export type ExploreMedium = {
@@ -44,6 +46,7 @@ export type ExploreMedium = {
   mimeType?: string;
   sizeBytes?: number;
   durationSeconds?: number;
+  senderRole?: 'child' | 'parent';
 };
 
 export const EXPLORE_CATEGORIES = ['博物馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'] as const;
@@ -59,6 +62,25 @@ export const EXPLORE_CATEGORY_ICONS: Record<string, string> = {
   运动体验: '🏃',
   公益体验: '🤝',
   其他: '📍'
+};
+
+// 探索改版③：回忆时间线
+export type ExploreTimelineCheckin = {
+  id: string;
+  placeTitle: string;
+  placeCategory: string;
+  childName: string;
+  mood?: string;
+  note?: string;
+  parentNote?: string;
+  checkedInAt: string;
+  media: ExploreMedium[];
+};
+
+export type ExploreTimelineMonth = {
+  month: string;
+  newPlaceCount: number;
+  checkins: ExploreTimelineCheckin[];
 };
 
 // B4-07: 探索成就进度
