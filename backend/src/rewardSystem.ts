@@ -585,9 +585,23 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
   app.put('/api/parent/reward-pools/:id', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const { name, type, value, weight, rarity, icon, description, isActive } = req.body;
+    // 部分更新：未传字段回填原值，防止把其他字段写成 NULL；type 走白名单防 CHECK 约束 500
+    const existing = await getDb().get('SELECT * FROM reward_pools WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!existing) return res.status(404).json({ message: '奖励不存在' });
+    const nextType = type !== undefined ? type : existing.type;
+    if (!['coins', 'xp', 'privilegePoints', 'lotteryTicket', 'shopDiscount'].includes(nextType)) return res.status(400).json({ message: '无效的类型' });
+    const nextName = name !== undefined ? name : existing.name;
+    if (!nextName) return res.status(400).json({ message: '名称不能为空' });
     await getDb().run(
       `UPDATE reward_pools SET name = ?, type = ?, value = ?, weight = ?, rarity = ?, icon = ?, description = ?, isActive = ? WHERE id = ? AND familyId = ?`,
-      name, type, value, weight, rarity, icon, description, isActive !== undefined ? (isActive ? 1 : 0) : 1, req.params.id, request.user!.familyId
+      nextName, nextType,
+      value !== undefined ? value : existing.value,
+      weight !== undefined ? weight : existing.weight,
+      rarity !== undefined ? rarity : existing.rarity,
+      icon !== undefined ? icon : existing.icon,
+      description !== undefined ? description : existing.description,
+      isActive !== undefined ? (isActive ? 1 : 0) : existing.isActive,
+      req.params.id, request.user!.familyId
     );
     res.json({ message: '更新成功' });
   });
