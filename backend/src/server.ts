@@ -16,15 +16,27 @@ import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards'
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'stellar-system-dev-secret-change-in-production';
+// Token 有效期：单设备家庭场景，默认 30 天；过期后前端 401 拦截器引导重新登录
+const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '30d') as jwt.SignOptions['expiresIn'];
 const isProduction = process.env.NODE_ENV === 'production';
 const verboseRequestLogs = process.env.REQUEST_LOGS === 'true' || !isProduction;
-if (isProduction && !process.env.JWT_SECRET) {
-  console.error('❌ 生产环境必须设置 JWT_SECRET 环境变量！服务拒绝启动。');
+// 安全守卫：未设置 JWT_SECRET 时，仅显式声明 NODE_ENV=development/test 才允许默认密钥启动。
+// NODE_ENV 未设置一律按生产对待，防止生产服务器漏配 NODE_ENV 绕过校验（Rule 12：失败要大声）。
+if (!process.env.JWT_SECRET && process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+  console.error('❌ 未设置 JWT_SECRET 环境变量！默认密钥仅允许在 NODE_ENV=development/test 下使用，服务拒绝启动。');
+  console.error('   本地开发请设置 NODE_ENV=development，生产环境请设置 JWT_SECRET。');
   process.exit(1);
 }
 
 // 启动时打印日志，便于调试
 console.log('🔧 Initializing Express app...');
+
+// 反向代理场景需设置 TRUST_PROXY（如 1），否则限流按代理 IP 计数会失效；
+// 当前部署（前端 Python:80 + API 直连:3001）无代理，默认关闭。
+if (process.env.TRUST_PROXY) {
+  const tp = Number(process.env.TRUST_PROXY);
+  app.set('trust proxy', Number.isNaN(tp) ? process.env.TRUST_PROXY : tp);
+}
 
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin
@@ -1411,7 +1423,7 @@ app.post('/api/auth/sms/login', async (req, res) => {
       );
 
       res.json({
-        token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET),
+        token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN }),
         user: { id: user.id, name: user.name, role: user.role, familyId: user.familyId }
       });
     } catch (error) {
@@ -1458,7 +1470,7 @@ app.post('/api/auth/login', async (req, res) => {
     const today = getLocalDateString();
     await db.run('UPDATE users SET lastLoginDate = ? WHERE id = ?', today, user.id);
 
-    res.json({ token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET), user: { id: user.id, name: user.name, role: user.role, familyId: user.familyId } });
+    res.json({ token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN }), user: { id: user.id, name: user.name, role: user.role, familyId: user.familyId } });
 });
 
 app.post('/api/auth/reset-password', async (req, res) => {
@@ -1540,7 +1552,7 @@ app.post('/api/auth/register', async (req, res) => {
             id, tempFamilyId, email, email, new Date().toISOString(), hashedPassword
         );
 
-        const token = jwt.sign({ id, role: 'parent', familyId: tempFamilyId }, JWT_SECRET);
+        const token = jwt.sign({ id, role: 'parent', familyId: tempFamilyId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
         res.json({
           token,
           user: { id, name: '家长', role: 'parent', familyId: tempFamilyId }
@@ -1594,7 +1606,7 @@ app.post('/api/auth/create-family', protect, async (req: any, res) => {
         await seedFamilyData(fid, getDb());
         await getDb().run('COMMIT');
 
-        res.json({message:'ok', token: jwt.sign({id:request.user!.id, role:'parent', familyId:fid}, JWT_SECRET)});
+        res.json({message:'ok', token: jwt.sign({id:request.user!.id, role:'parent', familyId:fid}, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })});
     } catch (err) {
         await getDb().run('ROLLBACK');
         console.error('创建家庭失败:', err);
@@ -1631,7 +1643,7 @@ app.post('/api/auth/switch-user', protect, async (req: any, res) => {
     await getDb().run('UPDATE users SET lastLoginDate = ? WHERE id = ?', today, u.id);
 
     // 字段白名单：绝不把 password/pin 哈希返回给前端（单设备场景下孩子可接触到响应数据）
-    res.json({token:jwt.sign({id:u.id, role:u.role, familyId:u.familyId}, JWT_SECRET), user:serializeAuthMember(u)});
+    res.json({token:jwt.sign({id:u.id, role:u.role, familyId:u.familyId}, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN }), user:serializeAuthMember(u)});
 });
 
 // Child switch to parent via PIN
@@ -1659,7 +1671,7 @@ app.post('/api/child/switch-to-parent', protect, async (req: any, res) => {
     }
 
     res.json({
-        token: jwt.sign({ id: parent.id, role: parent.role, familyId: parent.familyId }, JWT_SECRET),
+        token: jwt.sign({ id: parent.id, role: parent.role, familyId: parent.familyId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN }),
         user: { id: parent.id, name: parent.name, role: parent.role, familyId: parent.familyId },
         isDefaultPin // 告诉前端是否使用的是默认PIN
     });
@@ -7415,4 +7427,19 @@ initializeDatabase()
       });
     });
 
-    // 未捕获异常处�
+    // 未捕获异常处理：记录后退出，由进程管理器负责重启
+    // （注：此尾部于 2026-06-10 因文件同步事故按审计记录重建，功能与原版一致）
+    process.on('uncaughtException', (error) => {
+      console.error('💥 Uncaught Exception:', error);
+      process.exit(1);
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('💥 Unhandled Rejection:', reason);
+      process.exit(1);
+    });
+  })
+  .catch((error) => {
+    console.error('❌ Failed to initialize database:', error);
+    process.exit(1);
+  });
