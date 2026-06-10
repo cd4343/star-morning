@@ -1723,7 +1723,7 @@ const autoApproveExpiredTasks = async (db: any, familyId: string) => {
   // 获取所有待审核任务，然后在 Node.js 中判断是否过期
   // 这样可以避免依赖 SQLite 的 localtime 设置
   const allPendingEntries = await db.all(`
-    SELECT te.id, te.childId, t.coinReward, t.xpReward, te.submittedAt, t.title
+    SELECT te.id, te.childId, t.coinReward, t.xpReward, t.taskType, te.submittedAt, t.title
     FROM task_entries te
     JOIN tasks t ON te.taskId = t.id
     WHERE t.familyId = ? AND te.status = 'pending' AND COALESCE(te.autoCompleted, 0) = 0
@@ -1748,46 +1748,44 @@ const autoApproveExpiredTasks = async (db: any, familyId: string) => {
   }
 
   for (const entry of expiredEntries) {
-    // 自动按中间档审批（综合评分加成 = 0%，即基础奖励）
-    const coinsToAward = entry.coinReward;
-    const xpToAward = entry.xpReward;
+    // 自动按基础奖励审批；合作任务加成与手动/批量审核同口径（1.5×/1.3×）
+    let coinsToAward = Math.max(0, Math.round(Number(entry.coinReward || 0)));
+    let xpToAward = Math.max(0, Math.round(Number(entry.xpReward || 0)));
+    if (entry.taskType === 'family') {
+      coinsToAward = Math.round(coinsToAward * 1.5);
+      xpToAward = Math.round(xpToAward * 1.3);
+    }
     const submitDateBeijing = getLocalDateString(new Date(entry.submittedAt));
 
     console.log(`  ✅ 自动审批任务 ${entry.id}，提交日期(北京时间)：${submitDateBeijing}，奖励：${coinsToAward}金币，${xpToAward}经验`);
 
     try {
-      await db.run(
-        "UPDATE task_entries SET status = 'approved', earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ?",
-        coinsToAward, xpToAward, xpToAward, entry.id
-      );
-
-      // 更新孩子的金币和经验
-      await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?',
-        coinsToAward, xpToAward, entry.childId);
-
-      // 更新累计奖励经验并计算特权点（如果列存在）
-      if (xpToAward > 0) {
-        try {
-          const child = await db.get('SELECT rewardXpTotal, privilegePoints FROM users WHERE id = ?', entry.childId);
-          if (child && child.rewardXpTotal !== undefined) {
-            const newAccumulatedXp = (child.rewardXpTotal || 0) + xpToAward;
-            const newPrivilegePoints = Math.floor(newAccumulatedXp / 100);
-            const oldPrivilegePoints = Math.floor((child.rewardXpTotal || 0) / 100);
-            const pointsGained = newPrivilegePoints - oldPrivilegePoints;
-            if (pointsGained > 0) {
-              await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-                newAccumulatedXp, pointsGained, entry.childId);
-            } else {
-              await db.run('UPDATE users SET rewardXpTotal = ? WHERE id = ?', newAccumulatedXp, entry.childId);
-            }
-          }
-        } catch (e) {
-          // rewardXpTotal 列可能不存在，忽略错误
-          console.log(`  ⚠️ 跳过累计经验更新（列可能不存在）`);
+      await withTransaction(async () => {
+        // 状态守卫：并发触发（家长多标签页刷新 dashboard）时只有一次能成功，防止重复发币
+        const upd = await db.run(
+          "UPDATE task_entries SET status = 'approved', reviewedAt = ?, earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ? AND status = 'pending'",
+          new Date().toISOString(), coinsToAward, xpToAward, xpToAward, entry.id
+        );
+        if ((upd.changes || 0) !== 1) {
+          console.log(`  ⏭️ 任务 ${entry.id} 已被并发处理，跳过`);
+          return;
         }
-      }
+
+        await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?',
+          coinsToAward, xpToAward, entry.childId);
+
+        if (xpToAward > 0) {
+          const child = await db.get('SELECT rewardXpTotal FROM users WHERE id = ?', entry.childId);
+          if (child && child.rewardXpTotal !== undefined) {
+            const newRewardXpTotal = (child.rewardXpTotal || 0) + xpToAward;
+            const pointsGained = Math.floor(newRewardXpTotal / 100) - Math.floor((child.rewardXpTotal || 0) / 100);
+            await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+              newRewardXpTotal, pointsGained, entry.childId);
+          }
+        }
+      });
     } catch (error) {
-      console.error(`  ❌ 自动审批任务 ${entry.id} 失败:`, error);
+      console.error(`  ❌ 自动审批任务 ${entry.id} 失败（已回滚，下次 dashboard 加载时重试）:`, error);
     }
   }
 
@@ -7421,6 +7419,4 @@ initializeDatabase()
       setTimeout(() => process.exit(1), 1000);
     });
 
-    process.on('unhandledRejection', (reason, promise) => {
-      console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-      setTimeou
+    process.on('unhandledRejection', (reason, promise) => 
