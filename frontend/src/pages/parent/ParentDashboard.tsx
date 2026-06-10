@@ -4,8 +4,9 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2, BarChart3, TrendingUp, TrendingDown, Minus, AlertTriangle, BookOpen, HeartPulse, Utensils, Brain, CheckCircle2, Compass } from 'lucide-react';
+import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2, TrendingUp, TrendingDown, Minus, AlertTriangle, BookOpen, HeartPulse, Utensils, Brain, CheckCircle2, Compass } from 'lucide-react';
 import api from '../../services/api';
+import { getDateLocale } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { StatsPanel } from '../../components/StatsPanel';
@@ -166,8 +167,8 @@ export default function ParentDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [reviewSuggestion, setReviewSuggestion] = useState<any>(null);
   const [showPunishmentStats, setShowPunishmentStats] = useState(false);
-  const [punishmentStats, setPunishmentStats] = useState<any>(null);
-  const [loadingPunishmentStats, setLoadingPunishmentStats] = useState(false);
+  const [punishmentStats] = useState<any>(null);
+  const [loadingPunishmentStats] = useState(false);
 
   // 批量审核状态
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
@@ -222,28 +223,6 @@ export default function ParentDashboard() {
       console.error('获取惩罚设置失败:', err);
       // 即使失败也设置为空对象，避免显示错误
       setPunishmentSettings({ enabled: false });
-    }
-  };
-
-  const fetchPunishmentStats = async () => {
-    setLoadingPunishmentStats(true);
-    try {
-      const res = await api.get('/parent/punishment-stats');
-      setPunishmentStats(res.data);
-    } catch (err) {
-      console.error('获取惩罚统计失败:', err);
-    } finally {
-      setLoadingPunishmentStats(false);
-    }
-  };
-
-  // 打开审核弹窗时，确保惩罚设置已加载
-  const handleOpenReview = (review: ReviewItem) => {
-    setCurrentReview(review);
-    setShowReviewModal(true);
-    // 如果惩罚设置未加载，重新加载
-    if (!punishmentSettings) {
-      fetchPunishmentSettings();
     }
   };
 
@@ -416,7 +395,7 @@ export default function ParentDashboard() {
         entryIds: Array.from(selectedReviewIds),
         action: 'approve',
       });
-      const { approved, rejected, failed } = res.data;
+      const { approved, failed } = res.data;
       setSelectedReviewIds(new Set());
       fetchDashboard();
 
@@ -1037,7 +1016,7 @@ export default function ParentDashboard() {
                         </span>
                       </h3>
                       <div className="text-xs text-gray-500 mt-1">
-                        {item.childName} · {new Date(item.submittedAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {item.childName} · {new Date(item.submittedAt).toLocaleDateString(getDateLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </div>
                       {item.status === 'approved' && (
                         <div className="text-xs text-green-600 mt-1">
@@ -1709,11 +1688,11 @@ export default function ParentDashboard() {
               <h4 className="font-black text-lg text-gray-900">{taskDetail.title}</h4>
               <div className="text-sm text-gray-500 mt-1">{taskDetail.childName} 提交</div>
               <div className="text-xs text-gray-400 mt-2">
-                提交时间：{new Date(taskDetail.submittedAt).toLocaleString('zh-CN')}
+                提交时间：{new Date(taskDetail.submittedAt).toLocaleString(getDateLocale())}
               </div>
               {taskDetail.reviewedAt && (
                 <div className="text-xs text-gray-400 mt-1">
-                  审核时间：{new Date(taskDetail.reviewedAt).toLocaleString('zh-CN')}
+                  审核时间：{new Date(taskDetail.reviewedAt).toLocaleString(getDateLocale())}
                 </div>
               )}
             </div>
@@ -1761,7 +1740,7 @@ export default function ParentDashboard() {
                     </div>
                   </div>
                   <div className="text-xs text-gray-500 mt-2">
-                    执行人：{taskDetail.punishment.parentName} · {new Date(taskDetail.punishment.createdAt).toLocaleString('zh-CN')}
+                    执行人：{taskDetail.punishment.parentName} · {new Date(taskDetail.punishment.createdAt).toLocaleString(getDateLocale())}
                   </div>
                 </div>
               </div>

@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
+import type { Wish, InventoryItem, Privilege } from '../../types/shop';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import api from '../../services/api';
 import { ShoppingBag, RotateCcw, Gift, Dna, Coins, Clock, Gamepad2 } from 'lucide-react';
-import { ShopCardSkeleton } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { Confetti } from '../../components/Confetti';
@@ -119,14 +119,14 @@ export default function ChildWishes() {
 
   const [view, setView] = useState<'shop'|'bag'|'savings'|'lottery'|'privileges'>('shop');
 
-  const [shopItems, setShopItems] = useState<any[]>([]);
+  const [shopItems, setShopItems] = useState<Wish[]>([]);
   const [shopCategory, setShopCategory] = useState('全部');
-  const [bagItems, setBagItems] = useState<any[]>([]);
+  const [bagItems, setBagItems] = useState<InventoryItem[]>([]);
   const [bagFilter, setBagFilter] = useState<'all'|'pending'|'redeemed'|'cancelled'>('all');
-  const [savingsGoals, setSavingsGoals] = useState<any[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<Wish[]>([]);
   const [customSavingsAmounts, setCustomSavingsAmounts] = useState<Record<string, string>>({});
-  const [lotteryPrizes, setLotteryPrizes] = useState<any[]>([]);
-  const [privileges, setPrivileges] = useState<any[]>([]);
+  const [lotteryPrizes, setLotteryPrizes] = useState<Wish[]>([]);
+  const [privileges, setPrivileges] = useState<Privilege[]>([]);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [activeGridIndex, setActiveGridIndex] = useState<number | null>(null);
@@ -265,37 +265,6 @@ export default function ChildWishes() {
     }
   }, [view, privileges.length, bagItems.length]);
 
-  // 兑换特权逻辑
-  const handleRedeemPrivilege = async (priv: any) => {
-    if ((childData.privilegePoints || 0) < priv.cost) {
-      playErrorSound();
-      showTip('特权点不足', `你只有 ${childData.privilegePoints || 0} 特权点，无法兑换 ${priv.title}（需要 ${priv.cost} 特权点）。快去完成任务赚取特权点吧！`, '💎');
-      return;
-    }
-
-    const isTimeWindowOk = checkTimeWindow(priv.timeWindow || null);
-    if (!isTimeWindowOk.ok) {
-      showTip('不在可用时间', isTimeWindowOk.message || '当前时间无法使用该特权', '⏰');
-      return;
-    }
-
-    const confirmed = await confirm({
-      title: '兑换特权',
-      message: `确定消耗 ${priv.cost} 特权点兑换「${priv.title}」吗？\n\n你可以现在立即开始使用，也可以先存入背包稍后再用。`,
-      type: 'info',
-      confirmText: '⚡ 立即使用',
-      cancelText: '🎒 存入背包',
-      showCancel: true
-    });
-
-    // 这里处理用户的选择：
-    // 如果 confirmed === true，说明点击了 "立即使用"
-    // 如果 confirmed === false，说明点击了 "存入背包"（或者点击了关闭/取消，这里取决于对话框实现，通常 confirm 是返回 true/false）
-    // 为了更精确，我们可以弹两次，或者使用自定义 Modal。
-    // 这里先按照约定：立即使用 (true), 存入背包 (false)。
-    executeRedeemPrivilege(priv, confirmed);
-  };
-
   // 我们重写兑换特权函数，因为需要区分 立即使用、存入背包 和 取消。
   const executeRedeemPrivilege = async (priv: any, useImmediately: boolean) => {
       try {
@@ -377,7 +346,7 @@ export default function ChildWishes() {
       if (!confirmed) return;
       try {
           setLoading(true);
-          const res = await api.post(`/child/wishes/${item.id}/redeem`);
+          await api.post(`/child/wishes/${item.id}/redeem`);
           playSuccessSound();
           showTip('兑换成功', `${item.title} 已放入背包，快去"背包"查看吧！`, '🎉');
           refresh();
@@ -402,7 +371,7 @@ export default function ChildWishes() {
       });
       if (!confirmed) return;
       try {
-          const res = await api.post(`/child/inventory/${item.id}/cancel`);
+          await api.post(`/child/inventory/${item.id}/cancel`);
           const message = costType === 'privilegePoints'
               ? `${item.title} 已撤销，特权点已退回！`
               : `${item.title} 已撤销，金币已退回！`;
@@ -893,7 +862,7 @@ export default function ChildWishes() {
                       'used': { label: '已兑现', color: 'text-green-600', borderColor: 'border-green-400' },
                       'returned': { label: '已撤销', color: 'text-red-600', borderColor: 'border-red-400' },
                   };
-                  const statusInfo = statusMap[item.status] || statusMap['pending'];
+                  const statusInfo = statusMap[item.status || 'pending'] || statusMap['pending'];
                   const isAchievementReward = item.source === 'achievement_reward';
                   const rewardParts = [
                       item.rewardCoins ? `💰 ${item.rewardCoins}` : '',
@@ -922,7 +891,7 @@ export default function ChildWishes() {
                                           <span className="text-yellow-700">🏆 成就礼包{rewardParts ? `：${rewardParts}` : ''}</span>
                                       ) : item.costType === 'privilegePoints' ? (
                                           <span className="text-purple-600">👑 {item.cost} 特权点兑换</span>
-                                      ) : item.cost > 0 ? (
+                                      ) : (item.cost ?? 0) > 0 ? (
                                           <span className="text-yellow-600">💰 {item.cost} 金币兑换</span>
                                       ) : (
                                           <span className="text-green-600">🎁 免费获得</span>

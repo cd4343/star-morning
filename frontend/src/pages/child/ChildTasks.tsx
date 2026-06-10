@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useOutletContext } from 'react-router-dom';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Check, Clock, Play, X, Pause, Calendar, ChevronDown, GripHorizontal, Info } from 'lucide-react';
@@ -10,7 +9,6 @@ import { playSuccessSound, playMagicSound, playErrorSound } from '../../utils/so
 import { Confetti } from '../../components/Confetti';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import {
-  TASK_CATEGORY_FILTERS,
   TASK_CATEGORY_VALUES,
   getTaskCategoryInfo,
   taskMatchesCategory,
@@ -164,7 +162,7 @@ const getAnchoredModalStyle = (
     };
 };
 
-const getDefaultDrawerPosition = (taskCount: number): Point => {
+const getDefaultDrawerPosition = (_taskCount: number): Point => {
     const bounds = getChildViewportBounds();
 
     const width = Math.min(420, bounds.width - 24);
@@ -284,8 +282,8 @@ const useTaskTimer = (task: Task, onComplete?: (duration: number, isOverdue: boo
 };
 
 // 任务抽屉项
-const TaskTimerItem = ({ task, onComplete, onExpand, onAbandon }: { task: Task, onComplete: (d: number, o: boolean) => void, onExpand: (anchor: Point) => void, onAbandon: () => void }) => {
-    const { displaySeconds, isActive, togglePause, submit, abandon, isOverdue } = useTaskTimer(task, (d, o) => {
+const TaskTimerItem = ({ task, onComplete, onExpand }: { task: Task, onComplete: (d: number, o: boolean) => void, onExpand: (anchor: Point) => void, onAbandon: () => void }) => {
+    const { displaySeconds, isActive, togglePause, submit, isOverdue } = useTaskTimer(task, (d, o) => {
         onComplete(d, o);
     });
 
@@ -394,7 +392,6 @@ const TaskTimerModal = ({ task, anchor, onClose, onComplete, onAbandon }: { task
 };
 
 export default function ChildTasks() {
-  const context = useOutletContext<any>();
   const toast = useToast();
 
   const [tasks, setTasks] = useState<any[]>([]);
@@ -419,7 +416,7 @@ export default function ChildTasks() {
   const [unreadPunishments, setUnreadPunishments] = useState<any[]>([]);
   const [currentAlert, setCurrentAlert] = useState<any>(null);
 
-  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
+  const { Dialog: ConfirmDialog } = useConfirmDialog();
 
   const [filterCategory, setFilterCategory] = useState('全部');
   const TASK_CATEGORIES = ['全部', '合作', ...TASK_CATEGORY_VALUES];
@@ -549,7 +546,7 @@ export default function ChildTasks() {
       <Card
         key={task.id}
         className={`relative overflow-hidden transition-all border-0 shadow-sm cursor-pointer hover:shadow-md ${task.status === 'approved' ? 'bg-green-50/50' : task.status === 'todo' && !isToday ? 'bg-red-50/30' : 'bg-white'}`}
-        onClick={async (e: React.MouseEvent<HTMLDivElement>) => {
+        onClick={async (_e: React.MouseEvent<HTMLDivElement>) => {
           if (task.status === 'approved' && task.entryId) {
             try {
               const res = await api.get(`/task-entries/${task.entryId}`);
@@ -760,8 +757,6 @@ export default function ChildTasks() {
   const getFormattedDate = (dateStr: string) => { const date = new Date(dateStr); const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']; return { day: days[date.getDay()], date: `${date.getMonth() + 1}.${date.getDate()}` }; };
   const maxEarned = Math.max(...weeklyStats.map(s => s.earned || s.coins || 0), 10);
   const totalWeeklyNet = weeklyStats.reduce((acc, cur) => acc + (cur.coins ?? 0), 0);
-  const totalWeeklyEarned = weeklyStats.reduce((acc, cur) => acc + (cur.earned ?? cur.coins ?? 0), 0);
-  const totalWeeklySpent = weeklyStats.reduce((acc, cur) => acc + (cur.spent ?? 0), 0);
   const formatSignedNumber = (value: number) => value > 0 ? `+${value}` : String(value || 0);
   const overlayBounds = getChildViewportBounds();
   const drawerWidth = getDrawerWidth();

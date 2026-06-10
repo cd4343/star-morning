@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { ArrowLeft, Check, Gamepad2, HeartPulse, Play, RotateCcw, ShieldCheck, Sparkles, Timer } from 'lucide-react';
 import { Card } from '../../components/Card';

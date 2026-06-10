@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, Sparkles, Trash2, X } from 'lucide-react';
 import { Header } from '../../components/Header';

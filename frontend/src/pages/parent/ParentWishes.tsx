@@ -76,11 +76,6 @@ const LOTTERY_EFFECT_OPTIONS: Array<{ value: LotteryEffectType; label: string; h
   { value: 'bonus_privilege', label: '特权点到账', hint: '抽中后直接增加特权点，建议低频。', icon: '💎' },
 ];
 
-const getLotteryEffectLabel = (effect?: string | null) => {
-  if (effect === 'draw_again') return '再抽一次';
-  return LOTTERY_EFFECT_OPTIONS.find(item => item.value === effect)?.label || '放入背包';
-};
-
 const LOTTERY_RARITY_WEIGHT_FACTOR: Record<RarityType, number> = {
   common: 1,
   uncommon: 0.55,

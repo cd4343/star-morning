@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useRef } from 'react';
 import { X } from 'lucide-react';
+import { t } from '../i18n';
 
 interface ModalProps {
   isOpen: boolean;
@@ -83,7 +84,7 @@ interface ConfirmModalProps {
     isDanger?: boolean;
 }
 
-export const ConfirmModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onConfirm, title, content, confirmText='确定', cancelText='取消', isDanger=false }) => {
+export const ConfirmModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onConfirm, title, content, confirmText = t('common.confirm'), cancelText = t('common.cancel'), isDanger=false }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={title} showCloseButton={false}>
             <div className="mb-6 text-gray-600">{content}</div>
@@ -135,10 +136,10 @@ export const InputModal: React.FC<InputModalProps> = ({ isOpen, onClose, onConfi
                 />
                 <div className="flex gap-3">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200">
-                        取消
+                        {t('common.cancel')}
                     </button>
                     <button type="submit" disabled={!value.trim()} className="flex-1 py-2.5 bg-blue-600 font-bold text-white rounded-xl shadow-lg shadow-blue-200 disabled:bg-gray-300 disabled:shadow-none">
-                        确定
+                        {t('common.confirm')}
                     </button>
                 </div>
             </form>
@@ -235,7 +236,7 @@ export const AddEditChildModal: React.FC<AddEditChildModalProps> = ({ isOpen, on
                 </div>
                 <div className="flex gap-3 pt-4">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-gray-100 font-bold text-gray-600 rounded-xl hover:bg-gray-200">
-                        取消
+                        {t('common.cancel')}
                     </button>
                     <button type="submit" disabled={!name.trim()} className="flex-1 py-2.5 bg-blue-600 font-bold text-white rounded-xl shadow-lg shadow-blue-200 disabled:bg-gray-300 disabled:shadow-none">
                         保存

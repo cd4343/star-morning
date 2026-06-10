@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card } from '../../components/Card';
 import { Trophy, Lock, ChevronDown, ChevronUp, TrendingUp, Archive, ShieldCheck } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import api, { isAuthError } from '../../services/api';
+import { getDateLocale } from '../../i18n';
 import { useOutletContext } from 'react-router-dom';
 import { useToast } from '../../components/Toast';
 import {
@@ -268,16 +269,6 @@ export default function ChildMe() {
     if (ach.unlocked) return 100;
     if (!ach.progress || !ach.conditionValue) return 0;
     return Math.min(Math.round((ach.progress / ach.conditionValue) * 100), 99);
-  };
-
-  const getRewardText = (ach: Achievement) => {
-    const parts = [
-      Number(ach.rewardCoins || 0) > 0 ? `${ach.rewardCoins} 金币` : '',
-      Number(ach.rewardXp || 0) > 0 ? `${ach.rewardXp} 经验` : '',
-      Number(ach.rewardPrivilegePoints || 0) > 0 ? `${ach.rewardPrivilegePoints} 特权点` : '',
-    ].filter(Boolean);
-    if (!parts.length) return '无额外奖励';
-    return `${parts.join(' + ')}${ach.rewardDelivery === 'backpack' ? '，放入背包' : '，立即发放'}`;
   };
 
   const sortMeta = {
@@ -702,7 +693,7 @@ export default function ChildMe() {
                             <span className="text-lg">{getLevelEmoji(record.level)}</span>
                             <span className="font-bold text-gray-800">{getLevelName(record.level)}</span>
                             <span className="text-[10px] text-gray-500">
-                              {new Date(record.createdAt).toLocaleDateString('zh-CN', {
+                              {new Date(record.createdAt).toLocaleDateString(getDateLocale(), {
                                 month: 'short',
                                 day: 'numeric',
                                 hour: '2-digit',
@@ -793,7 +784,7 @@ export default function ChildMe() {
               <div>
                 <div className="font-bold text-lg text-gray-800">{getLevelName(selectedRecord.level)}</div>
                 <div className="text-xs text-gray-500">
-                  {new Date(selectedRecord.createdAt).toLocaleString('zh-CN')}
+                  {new Date(selectedRecord.createdAt).toLocaleString(getDateLocale())}
                 </div>
               </div>
             </div>
@@ -887,7 +878,7 @@ export default function ChildMe() {
                   </div>
                 </div>
                 <div className="text-[10px] text-gray-400 flex-shrink-0 text-right">
-                  {new Date(record.createdAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
+                  {new Date(record.createdAt).toLocaleDateString(getDateLocale(), { month: 'numeric', day: 'numeric' })}
                 </div>
               </Card>
             ))}

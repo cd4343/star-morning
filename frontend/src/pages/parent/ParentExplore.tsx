@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, CheckCircle2, ChevronDown, ChevronUp, Compass, Edit3, Image, MapPin, Mic, Plus, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react';
+import { Archive, CheckCircle2, ChevronDown, ChevronUp, Compass, Edit3, MapPin, Plus, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react';
 import { Header } from '../../components/Header';
 import { Button } from '../../components/Button';
 import api from '../../services/api';
+import { getDateLocale } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { ExplorePlace, ExploreCheckin, ExploreMedium, EXPLORE_CATEGORIES } from '../../types/explore';
 
@@ -28,7 +29,7 @@ const emptyForm: ExplorePlace = {
   source: 'manual'
 };
 
-const formatDate = (value: string) => new Date(value).toLocaleString('zh-CN', {
+const formatDate = (value: string) => new Date(value).toLocaleString(getDateLocale(), {
   month: 'numeric',
   day: 'numeric',
   hour: '2-digit',

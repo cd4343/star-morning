@@ -1,23 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import api from '../../services/api';
+import { getDateLocale } from '../../i18n';
 import { AddEditChildModal, ConfirmModal } from '../../components/Modal';
 import { Lock, Unlock, Edit2, Trash2, Users, ShieldCheck } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 import CreateActionCard from '../../components/CreateActionCard';
 
-interface Member {
-    id: string;
-    name: string;
-    role: 'parent' | 'child';
-    birthdate?: string;
-    hasPin?: boolean;
-    gender?: string; // boy, girl, dad, mom, grandpa, grandma
-}
+import type { Member } from '../../types/member';
 
 // 根据角色和性别获取头像 emoji
 const getAvatarEmoji = (member: Member): string => {
@@ -142,7 +136,7 @@ export default function ParentFamily() {
 
   const formatBirthdate = (birthdate?: string) => {
       if (!birthdate) return '未设置';
-      return new Date(birthdate).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+      return new Date(birthdate).toLocaleDateString(getDateLocale(), { year: 'numeric', month: 'long', day: 'numeric' });
   };
 
   const parentMembers = members.filter(m => m.role === 'parent');

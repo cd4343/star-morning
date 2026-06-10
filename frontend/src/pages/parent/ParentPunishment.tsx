@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import { Header } from '../../components/Header';
 import api from '../../services/api';
+import { getDateLocale } from '../../i18n';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { TrendingUp, BarChart, AlertCircle, Calendar, Trophy, ChevronRight, ListFilter } from 'lucide-react';
@@ -571,7 +572,7 @@ const ParentPunishment = () => {
                     <div className="min-w-0">
                       <div className="font-black text-gray-800 truncate">{record.taskTitle || '未知任务'}</div>
                       <div className="text-xs text-gray-500 mt-1">
-                        {record.childName || '孩子'} · {record.taskCategory || '未分类'} · {new Date(record.createdAt).toLocaleString('zh-CN')}
+                        {record.childName || '孩子'} · {record.taskCategory || '未分类'} · {new Date(record.createdAt).toLocaleString(getDateLocale())}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">

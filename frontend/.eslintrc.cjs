@@ -4,6 +4,10 @@ module.exports = {
     browser: true,
     es2020: true,
   },
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+  ],
   parser: '@typescript-eslint/parser',
   parserOptions: {
     ecmaVersion: 'latest',
@@ -14,5 +18,9 @@ module.exports = {
   },
   plugins: ['@typescript-eslint'],
   ignorePatterns: ['dist/', 'node_modules/'],
-  rules: {},
+  rules: {
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    'no-console': ['warn', { allow: ['warn', 'error'] }],
+  },
 };

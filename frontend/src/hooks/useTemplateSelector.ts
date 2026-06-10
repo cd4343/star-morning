@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
  * 模板选择器 Hook
  * 统一管理模板选择、批量添加的逻辑
  */
-export function useTemplateSelector<T>() {
+export function useTemplateSelector() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
 

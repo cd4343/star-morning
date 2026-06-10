@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Camera, CheckCircle2, Compass, FileText, MapPin, Mic, PauseCircle, Send, Sparkles, Upload, Volume2, X } from 'lucide-react';
+import { Camera, CheckCircle2, Compass, FileText, MapPin, Mic, PauseCircle, Send, Sparkles, Upload, X } from 'lucide-react';
 import api from '../../services/api';
+import { getDateLocale } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { ExplorePlace, ExploreCheckin, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
@@ -17,7 +18,7 @@ const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
 
 const formatDate = (value?: string) => {
   if (!value) return '还没有打卡';
-  return new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  return new Date(value).toLocaleDateString(getDateLocale(), { month: 'numeric', day: 'numeric' });
 };
 
 export default function ChildExplore() {

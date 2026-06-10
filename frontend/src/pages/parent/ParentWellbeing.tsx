@@ -7,6 +7,7 @@ import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { useToast } from '../../components/Toast';
 import api from '../../services/api';
+import { getDateLocale } from '../../i18n';
 
 type ScreenTimeRules = {
   isEnabled: number;
@@ -511,7 +512,7 @@ export default function ParentWellbeing() {
                   <div className="text-xs text-gray-500 mt-0.5">
                     {record.reason || (isSession ? '孩子开启游戏票' : '家长调整')}
                   </div>
-                  <div className="text-[10px] text-gray-400 mt-1">{new Date(record.createdAt).toLocaleString('zh-CN')}</div>
+                  <div className="text-[10px] text-gray-400 mt-1">{new Date(record.createdAt).toLocaleString(getDateLocale())}</div>
                 </div>
               </Card>
             );

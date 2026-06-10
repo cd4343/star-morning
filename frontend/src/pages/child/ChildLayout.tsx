@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout } from '../../components/Layout';
 import { CheckSquare, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';

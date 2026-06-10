@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
@@ -305,14 +305,6 @@ const getRewardText = (item: any) => {
 const getLocalRank = getSharedAchievementRank;
 const getLocalAchievementDisplay = getSharedAchievementDisplay;
 
-// 获取所有图标的扁平列表
-const getAllIcons = () => {
-  const icons: { icon: string; name: string }[] = [];
-  Object.values(ACHIEVEMENT_ICON_CATEGORIES).forEach(category => {
-    icons.push(...category);
-  });
-  return icons;
-};
 
 export default function ParentAchievements() {
   const navigate = useNavigate();
@@ -482,7 +474,7 @@ export default function ParentAchievements() {
   };
 
   // 渲染表单（新建和编辑共用）
-  const renderForm = (isEdit: boolean) => {
+  const renderForm = (_isEdit: boolean) => {
     const condConfig = CONDITION_TYPES.find(c => c.value === conditionType);
 
     return (

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/Card';
 import { Layout } from '../../components/Layout';
@@ -7,16 +7,7 @@ import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal, ConfirmModal, AddEditChildModal } from '../../components/Modal';
 
-interface Member {
-  id: string;
-  name: string;
-  role: 'parent' | 'child';
-  avatar?: string;
-  hasPin?: boolean;
-  pendingReviewCount?: number;
-  birthdate?: string;
-  gender?: string; // boy, girl, dad, mom, grandpa, grandma
-}
+import type { Member } from '../../types/member';
 
 // 根据角色和性别获取头像 emoji
 const getAvatarEmoji = (member: Member): string => {
@@ -84,7 +75,7 @@ export default function SelectUser() {
       }
   };
 
-  const performLogin = async (memberId: string, role: string, pin: string | null) => {
+  const performLogin = async (memberId: string, _role: string, pin: string | null) => {
     try {
       const res = await api.post('/auth/switch-user', { targetUserId: memberId, pin });
       login(res.data.token, res.data.user);

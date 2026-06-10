@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { CalendarDays, Check, Coins, Sparkles, Utensils } from 'lucide-react';
 import { Card } from '../../components/Card';
