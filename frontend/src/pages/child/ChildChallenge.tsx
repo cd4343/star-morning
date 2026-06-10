@@ -8,6 +8,8 @@ import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
 import { TASK_CATEGORY_FILTERS, getTaskCategoryInfo, normalizeTaskCategory, taskMatchesCategory } from '../../utils/taskCategories';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
+import { playSuccessSound, playMagicSound } from '../../utils/sounds';
+import { Confetti } from '../../components/Confetti';
 
 type TabKey = 'today' | 'learning' | 'family';
 
@@ -380,8 +382,30 @@ export default function ChildChallenge() {
   const [selectedWeeklyDate, setSelectedWeeklyDate] = useState('');
   const [selectedTaskCategory, setSelectedTaskCategory] = useState('全部');
   const [taskListExpanded, setTaskListExpanded] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
   const timerDragRef = useRef({ dragging: false, moved: false, offsetX: 0, offsetY: 0, startX: 0, startY: 0, lastPos: null as { x: number; y: number } | null });
   const focusRequestNonceRef = useRef(0);
+  const wakeLockRef = useRef<any>(null);
+  const wakeVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // M25: 计时面板打开时保持屏幕常亮，wakeLock 不可用时用静音视频兜底
+  const requestWakeLock = async () => {
+    if ('wakeLock' in navigator) {
+      try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch { /* 忽略：走 video 兜底 */ }
+    }
+    if (!wakeLockRef.current && wakeVideoRef.current) {
+      try { await wakeVideoRef.current.play(); } catch { /* 忽略：浏览器拒绝自动播放 */ }
+    }
+  };
+
+  const releaseWakeLock = async () => {
+    if (wakeLockRef.current !== null) {
+      try { await wakeLockRef.current.release(); wakeLockRef.current = null; } catch { wakeLockRef.current = null; }
+    }
+    if (wakeVideoRef.current) {
+      try { wakeVideoRef.current.pause(); } catch { /* 忽略：video 已卸载 */ }
+    }
+  };
 
   const refreshActiveTimerTasks = () => {
     const storedTasks = getStoredActiveTasks().map(normalizeTimerTask);
@@ -428,6 +452,13 @@ export default function ChildChallenge() {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    const timerSheetOpen = Boolean(runningTask) && !timerMinimized;
+    if (timerSheetOpen) requestWakeLock();
+    else releaseWakeLock();
+    return () => { releaseWakeLock(); };
+  }, [runningTask, timerMinimized]);
 
   useEffect(() => {
     setActiveTab(getInitialTab(location.search));
@@ -556,14 +587,18 @@ export default function ChildChallenge() {
         isOverdue: elapsed > expectedSeconds,
       });
       if (res.data?.chest) {
+        playMagicSound();
         setChestReward(res.data.chest);
         setChestStage('opening');
         setShowChestModal(true);
         window.setTimeout(() => setChestStage('revealed'), 950);
         toast.success('任务已提交，打开惊喜宝箱！');
       } else {
+        playSuccessSound();
         toast.success('任务已提交，等待家长确认');
       }
+      setShowConfetti(true);
+      window.setTimeout(() => setShowConfetti(false), 3000);
       removeActiveTask(runningTask.id);
       refreshActiveTimerTasks();
       setRunningTask(null);
@@ -804,6 +839,9 @@ export default function ChildChallenge() {
     setLearningSubmitting(true);
     try {
       await api.post(`/child/learning-sessions/${learningSessionId}/submit`, { proof: learningProof, stuckReason });
+      playSuccessSound();
+      setShowConfetti(true);
+      window.setTimeout(() => setShowConfetti(false), 3000);
       toast.success('学习关卡已提交，等待家长确认');
       setActiveQuest(null);
       setLearningSessionId('');
@@ -1460,6 +1498,8 @@ export default function ChildChallenge() {
             >
               放弃这个任务
             </button>
+            {/* M25: 本地静音视频，wakeLock 不可用时保持屏幕常亮 */}
+            <video ref={wakeVideoRef} style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0 }} loop muted playsInline src="/silence.mp4" />
           </div>
         )}
       </BottomSheet>
@@ -1595,6 +1635,7 @@ export default function ChildChallenge() {
       )}
 
       {minimizedTimerBar && (getChildOverlayRoot() ? createPortal(minimizedTimerBar, getChildOverlayRoot()!) : minimizedTimerBar)}
+      <Confetti active={showConfetti} />
       <ConfirmDialog />
     </div>
   );

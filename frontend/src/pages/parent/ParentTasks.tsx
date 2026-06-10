@@ -846,7 +846,7 @@ export default function ParentTasks() {
                   // 解析任务类型和自定义天数
                   const type = task.taskType || 'daily';
                   let customDaysArr: number[] = [];
-                  try { customDaysArr = task.customDays ? JSON.parse(task.customDays) : []; } catch {}
+                  try { customDaysArr = task.customDays ? JSON.parse(task.customDays) : []; } catch { /* 忽略：customDays 解析失败按空处理 */ }
                   const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
                   const customDaysText = customDaysArr.map(d => dayNames[d]).join('');
                   const completionSummary = getTaskCompletionSummary(task);

@@ -21,8 +21,6 @@ const ParentPunishment = lazy(() => import('./pages/parent/ParentPunishment'));
 const ParentExplore = lazy(() => import('./pages/parent/ParentExplore'));
 const ChildLayout = lazy(() => import('./pages/child/ChildLayout'));
 const ChildChallenge = lazy(() => import('./pages/child/ChildChallenge'));
-const ChildTasks = lazy(() => import('./pages/child/ChildTasks'));
-const ChildLearning = lazy(() => import('./pages/child/ChildLearning'));
 const ChildCalm = lazy(() => import('./pages/child/ChildCalm'));
 const ChildMorning = lazy(() => import('./pages/child/ChildMorning'));
 const ChildWishes = lazy(() => import('./pages/child/ChildWishes'));
@@ -125,8 +123,8 @@ function App() {
         <Route path="/child" element={<RoleRoute role="child"><ChildLayout /></RoleRoute>}>
           <Route path="map" element={<Navigate to="challenge" replace />} />
           <Route path="challenge" element={<Suspense fallback={<PageLoader />}><ChildChallenge /></Suspense>} />
-          <Route path="tasks" element={<Suspense fallback={<PageLoader />}><ChildTasks /></Suspense>} />
-          <Route path="learning" element={<Suspense fallback={<PageLoader />}><ChildLearning /></Suspense>} />
+          <Route path="tasks" element={<Navigate to="/child/challenge" replace />} />
+          <Route path="learning" element={<Navigate to="/child/challenge" replace />} />
           <Route path="calm" element={<Suspense fallback={<PageLoader />}><ChildCalm /></Suspense>} />
           <Route path="morning" element={<Suspense fallback={<PageLoader />}><ChildMorning /></Suspense>} />
           <Route path="explore" element={<Suspense fallback={<PageLoader />}><ChildExplore /></Suspense>} />

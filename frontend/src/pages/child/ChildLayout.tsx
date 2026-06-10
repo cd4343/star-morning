@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { CheckSquare, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
+import { CheckSquare, ChevronDown, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
@@ -18,6 +18,10 @@ export default function ChildLayout() {
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
   const [taskReminders, setTaskReminders] = useState<any[]>([]);
+  // M18: 顶栏进度详情默认收起，展开偏好记在本地
+  const [headerExpanded, setHeaderExpanded] = useState(() => {
+    try { return localStorage.getItem('starcoin:headerExpanded') === '1'; } catch { return false; }
+  });
   const retryCount = useRef(0);
   const lastDataErrorAt = useRef(0);
   const previousUserId = useRef<string | null>(null);
@@ -66,7 +70,7 @@ export default function ChildLayout() {
           });
         }
         lastSeenReviewAt.current = latestReviewAt;
-        try { localStorage.setItem(storageKey, latestReviewAt); } catch {}
+        try { localStorage.setItem(storageKey, latestReviewAt); } catch { /* 忽略：本地存储不可用 */ }
       }
 
       try {
@@ -110,6 +114,14 @@ export default function ChildLayout() {
     }, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  const toggleHeaderExpanded = () => {
+    setHeaderExpanded(prev => {
+      const next = !prev;
+      try { localStorage.setItem('starcoin:headerExpanded', next ? '1' : '0'); } catch { /* 忽略：本地存储不可用 */ }
+      return next;
+    });
+  };
 
   const handleSwitchUser = () => {
       // 先提示需要家长 PIN，再进入输入弹窗
@@ -165,7 +177,13 @@ export default function ChildLayout() {
           {/* Top Bar */}
           <div className="bg-white p-3 shadow-sm z-10 sticky top-0">
             <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={toggleHeaderExpanded}
+                aria-expanded={headerExpanded}
+                aria-label={headerExpanded ? '收起成长进度' : '查看成长进度'}
+                className="flex items-center gap-3 min-h-[40px] text-left rounded-2xl active:bg-gray-50 transition-colors"
+              >
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl border-2 border-white shadow-sm ${childData?.gender === 'girl' ? 'bg-pink-100' : 'bg-green-100'}`}>
                    {childData?.avatar || (childData?.gender === 'girl' ? '👧' : '👦')}
                 </div>
@@ -181,12 +199,14 @@ export default function ChildLayout() {
                      <span className="flex items-center gap-0.5"><span className="text-blue-500">💎</span><span className="text-blue-600 font-bold">{childData?.privilegePoints || 0}</span><span className="text-[10px] text-gray-400 ml-0.5">特权点</span></span>
                   </div>
                 </div>
-              </div>
+                <ChevronDown size={16} className={`text-gray-300 transition-transform duration-200 ${headerExpanded ? 'rotate-180' : ''}`} />
+              </button>
               <button onClick={handleSwitchUser} className="px-3 py-2 min-h-[40px] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-full text-blue-600 transition-colors flex items-center gap-1.5 text-xs font-bold">
                   <ShieldCheck size={14}/> 家长模式
               </button>
             </div>
             
+            {headerExpanded && (<>
             {/* 经验进度条 */}
             <div className="mt-2 flex items-center gap-2">
               <span className="text-[10px] text-purple-500 font-bold whitespace-nowrap">经验</span>
@@ -230,6 +250,7 @@ export default function ChildLayout() {
                 </div>
               );
             })()}
+            </>)}
           </div>
 
           {/* Main Content */}

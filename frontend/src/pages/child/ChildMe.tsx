@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card } from '../../components/Card';
-import { Trophy, Lock, ChevronDown, ChevronUp, TrendingUp, Archive, ShieldCheck } from 'lucide-react';
+import { Trophy, Lock, ChevronDown, TrendingUp, Archive, ShieldCheck } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import api, { isAuthError } from '../../services/api';
 import { getDateLocale } from '../../i18n';
@@ -117,13 +117,11 @@ export default function ChildMe() {
   const [punishmentStats, setPunishmentStats] = useState<PunishmentStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedRecords, setExpandedRecords] = useState(false);
-  const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
-  const [groupMode, setGroupMode] = useState<'none' | 'category'>('none');
-  const [sortMode, setSortMode] = useState<'time' | 'coins' | 'name'>('time');
+  // M19b: 时间筛选只留「最近30天 / 全部」，列表固定按时间倒序
+  const [timeFilter, setTimeFilter] = useState<'month' | 'all'>('month');
   const [chestTimeFilter, setChestTimeFilter] = useState<ChestTimeFilter>('today');
   const [chestTypeFilter, setChestTypeFilter] = useState('all');
   const [selectedRecord, setSelectedRecord] = useState<PunishmentRecord | null>(null);
-  const [openCategories, setOpenCategories] = useState<string[]>([]);
   const [activePanel, setActivePanel] = useState<'achievements' | 'review' | 'chest'>('achievements');
   const [achievementsExpanded, setAchievementsExpanded] = useState(false);
   const [claimingAchievementId, setClaimingAchievementId] = useState<string | null>(null);
@@ -160,37 +158,10 @@ export default function ChildMe() {
     }
   }, [chestTimeFilter, chestTypeFilter]);
 
-  // 处理排序与归类
-  const getProcessedRecords = () => {
-    let list = [...punishmentRecords];
-
-    // 排序
-    list.sort((a, b) => {
-      if (sortMode === 'time') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      if (sortMode === 'coins') return b.deductedCoins - a.deductedCoins;
-      if (sortMode === 'name') return a.taskTitle.localeCompare(b.taskTitle);
-      return 0;
-    });
-
-    if (groupMode === 'none') return { groups: [{ name: '所有记录', items: list }] };
-
-    const groups: Record<string, PunishmentRecord[]> = {};
-    list.forEach(r => {
-      const cat = r.taskCategory || '未分类';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(r);
-    });
-
-    return {
-      groups: Object.entries(groups).map(([name, items]) => ({ name, items }))
-    };
-  };
-
-  const processedData = getProcessedRecords();
-
-  const toggleCategory = (cat: string) => {
-    setOpenCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
-  };
+  // 复盘记录固定按时间倒序展示
+  const sortedRecords = [...punishmentRecords].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -270,12 +241,6 @@ export default function ChildMe() {
     if (!ach.progress || !ach.conditionValue) return 0;
     return Math.min(Math.round((ach.progress / ach.conditionValue) * 100), 99);
   };
-
-  const sortMeta = {
-    time: { label: '最近优先', hint: '按复盘发生时间从新到旧排列' },
-    coins: { label: '扣分最多', hint: '把影响最大的记录放在前面' },
-    name: { label: '任务名称 A-Z', hint: '按任务名称归并查看，适合找重复触发点' },
-  }[sortMode];
 
   if (loading) {
     return <div className="p-4 text-center text-gray-400">加载中...</div>;
@@ -615,119 +580,66 @@ export default function ChildMe() {
           </Card>
         )}
 
-        {/* 筛选与排序控制 */}
-        <div className="rounded-3xl bg-white border border-orange-100 shadow-sm mb-4 p-3 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-black text-gray-800">复盘查看</div>
-              <div className="text-[11px] font-bold text-gray-400 mt-0.5">{sortMeta.hint}</div>
-            </div>
-            <div className="rounded-full bg-purple-50 px-2 py-1 text-[10px] font-black text-purple-700">
-              {sortMeta.label}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div>
-              <div className="text-[10px] font-black text-gray-400 mb-1">时间</div>
-              <div className="grid grid-cols-4 gap-1 rounded-2xl bg-gray-50 p-1">
-              {(['all', 'today', 'week', 'month'] as const).map((filter) => (
-                <button
-                  key={filter}
-                  onClick={() => setTimeFilter(filter)}
-                  className={`px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${
-                    timeFilter === filter ? 'bg-orange-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
-                  {filter === 'all' ? '全部' : filter === 'today' ? '今天' : filter === 'week' ? '本周' : '本月'}
-                </button>
-              ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <div className="text-[10px] font-black text-gray-400 mb-1">显示</div>
-                <div className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-50 p-1">
-              <button onClick={() => setGroupMode('none')} className={`px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${groupMode === 'none' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>列表</button>
-              <button onClick={() => setGroupMode('category')} className={`px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${groupMode === 'category' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>分类</button>
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] font-black text-gray-400 mb-1">排序</div>
-                <div className="grid grid-cols-3 gap-1 rounded-2xl bg-gray-50 p-1">
-                  <button onClick={() => setSortMode('time')} className={`px-2 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${sortMode === 'time' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>最近</button>
-                  <button onClick={() => setSortMode('coins')} className={`px-2 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${sortMode === 'coins' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>扣分</button>
-                  <button onClick={() => setSortMode('name')} className={`px-2 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${sortMode === 'name' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>名称</button>
-                </div>
-              </div>
-            </div>
+        {/* 时间筛选：只留两个选项，固定按时间倒序展示 */}
+        <div className="rounded-3xl bg-white border border-orange-100 shadow-sm mb-4 p-3">
+          <div className="text-sm font-black text-gray-800 mb-2">复盘查看</div>
+          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-50 p-1">
+            {(['month', 'all'] as const).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setTimeFilter(filter)}
+                className={`px-3 py-2 min-h-[44px] rounded-lg text-sm font-bold transition-all ${
+                  timeFilter === filter ? 'bg-orange-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'
+                }`}
+              >
+                {filter === 'month' ? '最近30天' : '全部'}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* 复盘记录列表 */}
         {punishmentRecords.length > 0 ? (
           <div className="space-y-4">
-            {processedData.groups.map((group) => {
-              const isCollapsed = groupMode === 'category' && !openCategories.includes(group.name);
-              return (
-                <div key={group.name} className="space-y-2">
-                  {groupMode === 'category' && (
-                    <button
-                      onClick={() => toggleCategory(group.name)}
-                      className="w-full flex items-center justify-between px-2 py-1 bg-gray-100/50 rounded-lg"
-                    >
-                      <span className="text-xs font-bold text-gray-500">{group.name} ({group.items.length})</span>
-                      {isCollapsed ? <ChevronDown size={14} className="text-gray-400"/> : <ChevronUp size={14} className="text-gray-400"/>}
-                    </button>
-                  )}
-
-                  {!isCollapsed && group.items.map((record) => (
-                    <Card
-                      key={record.id}
-                      className="p-3 bg-orange-50 border-l-4 border-orange-500 cursor-pointer hover:bg-orange-100 transition-colors"
-                      onClick={() => setSelectedRecord(record)}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-lg">{getLevelEmoji(record.level)}</span>
-                            <span className="font-bold text-gray-800">{getLevelName(record.level)}</span>
-                            <span className="text-[10px] text-gray-500">
-                              {new Date(record.createdAt).toLocaleDateString(getDateLocale(), {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </span>
-                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
-                              {sortMode === 'time'
-                                ? '按时间'
-                                : sortMode === 'coins'
-                                  ? `扣 ${record.deductedCoins}`
-                                  : record.taskTitle?.slice(0, 1) || '#'}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-600 mb-1 flex items-center gap-1">
-                            <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{record.taskCategory}</span>
-                            任务：<span className="font-semibold">{record.taskTitle}</span>
-                          </div>
-                          <div className="text-sm text-gray-700 bg-white/60 p-2 rounded line-clamp-1 italic text-xs">
-                            "{record.reason}"
-                          </div>
-                        </div>
-                        <div className="text-right ml-3">
-                          <div className="text-xl font-black text-red-600">
-                            -{record.deductedCoins}
-                          </div>
-                          <div className="text-[9px] text-gray-400">金币</div>
-                        </div>
+            <div className="space-y-2">
+              {sortedRecords.map((record) => (
+                <Card
+                  key={record.id}
+                  className="p-3 bg-orange-50 border-l-4 border-orange-500 cursor-pointer hover:bg-orange-100 transition-colors"
+                  onClick={() => setSelectedRecord(record)}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">{getLevelEmoji(record.level)}</span>
+                        <span className="font-bold text-gray-800">{getLevelName(record.level)}</span>
+                        <span className="text-[10px] text-gray-500">
+                          {new Date(record.createdAt).toLocaleDateString(getDateLocale(), {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
                       </div>
-                    </Card>
-                  ))}
-                </div>
-              );
-            })}
+                      <div className="text-xs text-gray-600 mb-1 flex items-center gap-1">
+                        <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{record.taskCategory}</span>
+                        任务：<span className="font-semibold">{record.taskTitle}</span>
+                      </div>
+                      <div className="text-sm text-gray-700 bg-white/60 p-2 rounded line-clamp-1 italic text-xs">
+                        "{record.reason}"
+                      </div>
+                    </div>
+                    <div className="text-right ml-3">
+                      <div className="text-xl font-black text-red-600">
+                        -{record.deductedCoins}
+                      </div>
+                      <div className="text-[9px] text-gray-400">金币</div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
 
             {/* 展开/收起按钮 */}
             {punishmentRecords.length >= 3 && !expandedRecords && (
@@ -746,7 +658,7 @@ export default function ChildMe() {
             <div className="text-sm text-gray-600">
               {timeFilter === 'all'
                 ? '你还没有任何复盘记录，继续保持！'
-                : `在${timeFilter === 'today' ? '今天' : timeFilter === 'week' ? '本周' : '本月'}没有复盘记录，继续努力！`
+                : '最近30天没有复盘记录，继续保持！'
               }
             </div>
           </Card>

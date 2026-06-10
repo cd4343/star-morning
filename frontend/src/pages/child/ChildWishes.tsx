@@ -527,6 +527,7 @@ export default function ChildWishes() {
 
   // 执行抽奖动画并返回中奖结果
   const runLotteryAnimation = async (apiCall: () => Promise<any>): Promise<any | null> => {
+      // eslint-disable-next-line no-async-promise-executor -- 抽奖动画依赖 await 节奏，错误已在内部 try/catch 处理
       return new Promise(async (resolve) => {
           let spinInterval: ReturnType<typeof setInterval> | null = null;
           let currentStep = 0;
@@ -708,13 +709,12 @@ export default function ChildWishes() {
         </div>
       </div>
 
-      <div className="flex bg-white rounded-xl p-1 shadow-sm overflow-x-auto no-scrollbar">
-          <button onClick={()=>setView('shop')} className={`flex-shrink-0 px-4 py-2 text-xs font-bold rounded-lg transition-all ${view==='shop'?'bg-pink-100 text-pink-600 shadow-sm':'text-gray-500'}`}>商店</button>
-          <button onClick={()=>setView('bag')} className={`flex-shrink-0 px-4 py-2 text-xs font-bold rounded-lg transition-all ${view==='bag'?'bg-blue-100 text-blue-600 shadow-sm':'text-gray-500'}`}>背包</button>
-          <button onClick={()=>setView('savings')} className={`flex-shrink-0 px-4 py-2 text-xs font-bold rounded-lg transition-all ${view==='savings'?'bg-green-100 text-green-600 shadow-sm':'text-gray-500'}`}>储蓄</button>
-
-          <button onClick={()=>setView('lottery')} className={`flex-shrink-0 px-4 py-2 text-xs font-bold rounded-lg transition-all ${view==='lottery'?'bg-purple-100 text-purple-600 shadow-sm':'text-gray-500'}`}>抽奖</button>
-          <button onClick={()=>setView('privileges')} className={`flex-shrink-0 px-4 py-2 text-xs font-bold rounded-lg transition-all ${view==='privileges'?'bg-yellow-100 text-yellow-600 shadow-sm':'text-gray-500'}`}>特权</button>
+      <div className="grid grid-cols-5 gap-1 bg-white rounded-xl p-1 shadow-sm">
+          <button onClick={()=>setView('shop')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='shop'?'bg-pink-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>商店</button>
+          <button onClick={()=>setView('bag')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='bag'?'bg-blue-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>背包</button>
+          <button onClick={()=>setView('savings')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='savings'?'bg-green-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>储蓄</button>
+          <button onClick={()=>setView('lottery')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='lottery'?'bg-purple-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>抽奖</button>
+          <button onClick={()=>setView('privileges')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='privileges'?'bg-yellow-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>特权</button>
       </div>
 
       <div className={`rounded-2xl border p-4 flex items-center gap-3 ${viewMeta.className}`}>
