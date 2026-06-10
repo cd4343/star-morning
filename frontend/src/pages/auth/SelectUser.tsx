@@ -13,6 +13,7 @@ interface Member {
   role: 'parent' | 'child';
   avatar?: string;
   hasPin?: boolean;
+  pendingReviewCount?: number;
   birthdate?: string;
   gender?: string; // boy, girl, dad, mom, grandpa, grandma
 }
@@ -174,6 +175,11 @@ export default function SelectUser() {
                             </span>
                         )}
                         {member.role === 'parent' && member.hasPin && <span className="text-[10px] bg-gray-200 px-1 rounded text-gray-600">🔒 PIN</span>}
+                        {member.role === 'parent' && (member.pendingReviewCount || 0) > 0 && (
+                          <span className="text-xs bg-red-100 px-2 py-0.5 rounded-full text-red-600 font-bold animate-pulse">
+                            📋 {member.pendingReviewCount} 个任务等你审核
+                          </span>
+                        )}
                       </div>
                     </div>
                   </Card>

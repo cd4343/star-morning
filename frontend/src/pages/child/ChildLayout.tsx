@@ -41,21 +41,32 @@ export default function ChildLayout() {
       retryCount.current = 0;
       setChildData(res.data.child);
 
-      // B3-5: 检测新的审核通过结果，显示即时通知
+      // B3-5: 检测新的审核结果（通过+打回），显示即时通知；基线持久化，应用重开也不漏
       if (res.data.recentReviews?.length > 0) {
         const latestReviewAt = res.data.recentReviews[0]?.reviewedAt;
-        if (lastSeenReviewAt.current && latestReviewAt > lastSeenReviewAt.current) {
-          // 找出新增的审核通过项
+        const storageKey = `starcoin:lastSeenReviewAt:${user.id}`;
+        const lastSeen = lastSeenReviewAt.current || localStorage.getItem(storageKey) || '';
+        if (lastSeen && latestReviewAt > lastSeen) {
           const newReviews = res.data.recentReviews.filter(
-            (r: any) => r.reviewedAt > lastSeenReviewAt.current
+            (r: any) => r.reviewedAt > lastSeen
           );
-          if (newReviews.length > 0) {
-            const totalCoins = newReviews.reduce((sum: number, r: any) => sum + (r.earnedCoins || 0), 0);
-            const totalXp = newReviews.reduce((sum: number, r: any) => sum + (r.earnedXp || 0), 0);
+          const approvedNew = newReviews.filter((r: any) => r.status === 'approved');
+          const rejectedNew = newReviews.filter((r: any) => r.status === 'rejected');
+          if (approvedNew.length > 0) {
+            const totalCoins = approvedNew.reduce((sum: number, r: any) => sum + (r.earnedCoins || 0), 0);
+            const totalXp = approvedNew.reduce((sum: number, r: any) => sum + (r.earnedXp || 0), 0);
             toast.showToast(`🌟 审核通过！获得 ${totalCoins} 金币 + ${totalXp} 经验`, 'success', 5000);
           }
+          // 打回不是失败，是修复机会：告诉孩子原因和下一步
+          rejectedNew.slice(0, 2).forEach((r: any) => {
+            toast.showToast(
+              `💬 「${r.taskTitle}」需要再试一次：${r.reviewNote || '问问爸爸妈妈哪里可以改进'}`,
+              'info', 8000
+            );
+          });
         }
         lastSeenReviewAt.current = latestReviewAt;
+        try { localStorage.setItem(storageKey, latestReviewAt); } catch {}
       }
 
       try {

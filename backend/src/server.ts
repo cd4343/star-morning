@@ -1628,7 +1628,17 @@ app.get('/api/auth/members', protect, async (req: any, res) => {
       'SELECT id, name, role, avatar, pin, birthdate, gender FROM users WHERE familyId = ?',
       request.user!.familyId
     );
-    res.json(members.map(serializeAuthMember));
+    // 单设备场景：切换用户页向家长卡片展示待审数量，孩子交回手机时家长第一眼就能看到
+    const pendingRow = await getDb().get(
+      `SELECT COUNT(*) as c FROM task_entries te JOIN tasks t ON te.taskId = t.id
+       WHERE t.familyId = ? AND te.status = 'pending'`,
+      request.user!.familyId
+    );
+    const pendingReviewCount = pendingRow?.c || 0;
+    res.json(members.map((m: any) => ({
+      ...serializeAuthMember(m),
+      ...(m.role === 'parent' ? { pendingReviewCount } : {})
+    })));
 });
 
 app.post('/api/auth/switch-user', protect, async (req: any, res) => {

@@ -11,6 +11,7 @@ import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { StatsPanel } from '../../components/StatsPanel';
 import { ReviewCardSkeleton } from '../../components/Skeleton';
 import { BottomSheet } from '../../components/BottomSheet';
+import { InputModal } from '../../components/Modal';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
 
 interface ReviewItem {
@@ -684,20 +685,23 @@ export default function ParentDashboard() {
     }
   };
 
-  const handleReject = async (entryId: string) => {
-    const confirmed = await confirm({
-      title: '打回任务',
-      message: '确定打回这个任务吗？孩子需要重新完成。',
-      type: 'warning',
-      confirmText: '确定打回',
-    });
-    if (!confirmed) return;
+  // B3-3: 打回必须填写原因，孩子端会展示"哪里可以改进"
+  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
+
+  const handleReject = (entryId: string) => {
+    setRejectTargetId(entryId);
+  };
+
+  const submitReject = async (reason: string) => {
+    const entryId = rejectTargetId;
+    setRejectTargetId(null);
+    if (!entryId) return;
     try {
-      await api.post(`/parent/review/${entryId}`, { action: 'reject' });
-      toast.success('已打回任务');
+      await api.post(`/parent/review/${entryId}`, { action: 'reject', reason: reason.trim().slice(0, 200) });
+      toast.success('已打回，孩子会看到你的说明');
       fetchDashboard();
-    } catch (err) {
-      toast.error('操作失败');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || '操作失败');
     }
   };
 
@@ -1835,6 +1839,14 @@ export default function ParentDashboard() {
       </BottomSheet>
 
       <ConfirmDialog />
+
+      <InputModal
+        isOpen={rejectTargetId !== null}
+        onClose={() => setRejectTargetId(null)}
+        onConfirm={submitReject}
+        title="打回任务：告诉孩子哪里可以改进"
+        placeholder="例如：床铺还没有整理好，再试一次吧"
+      />
     </Layout>
   );
 }
