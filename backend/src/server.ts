@@ -5989,21 +5989,24 @@ app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
     if(user.coins < wish.cost) return res.status(400).json({message:'金币不足'});
 
     try {
-        await db.run('BEGIN');
-        await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', wish.cost, request.user!.id);
-        // 只有 stock > 0 时才减库存（null/-1 表示无限库存）
-        if(wish.stock !== null && wish.stock !== -1 && wish.stock > 0) {
-            await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ?', wish.id);
-        }
-        // 商店商品添加到背包，记录是用金币兑换的，来源为shop
-        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-            randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost, 'coins', 'shop');
-        await db.run('COMMIT');
+        await withTransaction(async () => {
+            // 守卫式扣减：余额不足时不生效，防止并发连点扣成负数
+            const deduct = await db.run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', wish.cost, request.user!.id, wish.cost);
+            if ((deduct.changes || 0) !== 1) throw Object.assign(new Error('金币不足'), { statusCode: 400 });
+            // 只有 stock > 0 时才减库存（null/-1 表示无限库存）；SQL 内守卫防止减到负数
+            if(wish.stock !== null && wish.stock !== -1 && wish.stock > 0) {
+                const st = await db.run('UPDATE wishes SET stock = stock - 1 WHERE id = ? AND stock > 0', wish.id);
+                if ((st.changes || 0) !== 1) throw Object.assign(new Error('库存不足'), { statusCode: 400 });
+            }
+            // 商店商品添加到背包，记录是用金币兑换的，来源为shop
+            await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                randomUUID(), request.user!.id, wish.id, wish.title, wish.icon, wish.cost, 'coins', 'shop');
+        });
         res.json({message:'兑换成功！已放入背包'});
-    } catch (err) {
-        await db.run('ROLLBACK');
-        console.error('兑换失败:', err);
-        return res.status(500).json({message: '兑换失败，请重试'});
+    } catch (err: any) {
+        const sc = err.statusCode || 500;
+        if (sc === 500) console.error('兑换失败:', err);
+        return res.status(sc).json({message: err.message || '兑换失败，请重试'});
     }
 });
 // 背包列表（联表 wishes 返回 effectType，用于「再抽一次」等可使用物品）
@@ -6058,27 +6061,36 @@ app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => {
         }
     }
 
-    await db.run('BEGIN');
-    await db.run("UPDATE user_inventory SET status = 'cancelled', cancelCount = COALESCE(cancelCount, 0) + 1 WHERE id = ?", req.params.id);
-
-    // 根据 costType 退还金币或特权点
     const costType = item.costType || 'coins'; // 兼容旧数据，默认为金币
-    if (costType === 'privilegePoints') {
-        // 退还特权点
-        await db.run('UPDATE users SET privilegePoints = privilegePoints + ? WHERE id = ?', item.cost, request.user!.id);
-    } else {
-        // 退还金币
-        await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', item.cost, request.user!.id);
-        // 恢复库存（只有商店商品需要恢复库存）
-        if (item.wishId) {
-            await db.run('UPDATE wishes SET stock = stock + 1 WHERE id = ? AND stock >= 0', item.wishId);
-        }
-    }
+    try {
+        await withTransaction(async () => {
+            // 状态守卫：防止双击并发导致重复退款
+            const upd = await db.run(
+                "UPDATE user_inventory SET status = 'cancelled', cancelCount = COALESCE(cancelCount, 0) + 1 WHERE id = ? AND status = ?",
+                req.params.id, item.status
+            );
+            if ((upd.changes || 0) !== 1) throw Object.assign(new Error('物品状态已变化，请刷新后重试'), { statusCode: 409 });
 
-    await db.run('COMMIT');
-    res.json({
-        message: costType === 'privilegePoints' ? '已撤销，特权点已退回' : '已撤销，金币已退回'
-    });
+            if (costType === 'privilegePoints') {
+                // 退还特权点
+                await db.run('UPDATE users SET privilegePoints = privilegePoints + ? WHERE id = ?', item.cost, request.user!.id);
+            } else {
+                // 退还金币
+                await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', item.cost, request.user!.id);
+                // 恢复库存（只有商店商品需要恢复库存）
+                if (item.wishId) {
+                    await db.run('UPDATE wishes SET stock = stock + 1 WHERE id = ? AND stock >= 0', item.wishId);
+                }
+            }
+        });
+        res.json({
+            message: costType === 'privilegePoints' ? '已撤销，特权点已退回' : '已撤销，金币已退回'
+        });
+    } catch (err: any) {
+        const sc = err.statusCode || 500;
+        if (sc === 500) console.error('撤销失败:', err);
+        return res.status(sc).json({ message: err.message || '撤销失败，请重试' });
+    }
 });
 
 // 兑现物品/服务
@@ -6094,13 +6106,21 @@ app.post('/api/child/inventory/:id/redeem', protect, async (req: any, res) => {
         const rewardCoins = Math.max(0, Number(item.rewardCoins || 0));
         const rewardXp = Math.max(0, Number(item.rewardXp || 0));
         const rewardPrivilegePoints = Math.max(0, Number(item.rewardPrivilegePoints || 0));
-        await db.run('BEGIN');
-        await db.run(
-            'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-            rewardCoins, rewardXp, rewardPrivilegePoints, request.user!.id
-        );
-        await db.run("UPDATE user_inventory SET status = 'redeemed', redeemedAt = ? WHERE id = ?", new Date().toISOString(), req.params.id);
-        await db.run('COMMIT');
+        try {
+            await withTransaction(async () => {
+                // 状态守卫：防止双击并发重复领取奖励
+                const upd = await db.run("UPDATE user_inventory SET status = 'redeemed', redeemedAt = ? WHERE id = ? AND status NOT IN ('redeemed','used','cancelled','returned')", new Date().toISOString(), req.params.id);
+                if ((upd.changes || 0) !== 1) throw Object.assign(new Error('已兑现'), { statusCode: 400 });
+                await db.run(
+                    'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+                    rewardCoins, rewardXp, rewardPrivilegePoints, request.user!.id
+                );
+            });
+        } catch (err: any) {
+            const sc = err.statusCode || 500;
+            if (sc === 500) console.error('成就礼包领取失败:', err);
+            return res.status(sc).json({ message: err.message || '领取失败，请重试' });
+        }
         return res.json({ message: '成就礼包已打开！', rewardCoins, rewardXp, rewardPrivilegePoints });
     }
 
@@ -6141,22 +6161,31 @@ app.post('/api/child/savings/deposit', protect, async (req: any, res) => {
     const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id);
     if (user.coins < depositAmount) return res.status(400).json({ message: '金币不足' });
 
-    await db.run('BEGIN');
-    await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', depositAmount, request.user!.id);
-    const newAmount = currentAmount + depositAmount;
-    await db.run('UPDATE wishes SET currentAmount = ? WHERE id = ?', newAmount, savings.id);
+    try {
+        let goalAchieved = false;
+        let newAmount = currentAmount;
+        await withTransaction(async () => {
+            // 守卫式扣减，防止并发把余额扣成负数
+            const deduct = await db.run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', depositAmount, request.user!.id, depositAmount);
+            if ((deduct.changes || 0) !== 1) throw Object.assign(new Error('金币不足'), { statusCode: 400 });
+            // 相对增量更新，避免并发存入互相覆盖
+            await db.run('UPDATE wishes SET currentAmount = COALESCE(currentAmount, 0) + ? WHERE id = ?', depositAmount, savings.id);
+            newAmount = Number((await db.get('SELECT currentAmount FROM wishes WHERE id = ?', savings.id))?.currentAmount || 0);
 
-    // 如果达成目标，自动添加到背包
-    let goalAchieved = false;
-    if (targetAmount > 0 && newAmount >= targetAmount && currentAmount < targetAmount) {
-        goalAchieved = true;
-        // 储蓄目标达成，免费获得，cost=0，source='savings'
-        await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-            randomUUID(), request.user!.id, savings.id, savings.title, savings.icon, 0, 'coins', 'savings');
+            // 仅在本次存入跨过目标线时入包，防止重复发放
+            if (targetAmount > 0 && newAmount >= targetAmount && newAmount - depositAmount < targetAmount) {
+                goalAchieved = true;
+                // 储蓄目标达成，免费获得，cost=0，source='savings'
+                await db.run(`INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                    randomUUID(), request.user!.id, savings.id, savings.title, savings.icon, 0, 'coins', 'savings');
+            }
+        });
+        res.json({ message: goalAchieved ? '🎉 目标达成！已放入背包' : '存入成功', goalId: savings.id, newAmount, deposited: depositAmount, goalAchieved });
+    } catch (err: any) {
+        const sc = err.statusCode || 500;
+        if (sc === 500) console.error('储蓄存入失败:', err);
+        return res.status(sc).json({ message: err.message || '存入失败，请重试' });
     }
-
-    await db.run('COMMIT');
-    res.json({ message: goalAchieved ? '🎉 目标达成！已放入背包' : '存入成功', goalId: savings.id, newAmount, deposited: depositAmount, goalAchieved });
 });
 
 // --- 抽奖规则 ---
@@ -6258,8 +6287,20 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
 
     try {
         const result = await withTransaction(async () => {
-            // 扣金币
-            await db.run('UPDATE users SET coins = coins - ? WHERE id = ?', cost, request.user!.id);
+            // 事务内复查每日上限（事务已串行化，复查可靠），防止并发连点突破限制
+            const txCount = (await db.get(
+                `SELECT COUNT(*) as count FROM user_inventory
+                 WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, '+8 hours') = ?`,
+                request.user!.id, today
+            ))?.count || 0;
+            if (txCount >= LOTTERY_DAILY_LIMIT) {
+                throw Object.assign(new Error(`今天最多抽 ${LOTTERY_DAILY_LIMIT} 次，明天再来吧`), { statusCode: 400 });
+            }
+            // 守卫式扣减：余额不足时 changes=0，防止并发连点扣成负数
+            const deduct = await db.run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', cost, request.user!.id, cost);
+            if ((deduct.changes || 0) !== 1) {
+                throw Object.assign(new Error(`金币不足，本次抽奖需要 ${cost} 金币`), { statusCode: 400 });
+            }
             // 抽奖 V2
             return await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, cost, 'lottery');
         });
@@ -6290,8 +6331,9 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             pity: pityInfo
         });
     } catch (err: any) {
-        console.error('抽奖失败:', err);
-        return res.status(500).json({ message: err.message || '抽奖失败，请重试' });
+        const sc = err.statusCode || 500;
+        if (sc === 500) console.error('抽奖失败:', err);
+        return res.status(sc).json({ message: err.message || '抽奖失败，请重试' });
     }
 });
 
@@ -6321,11 +6363,14 @@ app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
     }
 
     try {
-        // 将该记录标记为已完成免费抽奖（防止重复使用）
-        await db.run("UPDATE user_inventory SET status = 'redeemed' WHERE id = ?", recentDrawAgain.id);
-
-        // 执行免费抽奖 V2
-        const result = await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, 0, 'free_draw');
+        // 消费与抽奖同事务：状态守卫防并发复用；抽奖失败回滚，机会不丢失
+        const result = await withTransaction(async () => {
+            const consume = await db.run("UPDATE user_inventory SET status = 'redeemed' WHERE id = ? AND status = 'used'", recentDrawAgain.id);
+            if ((consume.changes || 0) !== 1) {
+                throw Object.assign(new Error('没有可用的再抽一次机会'), { statusCode: 400 });
+            }
+            return await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, 0, 'free_draw');
+        });
         const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
         res.json({
@@ -6344,8 +6389,9 @@ app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
             message: '再抽一次成功！'
         });
     } catch (err: any) {
-        console.error('再抽一次失败:', err);
-        return res.status(500).json({ message: err.message || '再抽一次失败，请重试' });
+        const sc = err.statusCode || 500;
+        if (sc === 500) console.error('再抽一次失败:', err);
+        return res.status(sc).json({ message: err.message || '再抽一次失败，请重试' });
     }
 });
 
@@ -6657,13 +6703,21 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     const user = await db.get('SELECT privilegePoints FROM users WHERE id = ?', request.user!.id);
     if ((user.privilegePoints || 0) < priv.cost) return res.status(400).json({ message: '特权点不足' });
 
-    await db.run('BEGIN');
-    await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ?', priv.cost, request.user!.id);
-    // 特权添加到背包，记录是用特权点兑换的，来源为privilege
-    await db.run(`INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-        randomUUID(), request.user!.id, priv.id, priv.title, priv.icon || '👑', priv.cost, 'privilegePoints', 'privilege');
-    await db.run('COMMIT');
-    res.json({ message: '兑换成功！已放入背包' });
+    try {
+        await withTransaction(async () => {
+            // 守卫式扣减：特权点是最稀缺货币，绝不允许并发扣成负数
+            const deduct = await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ? AND privilegePoints >= ?', priv.cost, request.user!.id, priv.cost);
+            if ((deduct.changes || 0) !== 1) throw Object.assign(new Error('特权点不足'), { statusCode: 400 });
+            // 特权添加到背包，记录是用特权点兑换的，来源为privilege
+            await db.run(`INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                randomUUID(), request.user!.id, priv.id, priv.title, priv.icon || '👑', priv.cost, 'privilegePoints', 'privilege');
+        });
+        res.json({ message: '兑换成功！已放入背包' });
+    } catch (err: any) {
+        const sc = err.statusCode || 500;
+        if (sc === 500) console.error('特权兑换失败:', err);
+        return res.status(sc).json({ message: err.message || '兑换失败，请重试' });
+    }
 });
 
 // ==================== 惩罚系统 API ====================
