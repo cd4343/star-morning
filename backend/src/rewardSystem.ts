@@ -1373,8 +1373,19 @@ export const drawPrizeCoreV2 = async (
   // bonus_coins: 直接获得金币
   // bonus_xp: 直接获得等级经验，不计入特权进度
   // bonus_privilege: 直接获得特权点
-  // free_spin: 免费抽奖券
-  // double_next: 下次双倍
+  // free_spin: 免费抽奖券（抽奖时自动消费，见 /child/lottery/play）
+  // double_next: 下次双倍（抽中数值型奖励时自动消费并翻倍，见下方各 bonus 分支）
+
+  const consumeDoubleNextItem = async (): Promise<boolean> => {
+    const item = await db.get(
+      `SELECT ui.id FROM user_inventory ui JOIN wishes w ON ui.wishId = w.id
+       WHERE ui.childId = ? AND ui.status = 'pending' AND w.effectType = 'double_next'
+       ORDER BY ui.acquiredAt ASC LIMIT 1`, childId);
+    if (!item) return false;
+    const upd = await db.run("UPDATE user_inventory SET status = 'redeemed', redeemedAt = ? WHERE id = ? AND status = 'pending'",
+      new Date().toISOString(), item.id);
+    return (upd.changes || 0) === 1;
+  };
 
   if (effectType === 'draw_again') {
     await db.run(
@@ -1386,7 +1397,8 @@ export const drawPrizeCoreV2 = async (
   }
 
   if (effectType === 'bonus_coins') {
-    const bonusAmount = prize.cost || 20;
+    let bonusAmount = prize.cost || 20;
+    if (await consumeDoubleNextItem()) bonusAmount = bonusAmount * 2; // 双倍卡自动兑现
     await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', bonusAmount, childId);
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
@@ -1397,7 +1409,8 @@ export const drawPrizeCoreV2 = async (
   }
 
   if (effectType === 'bonus_xp') {
-    const bonusAmount = Math.max(1, Number(prize.cost || 10));
+    let bonusAmount = Math.max(1, Number(prize.cost || 10));
+    if (await consumeDoubleNextItem()) bonusAmount = bonusAmount * 2; // 双倍卡自动兑现
     await db.run('UPDATE users SET xp = xp + ? WHERE id = ?', bonusAmount, childId);
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
@@ -1408,7 +1421,8 @@ export const drawPrizeCoreV2 = async (
   }
 
   if (effectType === 'bonus_privilege') {
-    const bonusAmount = Math.max(1, Number(prize.cost || 1));
+    let bonusAmount = Math.max(1, Number(prize.cost || 1));
+    if (await consumeDoubleNextItem()) bonusAmount = bonusAmount * 2; // 双倍卡自动兑现
     await db.run('UPDATE users SET privilegePoints = privilegePoints + ? WHERE id = ?', bonusAmount, childId);
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)

@@ -6105,6 +6105,19 @@ app.post('/api/child/inventory/:id/redeem', protect, async (req: any, res) => {
     if (item.status === 'redeemed' || item.status === 'used') return res.status(400).json({message: '已兑现'});
     if (item.status === 'cancelled' || item.status === 'returned') return res.status(400).json({message: '已撤销的物品无法兑现'});
 
+    // 抽奖券/免费抽奖/双倍卡在抽奖时自动使用，禁止手动兑现（防止白白消耗）
+    if (item.source === 'lottery_ticket') {
+        return res.status(400).json({ message: '这是抽奖券，去抽奖时会自动使用，不用手动兑现哦' });
+    }
+    if (item.wishId) {
+        const effRow = await db.get('SELECT effectType FROM wishes WHERE id = ?', item.wishId);
+        if (effRow && (effRow.effectType === 'free_spin' || effRow.effectType === 'double_next')) {
+            return res.status(400).json({ message: effRow.effectType === 'free_spin'
+                ? '这是免费抽奖机会，去抽奖时会自动使用哦'
+                : '这是双倍卡，下次抽中金币/经验/特权点奖励时会自动翻倍哦' });
+        }
+    }
+
     if (item.source === 'achievement_reward') {
         const rewardCoins = Math.max(0, Number(item.rewardCoins || 0));
         const rewardXp = Math.max(0, Number(item.rewardXp || 0));
@@ -6282,11 +6295,7 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     }
 
     const cost = getLotteryCost();
-
-    const user = await db.get('SELECT coins FROM users WHERE id = ?', request.user!.id);
-    if (user.coins < cost) {
-        return res.status(400).json({ message: `金币不足，本次抽奖需要 ${cost} 金币` });
-    }
+    // 余额校验移入事务内守卫式扣减；且持抽奖券时本次免费（券自动消费），不在此预检
 
     try {
         const result = await withTransaction(async () => {
@@ -6299,13 +6308,39 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             if (txCount >= LOTTERY_DAILY_LIMIT) {
                 throw Object.assign(new Error(`今天最多抽 ${LOTTERY_DAILY_LIMIT} 次，明天再来吧`), { statusCode: 400 });
             }
-            // 守卫式扣减：余额不足时 changes=0，防止并发连点扣成负数
-            const deduct = await db.run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', cost, request.user!.id, cost);
-            if ((deduct.changes || 0) !== 1) {
-                throw Object.assign(new Error(`金币不足，本次抽奖需要 ${cost} 金币`), { statusCode: 400 });
+            // 自动消费背包中的抽奖券/免费抽奖机会（M6：让宝箱抽奖券真正可用）
+            const ticket = await db.get(`
+                SELECT ui.id, ui.cost, ui.source, w.effectType
+                FROM user_inventory ui
+                LEFT JOIN wishes w ON ui.wishId = w.id
+                WHERE ui.childId = ? AND ui.status = 'pending'
+                  AND (w.effectType = 'free_spin' OR ui.source = 'lottery_ticket')
+                ORDER BY ui.acquiredAt ASC LIMIT 1
+            `, request.user!.id);
+            let usedTicket = false;
+            if (ticket) {
+                if (ticket.source === 'lottery_ticket' && Number(ticket.cost || 1) > 1) {
+                    // 多张合一的抽奖券：扣一张，同步标题
+                    const remaining = Number(ticket.cost) - 1;
+                    const upd = await db.run("UPDATE user_inventory SET cost = ?, title = ? WHERE id = ? AND status = 'pending' AND cost = ?",
+                        remaining, `抽奖券(${remaining}张)`, ticket.id, ticket.cost);
+                    usedTicket = (upd.changes || 0) === 1;
+                } else {
+                    const upd = await db.run("UPDATE user_inventory SET status = 'redeemed', redeemedAt = ? WHERE id = ? AND status = 'pending'",
+                        new Date().toISOString(), ticket.id);
+                    usedTicket = (upd.changes || 0) === 1;
+                }
+            }
+            if (!usedTicket) {
+                // 守卫式扣减：余额不足时 changes=0，防止并发连点扣成负数
+                const deduct = await db.run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', cost, request.user!.id, cost);
+                if ((deduct.changes || 0) !== 1) {
+                    throw Object.assign(new Error(`金币不足，本次抽奖需要 ${cost} 金币`), { statusCode: 400 });
+                }
             }
             // 抽奖 V2
-            return await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, cost, 'lottery');
+            const drawRes = await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, usedTicket ? 0 : cost, 'lottery');
+            return { ...drawRes, usedTicket };
         });
 
         const actualCount = todayCount + 1;
@@ -6315,7 +6350,8 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
 
         res.json({
             winner: result.prize,
-            cost,
+            cost: result.usedTicket ? 0 : cost,
+            usedTicket: !!result.usedTicket,
             nextCost,
             todayDrawCount: actualCount,
             currentCost: cost,
