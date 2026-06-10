@@ -175,12 +175,14 @@ export default function SelectUser() {
                             </span>
                         )}
                         {member.role === 'parent' && member.hasPin && <span className="text-[10px] bg-gray-200 px-1 rounded text-gray-600">🔒 PIN</span>}
-                        {member.role === 'parent' && (member.pendingReviewCount || 0) > 0 && (
-                          <span className="text-xs bg-red-100 px-2 py-0.5 rounded-full text-red-600 font-bold animate-pulse">
+                      </div>
+                      {member.role === 'parent' && (member.pendingReviewCount || 0) > 0 && (
+                        <div className="mt-1.5">
+                          <span className="inline-block text-xs bg-red-100 px-2 py-0.5 rounded-full text-red-600 font-bold">
                             📋 {member.pendingReviewCount} 个任务等你审核
                           </span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </Card>
 
