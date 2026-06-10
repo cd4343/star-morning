@@ -4,7 +4,9 @@ import { Camera, CheckCircle2, Compass, FileText, MapPin, Mic, PauseCircle, Send
 import api from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
-import { ExplorePlace, ExploreCheckin, ExploreMedium, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import BottomSheet from '../../components/BottomSheet';
+import ExploreMap, { hasAmapKey } from '../../components/ExploreMap';
+import { ExplorePlace, ExploreCheckin, ExploreMapPlace, ExploreMedium, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
 
 
@@ -14,6 +16,29 @@ const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
   reader.onload = () => resolve(String(reader.result || ''));
   reader.onerror = reject;
   reader.readAsDataURL(file);
+});
+
+// 探索地图一期：单次打卡定位——拿不到就静默放弃，绝不阻塞打卡（P5：不追踪、不记录轨迹）
+const getOneShotPosition = () => new Promise<{ latitude: number; longitude: number } | null>(resolve => {
+  if (!('geolocation' in navigator)) return resolve(null);
+  let settled = false;
+  const finish = (value: { latitude: number; longitude: number } | null) => {
+    if (settled) return;
+    settled = true;
+    resolve(value);
+  };
+  const guard = window.setTimeout(() => finish(null), 6000);
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      window.clearTimeout(guard);
+      finish({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+    },
+    () => {
+      window.clearTimeout(guard);
+      finish(null);
+    },
+    { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+  );
 });
 
 const formatDate = (value?: string) => {
@@ -43,6 +68,17 @@ export default function ChildExplore() {
   // 探索改版①：打卡媒体展开（含爸爸/妈妈的语音回应）
   const [checkinMedia, setCheckinMedia] = useState<Record<string, ExploreMedium[]>>({});
   const [loadingCheckinMedia, setLoadingCheckinMedia] = useState<Record<string, boolean>>({});
+  // 探索地图一期：地图/列表切换（有 key 默认地图；偏好存 localStorage）
+  const [viewMode, setViewMode] = useState<'map' | 'list'>(() => {
+    if (!hasAmapKey()) return 'list';
+    const saved = localStorage.getItem('explore.viewMode');
+    return saved === 'list' ? 'list' : 'map';
+  });
+  const [mapPlaces, setMapPlaces] = useState<ExploreMapPlace[]>([]);
+  const [mapSheetPlace, setMapSheetPlace] = useState<ExploreMapPlace | null>(null);
+  const [showObserveTips, setShowObserveTips] = useState(false);
+  // 探索地图一期：打卡位置核对开关（家长设置，单次定位）
+  const [geoVerify, setGeoVerify] = useState(false);
 
   const visiblePlaces = useMemo(() => {
     if (category === 'all') return places;
@@ -50,18 +86,23 @@ export default function ChildExplore() {
   }, [places, category]);
 
   const loadData = async () => {
-    const [placeRes, checkinRes] = await Promise.all([
+    const [placeRes, checkinRes, mapRes] = await Promise.all([
       api.get('/child/explore/places'),
-      api.get('/child/explore/checkins')
+      api.get('/child/explore/checkins'),
+      api.get('/child/explore/map-places')
     ]);
     setPlaces(placeRes.data || []);
     setCheckins(checkinRes.data || []);
+    setMapPlaces(mapRes.data || []);
   };
 
   useEffect(() => {
     loadData().catch(() => toast.error('探索数据加载失败'));
     api.get('/child/explore/settings')
-      .then(res => setRequirePhoto(!!res.data?.exploreRequirePhoto))
+      .then(res => {
+        setRequirePhoto(!!res.data?.exploreRequirePhoto);
+        setGeoVerify(!!res.data?.exploreGeoVerify);
+      })
       .catch(() => {});
   }, []);
 
@@ -132,6 +173,20 @@ export default function ChildExplore() {
     }
   };
 
+  // 探索地图一期：切换地图/列表并记住偏好
+  const switchViewMode = (mode: 'map' | 'list') => {
+    setViewMode(mode);
+    try { localStorage.setItem('explore.viewMode', mode); } catch { /* 隐私模式下存不了就算了 */ }
+  };
+
+  // 探索地图一期：地图抽屉里点「我到啦，打卡！」→ 复用现有打卡弹窗
+  const openCheckinFromMap = () => {
+    if (!mapSheetPlace) return;
+    const fullPlace: ExplorePlace = places.find(place => place.id === mapSheetPlace.id) || mapSheetPlace;
+    setMapSheetPlace(null);
+    setSelected(fullPlace);
+  };
+
   const submitCheckin = async () => {
     if (!selected) return;
     // 探索改版②：家长开启照片要求时，提交前提醒先拍照（仅前端引导，后端不强制）
@@ -142,11 +197,16 @@ export default function ChildExplore() {
     // B2-4: 仅心情为必填，文字/照片/语音为可选补充
     setSaving(true);
     try {
-      const res = await api.post('/child/explore/checkins', {
-        placeId: selected.id,
-        mood,
-        note
-      });
+      const payload: Record<string, unknown> = { placeId: selected.id, mood, note };
+      // 探索地图一期：家长开启位置核对时，打卡瞬间取一次坐标；失败/拒绝静默继续
+      if (geoVerify) {
+        const position = await getOneShotPosition();
+        if (position) {
+          payload.latitude = position.latitude;
+          payload.longitude = position.longitude;
+        }
+      }
+      const res = await api.post('/child/explore/checkins', payload);
       const checkinId = res.data.id;
       for (const photo of photos.slice(0, 3)) {
         await api.post(`/child/explore/checkins/${checkinId}/media`, {
@@ -177,7 +237,37 @@ export default function ChildExplore() {
   };
 
   return (
-    <div className="p-4 space-y-4 pb-8">
+    <div className={viewMode === 'map' ? 'h-full flex flex-col gap-3 p-4 pb-2' : 'p-4 space-y-4 pb-8'}>
+      {hasAmapKey() && (
+        <div className="flex rounded-2xl bg-white border border-slate-200 p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => switchViewMode('map')}
+            className={`flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'map' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
+          >
+            {t('explore.viewMap')}
+          </button>
+          <button
+            type="button"
+            onClick={() => switchViewMode('list')}
+            className={`flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
+          >
+            {t('explore.viewList')}
+          </button>
+        </div>
+      )}
+
+      {viewMode === 'map' ? (
+        <ExploreMap
+          places={mapPlaces}
+          onPlaceClick={place => {
+            setShowObserveTips(false);
+            setMapSheetPlace(place);
+          }}
+          className="flex-1 min-h-0"
+        />
+      ) : (
+      <>
       <section className="rounded-[1.75rem] bg-gradient-to-br from-emerald-400 via-sky-400 to-indigo-500 text-white p-5 shadow-lg shadow-sky-100">
         <div className="flex items-center gap-2 text-sm font-black opacity-95">
           <Compass size={18} />
@@ -310,6 +400,61 @@ export default function ChildExplore() {
           </div>
         ))}
       </section>
+      </>
+      )}
+
+      <BottomSheet
+        isOpen={!!mapSheetPlace}
+        onClose={() => setMapSheetPlace(null)}
+        title={mapSheetPlace?.title || ''}
+        footer={mapSheetPlace ? (
+          <button
+            type="button"
+            onClick={openCheckinFromMap}
+            className="w-full min-h-[52px] rounded-2xl bg-emerald-500 text-white text-lg font-black shadow-lg shadow-emerald-100 active:scale-[0.99] transition-all"
+          >
+            {t('explore.checkinCta')}
+          </button>
+        ) : undefined}
+      >
+        {mapSheetPlace && (
+          <div className="space-y-3 pb-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">
+                {EXPLORE_CATEGORY_ICONS[mapSheetPlace.category] || '📍'} {mapSheetPlace.category}
+              </span>
+              {mapSheetPlace.status === 'visited' && (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                  🟢 {t('explore.visitedTimes', { count: mapSheetPlace.checkinCount || 0 })}
+                </span>
+              )}
+            </div>
+            {mapSheetPlace.summary && (
+              <p className="text-sm font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{mapSheetPlace.summary}</p>
+            )}
+            {mapSheetPlace.whyGo && (
+              <div className="rounded-2xl bg-sky-50 border border-sky-100 p-3">
+                <div className="text-sm font-black text-sky-700">✨ {t('explore.whyGoTitle')}</div>
+                <p className="mt-1 text-sm font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{mapSheetPlace.whyGo}</p>
+              </div>
+            )}
+            {mapSheetPlace.observeTips && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowObserveTips(prev => !prev)}
+                  className="w-full min-h-[44px] rounded-2xl bg-slate-50 border border-slate-100 px-3 text-left text-sm font-black text-slate-600"
+                >
+                  {showObserveTips ? t('explore.observeTipsClose') : t('explore.observeTipsOpen')}
+                </button>
+                {showObserveTips && (
+                  <p className="mt-2 px-1 text-sm font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{mapSheetPlace.observeTips}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </BottomSheet>
 
       {selected && (
         <div className="absolute inset-0 z-[80] bg-slate-950/55 backdrop-blur-sm flex items-end">

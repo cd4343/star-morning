@@ -143,6 +143,11 @@ export const initializeDatabase = async () => {
   try { await db.run("ALTER TABLE explore_media ADD COLUMN senderRole TEXT DEFAULT 'child'"); } catch (e) {}
   // 探索改版②：打卡照片要求开关（仅前端引导提示，后端不强制）
   try { await db.run('ALTER TABLE families ADD COLUMN exploreRequirePhoto INTEGER DEFAULT 0'); } catch (e) {}
+  // 探索地图一期：单次打卡定位（家长开关控制；仅记录距离，不阻止打卡、不追踪轨迹）
+  try { await db.run('ALTER TABLE explore_checkins ADD COLUMN latitude REAL'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_checkins ADD COLUMN longitude REAL'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_checkins ADD COLUMN distanceMeters INTEGER'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN exploreGeoVerify INTEGER DEFAULT 0'); } catch (e) {}
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}

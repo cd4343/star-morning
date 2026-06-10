@@ -91,6 +91,8 @@ export default function ParentExplore() {
   // 探索改版②：设置面板
   const [quota, setQuota] = useState<{ usedBytes: number; totalBytes: number } | null>(null);
   const [requirePhoto, setRequirePhoto] = useState(false);
+  // 探索地图一期：打卡位置核对开关（单次定位，不追踪）
+  const [geoVerify, setGeoVerify] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [poiUnconfigured, setPoiUnconfigured] = useState(false);
   // 探索改版③：回忆时间线
@@ -116,7 +118,10 @@ export default function ParentExplore() {
   useEffect(() => {
     if (tab === 'settings') {
       api.get('/parent/explore/quota').then(res => setQuota(res.data)).catch(() => {});
-      api.get('/parent/explore/settings').then(res => setRequirePhoto(!!res.data?.exploreRequirePhoto)).catch(() => {});
+      api.get('/parent/explore/settings').then(res => {
+        setRequirePhoto(!!res.data?.exploreRequirePhoto);
+        setGeoVerify(!!res.data?.exploreGeoVerify);
+      }).catch(() => {});
     }
     if (tab === 'memories' && timeline === null) {
       api.get('/parent/explore/timeline').then(res => setTimeline(res.data || [])).catch(() => toast.error('回忆加载失败'));
@@ -305,6 +310,20 @@ export default function ParentExplore() {
     try {
       await api.put('/parent/explore/settings', { exploreRequirePhoto: next ? 1 : 0 });
       setRequirePhoto(next);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  // 探索地图一期：打卡位置核对开关
+  const toggleGeoVerify = async () => {
+    const next = !geoVerify;
+    setSavingSettings(true);
+    try {
+      await api.put('/parent/explore/settings', { exploreGeoVerify: next ? 1 : 0 });
+      setGeoVerify(next);
     } catch (e: any) {
       toast.error(e.response?.data?.message || t('toast.operateFailed'));
     } finally {
@@ -593,6 +612,26 @@ export default function ParentExplore() {
                 className={`relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50 ${requirePhoto ? 'bg-emerald-500' : 'bg-slate-200'}`}
               >
                 <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${requirePhoto ? 'left-7' : 'left-1'}`} />
+              </button>
+            </div>
+
+            {/* 探索地图一期：打卡位置核对开关 */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-black text-slate-900 flex items-center gap-2">
+                  <MapPin size={18} className="text-sky-500" />
+                  {t('explore.geoVerifyTitle')}
+                </div>
+                <p className="mt-1 text-xs font-bold text-slate-500 leading-relaxed">{t('explore.geoVerifyDesc')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={toggleGeoVerify}
+                disabled={savingSettings}
+                aria-pressed={geoVerify}
+                className={`relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50 ${geoVerify ? 'bg-emerald-500' : 'bg-slate-200'}`}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${geoVerify ? 'left-7' : 'left-1'}`} />
               </button>
             </div>
 

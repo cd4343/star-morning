@@ -235,6 +235,16 @@ const getExplorePlaceSelect = () => `
   FROM explore_places p
 `;
 
+// 探索地图一期：haversine 距离计算（纯代码，返回整数米）
+const haversineMeters = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * earthRadiusMeters * Math.asin(Math.sqrt(a)));
+};
+
 const saveExploreMediaFile = async (payload: any, familyId: string, childId: string) => {
   const type = payload?.type === 'audio' ? 'audio' : 'image';
   const dataUrl = String(payload?.dataUrl || '');
@@ -5157,18 +5167,32 @@ app.get('/api/parent/explore/quota', protect, requireParent, async (req: any, re
   res.json({ usedBytes: row?.usedBytes || 0, totalBytes: FAMILY_UPLOAD_QUOTA_MB * 1024 * 1024 });
 });
 
-// 探索改版②：探索设置读写（当前仅照片要求开关）
+// 探索改版②：探索设置读写（照片要求开关 + 地图一期的打卡位置核对开关）
 app.get('/api/parent/explore/settings', protect, requireParent, async (req: any, res) => {
   const request = req as AuthRequest;
-  const family = await getDb().get('SELECT exploreRequirePhoto FROM families WHERE id = ?', request.user!.familyId);
-  res.json({ exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0 });
+  const family = await getDb().get('SELECT exploreRequirePhoto, exploreGeoVerify FROM families WHERE id = ?', request.user!.familyId);
+  res.json({
+    exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0,
+    exploreGeoVerify: family?.exploreGeoVerify ? 1 : 0
+  });
 });
 
 app.put('/api/parent/explore/settings', protect, requireParent, async (req: any, res) => {
   const request = req as AuthRequest;
-  const requirePhotoValue = req.body?.exploreRequirePhoto ? 1 : 0;
-  await getDb().run('UPDATE families SET exploreRequirePhoto = ? WHERE id = ?', requirePhotoValue, request.user!.familyId);
-  res.json({ message: '探索设置已更新', exploreRequirePhoto: requirePhotoValue });
+  const db = getDb();
+  // 只更新请求中携带的开关，避免单开关提交互相覆盖
+  if (req.body?.exploreRequirePhoto !== undefined) {
+    await db.run('UPDATE families SET exploreRequirePhoto = ? WHERE id = ?', req.body.exploreRequirePhoto ? 1 : 0, request.user!.familyId);
+  }
+  if (req.body?.exploreGeoVerify !== undefined) {
+    await db.run('UPDATE families SET exploreGeoVerify = ? WHERE id = ?', req.body.exploreGeoVerify ? 1 : 0, request.user!.familyId);
+  }
+  const family = await db.get('SELECT exploreRequirePhoto, exploreGeoVerify FROM families WHERE id = ?', request.user!.familyId);
+  res.json({
+    message: '探索设置已更新',
+    exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0,
+    exploreGeoVerify: family?.exploreGeoVerify ? 1 : 0
+  });
 });
 
 // 探索改版③：回忆时间线——最近 6 个月已确认打卡，按北京时间月份分组
@@ -5229,6 +5253,21 @@ app.get('/api/child/explore/places', protect, requireChild, async (req: any, res
   res.json(rows);
 });
 
+// 探索地图一期：地图标记数据（无坐标的地点也返回，供列表模式兜底展示）
+app.get('/api/child/explore/map-places', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const rows = await getDb().all(`
+    SELECT p.id, p.title, p.category, p.status, p.latitude, p.longitude,
+      p.summary, p.whyGo, p.observeTips, p.questionPrompts,
+      (SELECT COUNT(*) FROM explore_checkins ec WHERE ec.placeId = p.id) as checkinCount,
+      (SELECT checkedInAt FROM explore_checkins ec WHERE ec.placeId = p.id ORDER BY checkedInAt DESC LIMIT 1) as lastCheckedInAt
+    FROM explore_places p
+    WHERE p.familyId = ? AND p.status != 'archived' AND p.deletedAt IS NULL
+    ORDER BY p.createdAt DESC
+  `, request.user!.familyId);
+  res.json(rows);
+});
+
 app.get('/api/child/explore/places/:id', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
@@ -5267,11 +5306,14 @@ app.get('/api/child/explore/checkins/:id/media', protect, requireChild, async (r
   res.json(media);
 });
 
-// 探索改版②：孩子端读取照片要求开关（提交前的前端引导用）
+// 探索改版②：孩子端读取探索开关（照片要求 + 打卡位置核对，提交前的前端引导用）
 app.get('/api/child/explore/settings', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
-  const family = await getDb().get('SELECT exploreRequirePhoto FROM families WHERE id = ?', request.user!.familyId);
-  res.json({ exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0 });
+  const family = await getDb().get('SELECT exploreRequirePhoto, exploreGeoVerify FROM families WHERE id = ?', request.user!.familyId);
+  res.json({
+    exploreRequirePhoto: family?.exploreRequirePhoto ? 1 : 0,
+    exploreGeoVerify: family?.exploreGeoVerify ? 1 : 0
+  });
 });
 
 // B4-07: 探索成就进度接口 — 返回当前孩子的探索类成就完成进度
@@ -5354,9 +5396,24 @@ app.post('/api/child/explore/checkins', protect, requireChild, async (req: any, 
   if (existingToday) return res.status(409).json({ message: '今天已经在这个地点打卡过了' });
   const id = randomUUID();
   const checkedInAt = new Date().toISOString();
+  // 探索地图一期：单次打卡定位（可选）——只记录距离，距离远也不阻止打卡
+  let checkinLat: number | null = null;
+  let checkinLng: number | null = null;
+  let distanceMeters: number | null = null;
+  const rawLat = Number(req.body.latitude);
+  const rawLng = Number(req.body.longitude);
+  if (req.body.latitude != null && req.body.longitude != null &&
+      Number.isFinite(rawLat) && Number.isFinite(rawLng) &&
+      Math.abs(rawLat) <= 90 && Math.abs(rawLng) <= 180) {
+    checkinLat = rawLat;
+    checkinLng = rawLng;
+    if (place.latitude != null && place.longitude != null) {
+      distanceMeters = haversineMeters(rawLat, rawLng, Number(place.latitude), Number(place.longitude));
+    }
+  }
   await db.run(
-    `INSERT INTO explore_checkins (id, familyId, placeId, childId, mood, note, checkedInAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO explore_checkins (id, familyId, placeId, childId, mood, note, checkedInAt, updatedAt, latitude, longitude, distanceMeters)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     request.user!.familyId,
     place.id,
@@ -5364,7 +5421,10 @@ app.post('/api/child/explore/checkins', protect, requireChild, async (req: any, 
     normalizeExploreMood(req.body.mood),
     trimText(req.body.note, 800),
     checkedInAt,
-    checkedInAt
+    checkedInAt,
+    checkinLat,
+    checkinLng,
+    distanceMeters
   );
   await db.run("UPDATE explore_places SET status = CASE WHEN status = 'wishlist' THEN 'visited' ELSE status END, updatedAt = ? WHERE id = ?", checkedInAt, place.id);
   const unlockedAchievements = await checkAchievements(request.user!.id, db);

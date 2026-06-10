@@ -23,6 +23,22 @@ export type ExplorePlace = {
   lastCheckedInAt?: string;
 };
 
+// 探索地图一期：/api/child/explore/map-places 返回的地图标记数据
+export type ExploreMapPlace = {
+  id: string;
+  title: string;
+  category: string;
+  status: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  checkinCount: number;
+  lastCheckedInAt?: string;
+  summary?: string;
+  whyGo?: string;
+  observeTips?: string;
+  questionPrompts?: string;
+};
+
 export type ExploreCheckin = {
   id: string;
   placeId?: string;

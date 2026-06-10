@@ -50,6 +50,19 @@ const zhCN: Record<string, string> = {
   'explore.mediaToggleOpen': '看看这次的照片和声音',
   'explore.mediaToggleClose': '收起照片和声音',
   'explore.parentReplyHint': '🎧 有爸爸/妈妈的回应，点开听听',
+  // 探索地图一期
+  'explore.viewMap': '🗺️ 地图',
+  'explore.viewList': '📋 列表',
+  'explore.mapNotConfigured': '地图还没配置好，先用列表逛逛吧',
+  'explore.mapLoading': '地图加载中...',
+  'explore.mapNoMarkers': '地点还没有坐标，先到列表里逛逛吧',
+  'explore.checkinCta': '我到啦，打卡！',
+  'explore.whyGoTitle': '为什么值得去',
+  'explore.observeTipsOpen': '🔍 看看可以观察什么',
+  'explore.observeTipsClose': '收起观察提示',
+  'explore.visitedTimes': '去过 {count} 次',
+  'explore.geoVerifyTitle': '打卡时核对位置',
+  'explore.geoVerifyDesc': '仅打卡瞬间取一次位置算距离，不追踪不记录轨迹；距离远也不会阻止打卡',
 };
 
 export default zhCN;
