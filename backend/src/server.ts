@@ -6979,11 +6979,12 @@ app.post('/api/parent/task-entries/batch-review', protect, async (req: any, res)
             await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', coinsToAward, xpToAward, entry.childId);
 
             if (rewardXpToAward > 0) {
-                const user = await db.get('SELECT rewardXpTotal, privilegePoints FROM users WHERE id = ?', entry.childId);
+                const user = await db.get('SELECT rewardXpTotal FROM users WHERE id = ?', entry.childId);
                 const oldRewardXpTotal = user.rewardXpTotal || 0;
                 const newRewardXpTotal = oldRewardXpTotal + rewardXpToAward;
-                const newPrivilegePoints = Math.floor(newRewardXpTotal / 100);
-                const privilegePointsDelta = newPrivilegePoints - (user.privilegePoints || 0);
+                // 与单条审核同口径：特权点增量 = 账本(rewardXpTotal)新旧各自取整后求差。
+                // 不得用可花费余额(privilegePoints)推算，否则孩子花掉的点会被错误补回。
+                const privilegePointsDelta = Math.floor(newRewardXpTotal / 100) - Math.floor(oldRewardXpTotal / 100);
                 await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
                     newRewardXpTotal, privilegePointsDelta, entry.childId);
             }
@@ -7422,10 +7423,4 @@ initializeDatabase()
 
     process.on('unhandledRejection', (reason, promise) => {
       console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-      setTimeout(() => process.exit(1), 1000);
-    });
-  })
-  .catch((error) => {
-    console.error('❌ Failed to initialize database:', error);
-    process.exit(1);
-  });
+      setTimeou
