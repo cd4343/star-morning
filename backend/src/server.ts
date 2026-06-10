@@ -22,9 +22,14 @@ const isProduction = process.env.NODE_ENV === 'production';
 const verboseRequestLogs = process.env.REQUEST_LOGS === 'true' || !isProduction;
 // 安全守卫：未设置 JWT_SECRET 时，仅显式声明 NODE_ENV=development/test 才允许默认密钥启动。
 // NODE_ENV 未设置一律按生产对待，防止生产服务器漏配 NODE_ENV 绕过校验（Rule 12：失败要大声）。
-if (!process.env.JWT_SECRET && process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
-  console.error('❌ 未设置 JWT_SECRET 环境变量！默认密钥仅允许在 NODE_ENV=development/test 下使用，服务拒绝启动。');
-  console.error('   本地开发请设置 NODE_ENV=development，生产环境请设置 JWT_SECRET。');
+const KNOWN_WEAK_SECRETS = [
+  'stellar-system-dev-secret-change-in-production',
+  'stellar-system-production-secret-change-me', // 旧版 start_server_simple.bat 的兜底值
+];
+const isDevLike = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+if (!isDevLike && (!process.env.JWT_SECRET || KNOWN_WEAK_SECRETS.includes(process.env.JWT_SECRET))) {
+  console.error('❌ JWT_SECRET 未设置或使用了公开的默认值！服务拒绝启动（Rule 12：失败要大声）。');
+  console.error('   请运行 scripts\\setup_server_production.bat 生成真实密钥，本地开发请设置 NODE_ENV=development。');
   process.exit(1);
 }
 

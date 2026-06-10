@@ -19,7 +19,11 @@ if exist "scripts\production_env.local.bat" (
 
 if not defined NODE_ENV set "NODE_ENV=production"
 if not defined PORT set "PORT=3001"
-if not defined JWT_SECRET set "JWT_SECRET=stellar-system-production-secret-change-me"
+if not defined JWT_SECRET (
+    echo [ERROR] JWT_SECRET is not set. Run scripts\setup_server_production.bat first.
+    pause
+    exit /b 1
+)
 if not defined STARCOIN_DB_PATH set "STARCOIN_DB_PATH=%CD%\stellar.db"
 if not defined ENABLE_DB_BACKUP set "ENABLE_DB_BACKUP=true"
 if not defined STARCOIN_BACKUP_DIR set "STARCOIN_BACKUP_DIR=%CD%\backups"
