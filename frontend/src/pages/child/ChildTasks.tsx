@@ -326,14 +326,14 @@ const TaskTimerModal = ({ task, anchor, onClose, onComplete, onAbandon }: { task
 
     const requestWakeLock = async () => {
         if ('wakeLock' in navigator) {
-            try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch (err) {}
+            try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch { /* 忽略：走 video 兜底 */ }
         }
-        if (videoRef.current) { try { await videoRef.current.play(); } catch (err) {} }
+        if (videoRef.current) { try { await videoRef.current.play(); } catch { /* 忽略：浏览器拒绝自动播放 */ } }
     };
 
     const releaseWakeLock = async () => {
-        if (wakeLockRef.current !== null) { try { await wakeLockRef.current.release(); wakeLockRef.current = null; } catch (err) {} }
-        if (videoRef.current) { try { videoRef.current.pause(); } catch (err) {} }
+        if (wakeLockRef.current !== null) { try { await wakeLockRef.current.release(); wakeLockRef.current = null; } catch { wakeLockRef.current = null; } }
+        if (videoRef.current) { try { videoRef.current.pause(); } catch { /* 忽略：video 已卸载 */ } }
     };
 
     useEffect(() => {

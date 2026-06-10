@@ -160,7 +160,7 @@ export default function ChildLearning() {
     setStuckHint(option.hint);
     try {
       await updateProgress(currentStepIndex, option.label);
-    } catch {}
+    } catch { /* 忽略：进度保存失败不打断孩子操作，下次会重试 */ }
   };
 
   const submitQuest = async () => {

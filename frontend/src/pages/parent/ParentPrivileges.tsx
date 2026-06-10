@@ -414,7 +414,7 @@ export default function ParentPrivileges() {
                                 </div>
                               );
                             }
-                          } catch {}
+                          } catch { /* 忽略：数据解析失败时不展示该项 */ }
                           return null;
                         })()}
                       </div>
