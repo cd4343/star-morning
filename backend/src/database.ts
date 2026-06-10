@@ -26,6 +26,28 @@ export const initializeDatabase = async () => {
   await db.run('PRAGMA temp_store = MEMORY');         // 临时表存储在内存中
   await createTables();
 
+  // B2-6: 迁移版本追踪
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_versions (
+      version TEXT PRIMARY KEY,
+      appliedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      description TEXT
+    )
+  `);
+  const existingMigrations = [
+    { version: '001', description: '初始核心表结构' },
+    { version: '002', description: '用户扩展字段（pin/phone/auth）' },
+    { version: '003', description: '任务扩展字段（并行/完成模式/图标）' },
+    { version: '004', description: '学习闯关表' },
+    { version: '005', description: '情绪急救/游戏票表' },
+    { version: '006', description: '早餐/早晨流程表' },
+    { version: '007', description: '探索表及索引' },
+    { version: '008', description: '探索地点软删除' },
+  ];
+  for (const m of existingMigrations) {
+    await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);
+  }
+
   try { await db.run('ALTER TABLE users ADD COLUMN pin TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN phone TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN phoneVerifiedAt TEXT'); } catch (e) {}
@@ -113,6 +135,9 @@ export const initializeDatabase = async () => {
       FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+
+  // B2-3: 探索地点软删除字段
+  try { await db.run('ALTER TABLE explore_places ADD COLUMN deletedAt TEXT'); } catch (e) {}
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}
@@ -460,7 +485,7 @@ const createTables = async () => {
   `);
   // 添加稀有度字段（如果不存在）
   try { await db.run('ALTER TABLE wishes ADD COLUMN rarity TEXT'); } catch (e) {}
-  // 抽奖奖品效果类型：null/普通 | draw_again 再抽一次（背包中使用后获得一次免费抽奖）
+  // 抽奖奖品效果类型：null/普通 | draw_again 再抽一次 | bonus_coins 金币到账 | bonus_xp 等级经验到账 | bonus_privilege 特权点到账
   try { await db.run('ALTER TABLE wishes ADD COLUMN effectType TEXT'); } catch (e) {}
   // 系统默认奖项标记（1=系统自动创建的，不能删除和修改名称）
   try { await db.run('ALTER TABLE wishes ADD COLUMN isSystemDefault INTEGER DEFAULT 0'); } catch (e) {}
@@ -871,8 +896,10 @@ const createTables = async () => {
     await db.run('CREATE INDEX IF NOT EXISTS idx_chest_records_familyId ON chest_records(familyId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_explore_places_familyId ON explore_places(familyId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_explore_places_status ON explore_places(status)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_places_familyId_status ON explore_places(familyId, status)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_familyId ON explore_checkins(familyId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_childId ON explore_checkins(childId)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_familyId_childId ON explore_checkins(familyId, childId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_explore_checkins_placeId ON explore_checkins(placeId)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_explore_media_checkinId ON explore_media(checkinId)');
 

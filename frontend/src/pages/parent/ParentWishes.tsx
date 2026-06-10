@@ -59,13 +59,45 @@ const inferShopCategory = (wish: any) => {
 
 // 稀有度配置
 const RARITY_CONFIG = {
-  legendary: { label: '传说', emoji: '🏆', color: 'from-yellow-400 to-amber-500', textColor: 'text-amber-600', bgColor: 'bg-amber-50', weight: 5, maxCount: 1, desc: '极其珍贵，建议只设1个' },
-  rare: { label: '稀有', emoji: '💎', color: 'from-purple-400 to-indigo-500', textColor: 'text-purple-600', bgColor: 'bg-purple-50', weight: 12, maxCount: 2, desc: '比较珍贵，建议最多2个' },
-  uncommon: { label: '优秀', emoji: '🌟', color: 'from-blue-400 to-cyan-500', textColor: 'text-blue-600', bgColor: 'bg-blue-50', weight: 25, maxCount: 2, desc: '还不错，建议2个左右' },
-  common: { label: '普通', emoji: '⭐', color: 'from-green-400 to-emerald-500', textColor: 'text-green-600', bgColor: 'bg-green-50', weight: 40, maxCount: 3, desc: '基础奖品，建议3个左右' },
+  legendary: { label: '传说', emoji: '🏆', color: 'from-yellow-400 to-amber-500', textColor: 'text-amber-600', bgColor: 'bg-amber-50', weight: 1, maxCount: 1, desc: '顶级大奖，和史诗合计每月最多抽中2次' },
+  epic: { label: '史诗', emoji: '🔥', color: 'from-fuchsia-400 to-purple-500', textColor: 'text-fuchsia-600', bgColor: 'bg-fuchsia-50', weight: 4, maxCount: 1, desc: '高价值惊喜，和传说合计每月最多抽中2次' },
+  rare: { label: '稀有', emoji: '💎', color: 'from-purple-400 to-indigo-500', textColor: 'text-purple-600', bgColor: 'bg-purple-50', weight: 12, maxCount: 2, desc: '中等惊喜，仍保留10抽稀有保底' },
+  uncommon: { label: '优秀', emoji: '🌟', color: 'from-blue-400 to-cyan-500', textColor: 'text-blue-600', bgColor: 'bg-blue-50', weight: 28, maxCount: 3, desc: '稳定正反馈，适合作为常见小奖励' },
+  common: { label: '普通', emoji: '⭐', color: 'from-green-400 to-emerald-500', textColor: 'text-green-600', bgColor: 'bg-green-50', weight: 60, maxCount: 4, desc: '基础奖品，建议数量最多' },
 } as const;
 
 type RarityType = keyof typeof RARITY_CONFIG;
+type LotteryEffectType = 'normal' | 'draw_again' | 'bonus_coins' | 'bonus_xp' | 'bonus_privilege';
+
+const LOTTERY_EFFECT_OPTIONS: Array<{ value: LotteryEffectType; label: string; hint: string; icon: string }> = [
+  { value: 'normal', label: '放入背包', hint: '实物、服务或家庭约定，孩子之后再兑现。', icon: '🎁' },
+  { value: 'bonus_coins', label: '金币到账', hint: '抽中后立刻增加金币。', icon: '🪙' },
+  { value: 'bonus_xp', label: '经验到账', hint: '抽中后增加等级经验，不折算特权点。', icon: '✨' },
+  { value: 'bonus_privilege', label: '特权点到账', hint: '抽中后直接增加特权点，建议低频。', icon: '💎' },
+];
+
+const getLotteryEffectLabel = (effect?: string | null) => {
+  if (effect === 'draw_again') return '再抽一次';
+  return LOTTERY_EFFECT_OPTIONS.find(item => item.value === effect)?.label || '放入背包';
+};
+
+const LOTTERY_RARITY_WEIGHT_FACTOR: Record<RarityType, number> = {
+  common: 1,
+  uncommon: 0.55,
+  rare: 0.18,
+  epic: 0.06,
+  legendary: 0.02
+};
+
+const LOTTERY_RECOMMENDED_COUNTS: Record<RarityType, number> = {
+  common: 3,
+  uncommon: 2,
+  rare: 2,
+  epic: 1,
+  legendary: 0
+};
+
+const RARITY_ORDER: RarityType[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 
 const DEFAULT_CHEST_SETTINGS = {
   isEnabled: 1,
@@ -89,19 +121,22 @@ const normalizeChestSettings = (settings: any) => ({
 
 // 抽奖奖池模板（带稀有度）
 const LOTTERY_TEMPLATES = [
-  { title: '100金币', icon: '💰', weight: 5, rarity: 'legendary' as RarityType },
-  { title: '1元零花钱', icon: '💵', weight: 8, rarity: 'legendary' as RarityType },
+  { title: '100金币', icon: '💰', cost: 100, weight: 1, rarity: 'legendary' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
+  { title: '家庭大奖', icon: '🏆', weight: 1, rarity: 'legendary' as RarityType },
+  { title: '看电影30分钟', icon: '🎬', weight: 4, rarity: 'epic' as RarityType },
+  { title: '特别活动券', icon: '🎟️', weight: 4, rarity: 'epic' as RarityType },
+  { title: '1特权点', icon: '💎', cost: 1, weight: 4, rarity: 'epic' as RarityType, effectType: 'bonus_privilege' as LotteryEffectType },
   { title: '免做家务卡', icon: '🎫', weight: 12, rarity: 'rare' as RarityType },
-  { title: '神秘礼物', icon: '🎁', weight: 10, rarity: 'rare' as RarityType },
-  { title: '看电视30分钟', icon: '📺', weight: 20, rarity: 'uncommon' as RarityType },
-  { title: '玩手机30分钟', icon: '📱', weight: 18, rarity: 'uncommon' as RarityType },
-  { title: '神秘糖果', icon: '🍬', weight: 25, rarity: 'uncommon' as RarityType },
-  { title: '10金币', icon: '🪙', weight: 30, rarity: 'common' as RarityType },
-  { title: '贴纸一张', icon: '🏷️', weight: 28, rarity: 'common' as RarityType },
-  { title: '小零食', icon: '🍭', weight: 35, rarity: 'common' as RarityType },
-  { title: '5金币', icon: '🪙', weight: 40, rarity: 'common' as RarityType },
-  { title: '惊喜糖果', icon: '🍪', weight: 32, rarity: 'common' as RarityType },
-  { title: '谢谢参与', icon: '😎', weight: 50, rarity: 'common' as RarityType },
+  { title: '20金币', icon: '🪙', cost: 20, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
+  { title: '25经验', icon: '✨', cost: 25, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
+  { title: '看电视10分钟', icon: '📺', weight: 28, rarity: 'uncommon' as RarityType },
+  { title: '小惊喜', icon: '🎁', weight: 28, rarity: 'uncommon' as RarityType },
+  { title: '10金币', icon: '🪙', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
+  { title: '10经验', icon: '✨', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
+  { title: '贴纸一张', icon: '🏷️', weight: 60, rarity: 'common' as RarityType },
+  { title: '小零食', icon: '🍭', weight: 60, rarity: 'common' as RarityType },
+  { title: '5金币', icon: '🪙', cost: 5, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
+  { title: '谢谢参与', icon: '😎', weight: 60, rarity: 'common' as RarityType },
   // 注意："再抽一次"是默认奖项，不在模板中，系统会自动创建
 ];
 
@@ -146,7 +181,7 @@ export default function ParentWishes() {
   const [stock, setStock] = useState('99');
   const [icon, setIcon] = useState('🎁');
   const [rarity, setRarity] = useState<RarityType>('common');
-  const [effectType, setEffectType] = useState<'normal' | 'draw_again'>('normal');
+  const [effectType, setEffectType] = useState<LotteryEffectType>('normal');
   const [shopCategory, setShopCategory] = useState('其他');
   const [rewardType, setRewardType] = useState<'coins' | 'xp' | 'privilegePoints' | 'lotteryTicket' | 'shopDiscount'>('coins');
 
@@ -166,7 +201,7 @@ export default function ParentWishes() {
   const [editTarget, setEditTarget] = useState('');
   const [editStock, setEditStock] = useState('99');
   const [editRarity, setEditRarity] = useState<RarityType>('common');
-  const [editEffectType, setEditEffectType] = useState<'normal' | 'draw_again'>('normal');
+  const [editEffectType, setEditEffectType] = useState<LotteryEffectType>('normal');
   const [editCategory, setEditCategory] = useState('其他');
 
   useEffect(() => { fetchData(); }, []);
@@ -219,6 +254,7 @@ export default function ParentWishes() {
     const lotteryItems = wishes.filter((w: any) => w.type === 'lottery');
     return {
       legendary: lotteryItems.filter((w: any) => w.rarity === 'legendary').length,
+      epic: lotteryItems.filter((w: any) => w.rarity === 'epic').length,
       rare: lotteryItems.filter((w: any) => w.rarity === 'rare').length,
       uncommon: lotteryItems.filter((w: any) => w.rarity === 'uncommon').length,
       common: lotteryItems.filter((w: any) => !w.rarity || w.rarity === 'common').length,
@@ -266,17 +302,22 @@ export default function ParentWishes() {
       return;
     }
 
-    // 手动添加的奖品永远是普通奖品，"再抽一次"只能通过模板添加
+    const lotteryEffectType = viewType === 'lottery' && effectType !== 'normal' ? effectType : null;
+    const lotteryValueRequired = viewType === 'lottery' && ['bonus_coins', 'bonus_xp', 'bonus_privilege'].includes(effectType);
+    if (lotteryValueRequired && (!Number(cost) || Number(cost) < 1)) {
+      return toast.warning('请输入即时到账奖品的数值');
+    }
+
     await api.post('/parent/wishes', {
       type: viewType,
       title,
-      cost: +cost,
+      cost: lotteryValueRequired || viewType !== 'lottery' ? +cost : 0,
       targetAmount: +target,
       icon,
       stock: viewType === 'shop' ? (+stock || 99) : -1,
       weight,
       rarity: viewType === 'lottery' ? rarity : null,
-      effectType: null,  // 手动添加的永远是普通奖品
+      effectType: lotteryEffectType,
       category: viewType === 'shop' ? shopCategory : null
     });
 
@@ -349,11 +390,11 @@ export default function ParentWishes() {
             type: viewType,
             title: lotteryTemplate.title,
             icon: lotteryTemplate.icon,
-            cost: 0,
+            cost: Number((lotteryTemplate as any).cost || 0),
             stock: -1,
             weight: lotteryTemplate.weight,
             rarity: lotteryTemplate.rarity || null,
-            effectType: null  // 模板中的都是普通奖品，"再抽一次"由系统自动创建
+            effectType: (lotteryTemplate as any).effectType || null
           });
         }
       }
@@ -376,7 +417,7 @@ export default function ParentWishes() {
     setEditTarget(String(wish.targetAmount || 0));
     setEditStock(String(wish.stock ?? 99));
     setEditRarity(wish.rarity || 'common');
-    setEditEffectType(wish.effectType === 'draw_again' ? 'draw_again' : 'normal');
+    setEditEffectType((['draw_again', 'bonus_coins', 'bonus_xp', 'bonus_privilege'].includes(wish.effectType) ? wish.effectType : 'normal') as LotteryEffectType);
     setEditCategory(inferShopCategory(wish));
   };
 
@@ -392,8 +433,7 @@ export default function ParentWishes() {
         stock: editingWish.type === 'shop' ? (+editStock || 99) : editingWish.stock,
         weight: editWeight,
         rarity: editingWish.type === 'lottery' ? editRarity : null,
-        // effectType 保持原值，不允许用户修改
-        effectType: editingWish.effectType || null,
+        effectType: editingWish.isSystemDefault === 1 ? editingWish.effectType : (editEffectType === 'normal' ? null : editEffectType),
         category: editingWish.type === 'shop' ? editCategory : null
       });
       toast.success('修改成功！');
@@ -472,10 +512,63 @@ export default function ParentWishes() {
 
   // 计算选中奖品的概率
   const getSelectedProbability = (prizeId: string) => {
-    const totalWeight = getSelectedTotalWeight();
+    const selectedPrizes = Array.from(selectedLotteryIds)
+      .map(id => wishes.find(w => w.id === id))
+      .filter(Boolean);
+    const totalWeight = selectedPrizes.reduce((sum, prize: any) => sum + getLotteryEffectiveOddsWeight(prize), 0);
     if (totalWeight === 0) return '0.0';
-    const weight = getEffectiveWeight(prizeId);
+    const prize = wishes.find(w => w.id === prizeId);
+    if (!prize) return '0.0';
+    const weight = getLotteryEffectiveOddsWeight(prize);
     return ((weight / totalWeight) * 100).toFixed(1);
+  };
+
+  const getLotteryEffectiveOddsWeight = (prize: any) => {
+    const rarity = (prize.rarity || 'common') as RarityType;
+    const safeRarity = RARITY_CONFIG[rarity] ? rarity : 'common';
+    const baseWeight = selectedLotteryIds.has(prize.id) ? getEffectiveWeight(prize.id) : Number(prize.weight || 10);
+    return Math.max(1, Math.round(Math.max(1, baseWeight) * LOTTERY_RARITY_WEIGHT_FACTOR[safeRarity]));
+  };
+
+  const getLotteryPoolInsight = (items: any[]) => {
+    const counts: Record<RarityType, number> = { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0 };
+    let totalWeight = 0;
+    let epicOrAboveWeight = 0;
+
+    items.forEach(item => {
+      const rarity = ((item.rarity || 'common') as RarityType);
+      const safeRarity = RARITY_CONFIG[rarity] ? rarity : 'common';
+      const effectiveWeight = getLotteryEffectiveOddsWeight(item);
+      counts[safeRarity] += 1;
+      totalWeight += effectiveWeight;
+      if (safeRarity === 'epic' || safeRarity === 'legendary') {
+        epicOrAboveWeight += effectiveWeight;
+      }
+    });
+
+    const probability = totalWeight > 0 ? epicOrAboveWeight / totalWeight : 0;
+    const expectedOne = probability > 0 ? Math.ceil(1 / probability) : null;
+    const expectedMonthCap = probability > 0 ? Math.ceil(2 / probability) : null;
+    const advice = RARITY_ORDER
+      .filter(key => LOTTERY_RECOMMENDED_COUNTS[key] > 0)
+      .map(key => `${RARITY_CONFIG[key].label}${LOTTERY_RECOMMENDED_COUNTS[key]}`)
+      .join('、');
+
+    return {
+      counts,
+      totalWeight,
+      probabilityPercent: Math.round(probability * 1000) / 10,
+      expectedOne,
+      expectedMonthCap,
+      advice,
+      isBalanced:
+        counts.common >= 3 &&
+        counts.uncommon >= 2 &&
+        counts.rare <= 2 &&
+        counts.epic <= 1 &&
+        counts.legendary <= 1 &&
+        counts.epic + counts.legendary <= 1
+    };
   };
 
   // 更新临时权重
@@ -570,6 +663,10 @@ export default function ParentWishes() {
   // 统计抽奖奖池
   const lotteryItems = wishes.filter(w => w.type === 'lottery');
   const activeLotteryCount = lotteryItems.filter(w => w.isActive).length;
+  const lotteryInsightItems = lotteryEditMode
+    ? Array.from(selectedLotteryIds).map(id => wishes.find(w => w.id === id)).filter(Boolean)
+    : lotteryItems.filter(w => w.isActive);
+  const lotteryPoolInsight = getLotteryPoolInsight(lotteryInsightItems);
   const createActionMeta = viewType === 'shop'
     ? { title: '商品兑换', desc: '孩子可以用金币兑换清晰、具体、库存可控的小奖励。', button: '🛒 新建商品', tone: 'from-pink-50 to-rose-50 border-pink-100', btn: 'bg-pink-600' }
     : viewType === 'savings'
@@ -765,6 +862,48 @@ export default function ParentWishes() {
                 </p>
               </div>
             </>
+          )}
+
+          {viewType === 'lottery' && (
+            <div className="space-y-2">
+              <label className="text-xs text-gray-500 font-bold block">奖品到账方式</label>
+              <div className="grid grid-cols-2 gap-2">
+                {LOTTERY_EFFECT_OPTIONS.map(item => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => {
+                      setEffectType(item.value);
+                      if (item.value === 'normal') setCost('');
+                    }}
+                    className={`rounded-xl border p-2 text-left transition-all ${
+                      effectType === item.value
+                        ? 'border-purple-400 bg-purple-50 text-purple-700 shadow-sm'
+                        : 'border-gray-100 bg-white text-gray-600'
+                    }`}
+                  >
+                    <div className="text-sm font-black">{item.icon} {item.label}</div>
+                    <div className="mt-1 text-[10px] leading-snug text-gray-500">{item.hint}</div>
+                  </button>
+                ))}
+              </div>
+              {['bonus_coins', 'bonus_xp', 'bonus_privilege'].includes(effectType) && (
+                <div>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">
+                    {effectType === 'bonus_coins' ? '到账金币' : effectType === 'bonus_xp' ? '到账经验' : '到账特权点'}
+                  </label>
+                  <input
+                    className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none"
+                    type="number"
+                    min={1}
+                    placeholder={effectType === 'bonus_privilege' ? '1' : '10'}
+                    value={cost}
+                    onChange={e => setCost(e.target.value)}
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">抽奖经验只用于等级成长，不会折算为特权点；特权点奖品建议低频设置。</p>
+                </div>
+              )}
+            </div>
           )}
 
           {viewType === 'chest' && (
@@ -1044,6 +1183,34 @@ export default function ParentWishes() {
                 </div>
               )}
             </div>
+            <div className="mt-3 rounded-2xl bg-white/90 border border-purple-100 p-3 text-xs text-slate-600 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-black text-slate-900">五档建议：{lotteryPoolInsight.advice}</div>
+                  <div className="mt-1">史诗/传说没有固定次数保底，合计每月最多抽中2次；传说只建议在节日或阶段大奖时替换史诗位。</div>
+                </div>
+                <div className={`shrink-0 rounded-full px-3 py-1 font-black ${lotteryPoolInsight.isBalanced ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                  {lotteryPoolInsight.isBalanced ? '配置稳' : '需调整'}
+                </div>
+              </div>
+              <div className="grid grid-cols-5 gap-1">
+                {RARITY_ORDER.map(key => (
+                  <div key={key} className={`${RARITY_CONFIG[key].bgColor} rounded-xl px-2 py-2 text-center`}>
+                    <div className={`font-black ${RARITY_CONFIG[key].textColor}`}>{RARITY_CONFIG[key].label}</div>
+                    <div className="mt-0.5 font-bold text-slate-700">
+                      {LOTTERY_RECOMMENDED_COUNTS[key] > 0 ? `${lotteryPoolInsight.counts[key]}/${LOTTERY_RECOMMENDED_COUNTS[key]}` : `${lotteryPoolInsight.counts[key]} · 阶段`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-xl bg-purple-50 px-3 py-2 font-bold text-purple-700">
+                当前奖池史诗/传说约 {lotteryPoolInsight.probabilityPercent}%；
+                {lotteryPoolInsight.expectedOne
+                  ? `按当前权重约 ${lotteryPoolInsight.expectedOne} 抽可能遇到一次，约 ${lotteryPoolInsight.expectedMonthCap} 抽接近本月2次上限。`
+                  : '当前未上架史诗/传说。'}
+                {' '}稀有档保留10抽保底。
+              </div>
+            </div>
             {lotteryEditMode && (
               <div className="mt-2 text-xs text-purple-600">
                 💡 点击奖品进行勾选，选满8个后点击"确认上架"。点击已选奖品的权重可以调整概率。
@@ -1150,9 +1317,9 @@ export default function ParentWishes() {
                 {selectedLotteryIds.size === 8 && (
                   <div className="mt-3 pt-2 border-t text-xs text-gray-500">
                     <div className="flex items-center gap-1">
-                      <span className="text-amber-600">●</span> ≤5% 传说/稀有
-                      <span className="text-blue-600 ml-2">●</span> 6-15% 优秀
-                      <span className="text-green-600 ml-2">●</span> &gt;15% 普通
+                      <span className="text-amber-600">●</span> 传说/史诗：极低概率
+                      <span className="text-purple-600 ml-2">●</span> 稀有：保底档
+                      <span className="text-green-600 ml-2">●</span> 优秀/普通：主要反馈
                     </div>
                   </div>
                 )}
@@ -1567,6 +1734,47 @@ export default function ParentWishes() {
                     </div>
                   </div>
                 </>
+              )}
+
+              {editingWish.type === 'lottery' && editingWish.isSystemDefault !== 1 && (
+                <div className="space-y-2">
+                  <label className="text-xs text-gray-500 font-bold block">奖品到账方式</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {LOTTERY_EFFECT_OPTIONS.map(item => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => {
+                          setEditEffectType(item.value);
+                          if (item.value === 'normal') setEditCost('0');
+                        }}
+                        className={`rounded-xl border p-2 text-left transition-all ${
+                          editEffectType === item.value
+                            ? 'border-purple-400 bg-purple-50 text-purple-700 shadow-sm'
+                            : 'border-gray-100 bg-white text-gray-600'
+                        }`}
+                      >
+                        <div className="text-sm font-black">{item.icon} {item.label}</div>
+                        <div className="mt-1 text-[10px] leading-snug text-gray-500">{item.hint}</div>
+                      </button>
+                    ))}
+                  </div>
+                  {['bonus_coins', 'bonus_xp', 'bonus_privilege'].includes(editEffectType) && (
+                    <div>
+                      <label className="text-xs text-gray-500 font-bold block mb-1">
+                        {editEffectType === 'bonus_coins' ? '到账金币' : editEffectType === 'bonus_xp' ? '到账经验' : '到账特权点'}
+                      </label>
+                      <input
+                        className="w-full p-2 rounded-lg border mt-1"
+                        type="number"
+                        min={1}
+                        value={editCost}
+                        onChange={e => setEditCost(e.target.value)}
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">抽奖经验只用于等级，不计入特权进度。</p>
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="flex gap-2 pt-2">

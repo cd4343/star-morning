@@ -141,8 +141,8 @@ const CONDITION_TYPES = [
 ];
 
 // 任务类别
-const TASK_CATEGORIES = ['生活', '学习', '早晨启动', '运动', '活动', '情绪调节', '其他'];
-const ACHIEVEMENT_CATEGORIES = ['启动', '坚持', '生活', '学习', '早晨启动', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
+const TASK_CATEGORIES = ['生活', '学习', '运动', '活动', '情绪调节', '其他'];
+const ACHIEVEMENT_CATEGORIES = ['启动', '坚持', '生活', '学习', '运动', '活动', '情绪', '金币', '成长', '探索', '品格', '家庭', '其他'];
 const ACHIEVEMENT_CATEGORY_HINTS: Record<string, string> = {
   启动: '奖励开始和小步完成。',
   坚持: '看见稳定和连续。',
@@ -153,6 +153,7 @@ const ACHIEVEMENT_CATEGORY_HINTS: Record<string, string> = {
   情绪: '表达、冷静和复原。',
   金币: '储蓄、兑换和目标感。',
   成长: '等级、经验和综合提升。',
+  探索: '地点打卡、见识和表达。',
   品格: '礼貌、诚实、勇敢和合作。',
   家庭: '分担、协作和亲子约定。',
   其他: '特殊目标暂放这里。',
@@ -164,31 +165,46 @@ const ACHIEVEMENT_TEMPLATES = [
   { title: '小步成章', desc: '完成 10 个任务', icon: '🧭', type: 'task_count', value: 10, category: null, achievementCategory: '启动' },
   { title: '百炼成章', desc: '完成 50 个任务', icon: '🏆', type: 'task_count', value: 50, category: null, achievementCategory: '启动' },
   { title: '星路领航', desc: '完成 100 个任务', icon: '🌟', type: 'task_count', value: 100, category: null, achievementCategory: '启动' },
+  { title: '一路繁星', desc: '完成 300 个任务', icon: '✨', type: 'task_count', value: 300, category: null, achievementCategory: '启动' },
 
   { title: '三天不断线', desc: '连续 3 天完成任务，先守住小周期', icon: '📅', type: 'streak_days', value: 3, category: null, achievementCategory: '坚持' },
   { title: '一周节奏', desc: '连续 7 天完成任务，节奏开始成形', icon: '🗓️', type: 'streak_days', value: 7, category: null, achievementCategory: '坚持' },
   { title: '习惯养成', desc: '连续 21 天完成任务，习惯正在长出来', icon: '💯', type: 'streak_days', value: 21, category: null, achievementCategory: '坚持' },
   { title: '月度坚持', desc: '连续 30 天完成任务，稳定性很珍贵', icon: '⚡', type: 'streak_days', value: 30, category: null, achievementCategory: '坚持' },
+  { title: '久久为功', desc: '连续 60 天完成任务', icon: '🔥', type: 'streak_days', value: 60, category: null, achievementCategory: '坚持' },
+  { title: '百日如一', desc: '连续 100 天完成任务', icon: '🎊', type: 'streak_days', value: 100, category: null, achievementCategory: '坚持' },
 
   { title: '生活小帮手', desc: '完成第 1 个生活任务', icon: '🧹', type: 'category_count', value: 1, category: '生活', achievementCategory: '生活' },
-  { title: '自理小队长', desc: '完成 20 个生活任务，照顾自己更熟练', icon: '🛏️', type: 'category_count', value: 20, category: '生活', achievementCategory: '生活' },
-  { title: '家务小帮手', desc: '完成 50 个生活任务，能主动分担了', icon: '🧺', type: 'category_count', value: 50, category: '生活', achievementCategory: '生活' },
+  { title: '自理有方', desc: '完成 10 个生活任务', icon: '🛏️', type: 'category_count', value: 10, category: '生活', achievementCategory: '生活' },
+  { title: '井井有条', desc: '完成 30 个生活任务', icon: '🍽️', type: 'category_count', value: 30, category: '生活', achievementCategory: '生活' },
+  { title: '家务担当', desc: '完成 60 个生活任务', icon: '🧺', type: 'category_count', value: 60, category: '生活', achievementCategory: '生活' },
+  { title: '生活小管家', desc: '完成 100 个生活任务', icon: '🏠', type: 'category_count', value: 100, category: '生活', achievementCategory: '生活' },
   { title: '整洁一周', desc: '连续 7 天完成生活任务', icon: '🍽️', type: 'streak_days', value: 7, category: '生活', achievementCategory: '生活' },
+  { title: '日常有序', desc: '连续 21 天完成生活任务', icon: '🧺', type: 'streak_days', value: 21, category: '生活', achievementCategory: '生活' },
 
   { title: '学习启动', desc: '完成第 1 个学习任务，先开始就算赢', icon: '📚', type: 'category_count', value: 1, category: '学习', achievementCategory: '学习' },
-  { title: '作业小闯将', desc: '完成 20 个学习任务', icon: '✏️', type: 'category_count', value: 20, category: '学习', achievementCategory: '学习' },
-  { title: '阅读小苗', desc: '完成 50 个学习任务，知识在慢慢长大', icon: '📖', type: 'category_count', value: 50, category: '学习', achievementCategory: '学习' },
+  { title: '专注小苗', desc: '完成 10 个学习任务', icon: '✏️', type: 'category_count', value: 10, category: '学习', achievementCategory: '学习' },
+  { title: '作业小闯将', desc: '完成 30 个学习任务', icon: '📖', type: 'category_count', value: 30, category: '学习', achievementCategory: '学习' },
+  { title: '学海拾贝', desc: '完成 60 个学习任务', icon: '📚', type: 'category_count', value: 60, category: '学习', achievementCategory: '学习' },
+  { title: '求知小灯塔', desc: '完成 100 个学习任务', icon: '🎓', type: 'category_count', value: 100, category: '学习', achievementCategory: '学习' },
   { title: '学习一周星', desc: '连续 7 天完成学习任务', icon: '🎓', type: 'streak_days', value: 7, category: '学习', achievementCategory: '学习' },
+  { title: '书声不断', desc: '连续 21 天完成学习任务', icon: '📖', type: 'streak_days', value: 21, category: '学习', achievementCategory: '学习' },
 
   { title: '动起来', desc: '完成第 1 个运动任务', icon: '🏃', type: 'category_count', value: 1, category: '运动', achievementCategory: '运动' },
-  { title: '运动小将', desc: '完成 20 个运动任务，不用比快，只要参与', icon: '🏋️', type: 'category_count', value: 20, category: '运动', achievementCategory: '运动' },
+  { title: '活力小步', desc: '完成 10 个运动任务', icon: '⚽', type: 'category_count', value: 10, category: '运动', achievementCategory: '运动' },
+  { title: '运动小将', desc: '完成 30 个运动任务', icon: '🏸', type: 'category_count', value: 30, category: '运动', achievementCategory: '运动' },
+  { title: '体能守护者', desc: '完成 60 个运动任务', icon: '🚴', type: 'category_count', value: 60, category: '运动', achievementCategory: '运动' },
+  { title: '强健之星', desc: '完成 100 个运动任务', icon: '💪', type: 'category_count', value: 100, category: '运动', achievementCategory: '运动' },
   { title: '活力一周', desc: '连续 7 天完成运动任务', icon: '🔥', type: 'streak_days', value: 7, category: '运动', achievementCategory: '运动' },
-  { title: '运动之星', desc: '连续 30 天完成运动任务', icon: '🏅', type: 'streak_days', value: 30, category: '运动', achievementCategory: '运动' },
+  { title: '元气常在', desc: '连续 21 天完成运动任务', icon: '🏅', type: 'streak_days', value: 21, category: '运动', achievementCategory: '运动' },
 
   { title: '探索新事物', desc: '完成第 1 个活动任务', icon: '🎹', type: 'category_count', value: 1, category: '活动', achievementCategory: '活动' },
-  { title: '兴趣练习者', desc: '完成 20 个活动任务', icon: '🎨', type: 'category_count', value: 20, category: '活动', achievementCategory: '活动' },
+  { title: '兴趣练习者', desc: '完成 10 个活动任务', icon: '🎨', type: 'category_count', value: 10, category: '活动', achievementCategory: '活动' },
+  { title: '灵感小匠', desc: '完成 30 个活动任务', icon: '🎸', type: 'category_count', value: 30, category: '活动', achievementCategory: '活动' },
+  { title: '小小创作者', desc: '完成 60 个活动任务', icon: '🎤', type: 'category_count', value: 60, category: '活动', achievementCategory: '活动' },
+  { title: '创意满格', desc: '完成 100 个活动任务', icon: '🌈', type: 'category_count', value: 100, category: '活动', achievementCategory: '活动' },
   { title: '活动坚持星', desc: '连续 7 天完成活动任务', icon: '🎸', type: 'streak_days', value: 7, category: '活动', achievementCategory: '活动' },
-  { title: '小小创作者', desc: '完成 50 个活动任务，探索也会积累', icon: '🎤', type: 'category_count', value: 50, category: '活动', achievementCategory: '活动' },
+  { title: '艺海拾光', desc: '连续 21 天完成活动任务', icon: '🎤', type: 'streak_days', value: 21, category: '活动', achievementCategory: '活动' },
 
   { title: '会说感受', desc: '能说出自己现在的感受', icon: '💝', type: 'manual', value: 0, category: null, achievementCategory: '情绪' },
   { title: '冷静小勇士', desc: '生气或着急时尝试冷静动作', icon: '🤫', type: 'manual', value: 0, category: null, achievementCategory: '情绪' },
@@ -197,12 +213,26 @@ const ACHIEVEMENT_TEMPLATES = [
   { title: '积少成多', desc: '获得 100 金币', icon: '🪙', type: 'coin_count', value: 100, category: null, achievementCategory: '金币' },
   { title: '聚沙成塔', desc: '获得 500 金币', icon: '💰', type: 'coin_count', value: 500, category: null, achievementCategory: '金币' },
   { title: '家财万贯', desc: '获得 1000 金币', icon: '🏦', type: 'coin_count', value: 1000, category: null, achievementCategory: '金币' },
+  { title: '富足有方', desc: '获得 3000 金币', icon: '💎', type: 'coin_count', value: 3000, category: null, achievementCategory: '金币' },
   { title: '星河宝藏', desc: '获得 5000 金币', icon: '🎁', type: 'coin_count', value: 5000, category: null, achievementCategory: '金币' },
+  { title: '丰盈之库', desc: '获得 10000 金币', icon: '👑', type: 'coin_count', value: 10000, category: null, achievementCategory: '金币' },
 
+  { title: '初露锋芒', desc: '达到 2 级', icon: '⭐', type: 'level_reach', value: 2, category: null, achievementCategory: '成长' },
   { title: '新手入门', desc: '累计获得 100 经验', icon: '⭐', type: 'xp_count', value: 100, category: null, achievementCategory: '成长' },
   { title: '成长之路', desc: '达到 5 级', icon: '📈', type: 'level_reach', value: 5, category: null, achievementCategory: '成长' },
   { title: '进阶高手', desc: '达到 10 级', icon: '🚀', type: 'level_reach', value: 10, category: null, achievementCategory: '成长' },
   { title: '闪耀成长', desc: '达到 20 级', icon: '🌟', type: 'level_reach', value: 20, category: null, achievementCategory: '成长' },
+  { title: '登峰造极', desc: '达到 30 级', icon: '👑', type: 'level_reach', value: 30, category: null, achievementCategory: '成长' },
+
+  { title: '初次出发', desc: '完成 1 次探索打卡', icon: '🧭', type: 'explore_checkin_count', value: 1, category: null, achievementCategory: '探索' },
+  { title: '见识在路上', desc: '完成 5 次探索打卡', icon: '🗺️', type: 'explore_checkin_count', value: 5, category: null, achievementCategory: '探索' },
+  { title: '行路少年', desc: '完成 10 次探索打卡', icon: '🚶', type: 'explore_checkin_count', value: 10, category: null, achievementCategory: '探索' },
+  { title: '博物初见', desc: '打卡 1 个博物馆', icon: '🏛️', type: 'explore_category_count', value: 1, category: '博物馆', achievementCategory: '探索' },
+  { title: '自然观察员', desc: '打卡 3 个自然或公园地点', icon: '🌿', type: 'explore_category_count', value: 3, category: '自然,公园', achievementCategory: '探索' },
+  { title: '城市小旅人', desc: '打卡 3 个城市地点', icon: '🏙️', type: 'explore_category_count', value: 3, category: '城市', achievementCategory: '探索' },
+  { title: '勇敢表达', desc: '留下 1 条语音留言', icon: '🎙️', type: 'explore_voice_count', value: 1, category: null, achievementCategory: '探索' },
+  { title: '小小记录家', desc: '上传 3 次照片纪念', icon: '📷', type: 'explore_media_count', value: 3, category: null, achievementCategory: '探索' },
+  { title: '亲子探索家', desc: '完成 3 次家长确认探索', icon: '🎒', type: 'explore_confirmed_count', value: 3, category: null, achievementCategory: '探索' },
 
   { title: '礼貌小天使', desc: '能用礼貌的话表达需要', icon: '😊', type: 'manual', value: 0, category: null, achievementCategory: '品格' },
   { title: '乐于助人', desc: '主动帮助别人一次', icon: '🤝', type: 'manual', value: 0, category: null, achievementCategory: '品格' },

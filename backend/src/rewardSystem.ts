@@ -1130,13 +1130,121 @@ const RARITY_RANK: Record<string, number> = {
   legendary: 5
 };
 
-// 抽奖核心逻辑 V2（带保底机制）
+const LOTTERY_RARITY_WEIGHT_FACTOR: Record<string, number> = {
+  common: 1,
+  uncommon: 0.55,
+  rare: 0.18,
+  epic: 0.06,
+  legendary: 0.02
+};
+
+const LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT = 2;
+
+const getRarityRank = (rarity?: string | null) => RARITY_RANK[rarity || 'common'] || 1;
+const isEpicOrAbove = (rarity?: string | null) => getRarityRank(rarity) >= RARITY_RANK.epic;
+
+const getLotteryEffectiveWeight = (prize: any) => {
+  const rawWeight = Math.max(1, Number(prize.weight || 10) || 10);
+  const factor = LOTTERY_RARITY_WEIGHT_FACTOR[prize.rarity || 'common'] || 1;
+  return Math.max(1, Math.round(rawWeight * factor));
+};
+
+const getMonthlyEpicOrAboveCount = async (db: any, childId: string) => {
+  const row = await db.get(
+    `SELECT COUNT(*) as count
+     FROM user_inventory ui
+     JOIN wishes w ON ui.wishId = w.id
+     WHERE ui.childId = ?
+       AND ui.source IN ('lottery', 'free_draw')
+       AND CASE COALESCE(w.rarity, 'common')
+         WHEN 'legendary' THEN 5
+         WHEN 'epic' THEN 4
+         WHEN 'rare' THEN 3
+         WHEN 'uncommon' THEN 2
+         ELSE 1
+       END >= 4
+       AND date(ui.acquiredAt, '+8 hours') >= date('now', '+8 hours', 'start of month')
+       AND date(ui.acquiredAt, '+8 hours') < date('now', '+8 hours', 'start of month', '+1 month')`,
+    childId
+  );
+  return Number(row?.count || 0);
+};
+
+const LOTTERY_POOL_RECOMMENDATION = {
+  activePrizeCount: 8,
+  counts: {
+    common: 3,
+    uncommon: 2,
+    rare: 2,
+    epic: 1,
+    legendary: 0
+  },
+  note: '建议上架8个奖品：普通3、优秀2、稀有2、史诗1；传说只在特殊阶段替换史诗位。史诗/传说不设固定次数保底，合计每月最多2次。'
+};
+
+const createEmptyLotteryOdds = (monthlyEpicOrAboveCount: number) => ({
+  activePrizeCount: 0,
+  rarityCounts: { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0 },
+  epicOrAboveProbabilityPercent: 0,
+  expectedDrawsForOneEpicOrAbove: null as number | null,
+  expectedDrawsToMonthlyEpicOrAboveLimit: null as number | null,
+  remainingEpicOrAboveThisMonth: Math.max(0, LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT - monthlyEpicOrAboveCount),
+  monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT,
+  recommendation: LOTTERY_POOL_RECOMMENDATION
+});
+
+const getLotteryOddsInfo = async (db: any, familyId: string | undefined, monthlyEpicOrAboveCount: number) => {
+  if (!familyId) return createEmptyLotteryOdds(monthlyEpicOrAboveCount);
+
+  const prizes = await db.all(
+    "SELECT rarity, weight FROM wishes WHERE familyId = ? AND type = 'lottery' AND isActive = 1 AND (stock IS NULL OR stock = -1 OR stock > 0)",
+    familyId
+  );
+  if (!prizes.length) return createEmptyLotteryOdds(monthlyEpicOrAboveCount);
+
+  const rarityCounts = { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0 };
+  let totalWeight = 0;
+  let epicOrAboveWeight = 0;
+
+  prizes.forEach((prize: any) => {
+    const rarity = (prize.rarity || 'common') as keyof typeof rarityCounts;
+    const normalizedRarity = rarityCounts[rarity] === undefined ? 'common' : rarity;
+    const effectiveWeight = getLotteryEffectiveWeight(prize);
+    rarityCounts[normalizedRarity] += 1;
+    totalWeight += effectiveWeight;
+    if (isEpicOrAbove(normalizedRarity)) {
+      epicOrAboveWeight += effectiveWeight;
+    }
+  });
+
+  const probability = totalWeight > 0 ? epicOrAboveWeight / totalWeight : 0;
+  const remainingEpicOrAboveThisMonth = Math.max(0, LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT - monthlyEpicOrAboveCount);
+
+  return {
+    activePrizeCount: prizes.length,
+    rarityCounts,
+    epicOrAboveProbabilityPercent: Math.round(probability * 1000) / 10,
+    expectedDrawsForOneEpicOrAbove: probability > 0 ? Math.ceil(1 / probability) : null,
+    expectedDrawsToMonthlyEpicOrAboveLimit: probability > 0 && remainingEpicOrAboveThisMonth > 0
+      ? Math.ceil(remainingEpicOrAboveThisMonth / probability)
+      : null,
+    remainingEpicOrAboveThisMonth,
+    monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT,
+    recommendation: LOTTERY_POOL_RECOMMENDATION
+  };
+};
+
+// 抽奖核心逻辑 V2（稀有保底 + 月度大奖上限）
 export interface DrawResultV2 {
   prize: any;
   newInventoryId: string | null;
   isDrawAgain: boolean;
   isBonusCoins: boolean;
   bonusCoins: number;
+  isBonusXp: boolean;
+  bonusXp: number;
+  isBonusPrivilegePoints: boolean;
+  bonusPrivilegePoints: number;
   isFreeSpin: boolean;
   isDoubleNext: boolean;
   pityTriggered: {
@@ -1144,6 +1252,8 @@ export interface DrawResultV2 {
     epic: boolean;
     legendary: boolean;
   };
+  monthlyEpicOrAboveCount: number;
+  monthlyEpicOrAboveLimit: number;
 }
 
 export const drawPrizeCoreV2 = async (
@@ -1169,41 +1279,45 @@ export const drawPrizeCoreV2 = async (
     throw new Error('奖池为空或奖品已抽完');
   }
 
-  // 保底检查
+  const monthlyEpicOrAboveCount = await getMonthlyEpicOrAboveCount(db, childId);
+  const canDrawEpicOrAbove = monthlyEpicOrAboveCount < LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT;
+  if (!canDrawEpicOrAbove) {
+    const lowerTierPrizes = prizes.filter((p: any) => !isEpicOrAbove(p.rarity));
+    if (lowerTierPrizes.length === 0) {
+      throw new Error('本月史诗及以上奖励已达上限，请家长上架稀有及以下奖品');
+    }
+    prizes = lowerTierPrizes;
+  }
+
+  // 保底检查：只保留稀有保底。史诗/传说按奖池概率出现，并受月度上限约束。
   let pityTriggered = { rare: false, epic: false, legendary: false };
   let forcedRarity: string | null = null;
 
-  if (stats.legendaryStreak >= 99) {
-    forcedRarity = 'legendary';
-    pityTriggered.legendary = true;
-  } else if (stats.epicStreak >= 29) {
-    forcedRarity = 'epic';
-    pityTriggered.epic = true;
-  } else if (stats.rareStreak >= 9) {
+  if (stats.rareStreak >= 9) {
     forcedRarity = 'rare';
     pityTriggered.rare = true;
   }
 
-  // 如果触发保底，过滤出对应稀有度及以上的奖品
+  // 如果触发稀有保底，过滤出稀有度及以上的奖品；若月度大奖已达上限，则自动排除史诗/传说。
   if (forcedRarity) {
     const minRank = RARITY_RANK[forcedRarity] || 1;
-    const eligiblePrizes = prizes.filter((p: any) => (RARITY_RANK[p.rarity || 'common'] || 1) >= minRank);
+    const eligiblePrizes = prizes.filter((p: any) => getRarityRank(p.rarity) >= minRank && (canDrawEpicOrAbove || !isEpicOrAbove(p.rarity)));
     if (eligiblePrizes.length > 0) {
       prizes = eligiblePrizes;
     }
   }
 
   // 加权随机算法
-  const totalWeight = prizes.reduce((sum: number, p: any) => sum + (p.weight || 10), 0);
+  const totalWeight = prizes.reduce((sum: number, p: any) => sum + getLotteryEffectiveWeight(p), 0);
   let random = Math.random() * totalWeight;
   let prize = prizes[0];
   for (const p of prizes) {
-    random -= (p.weight || 10);
+    random -= getLotteryEffectiveWeight(p);
     if (random <= 0) { prize = p; break; }
   }
 
   const prizeRarity = prize.rarity || 'common';
-  const prizeRank = RARITY_RANK[prizeRarity] || 1;
+  const prizeRank = getRarityRank(prizeRarity);
 
   // 更新保底计数
   const newRareStreak = prizeRank >= 3 ? 0 : stats.rareStreak + 1;
@@ -1226,6 +1340,8 @@ export const drawPrizeCoreV2 = async (
   // 处理特殊效果
   // draw_again: 再抽一次
   // bonus_coins: 直接获得金币
+  // bonus_xp: 直接获得等级经验，不计入特权进度
+  // bonus_privilege: 直接获得特权点
   // free_spin: 免费抽奖券
   // double_next: 下次双倍
 
@@ -1235,7 +1351,7 @@ export const drawPrizeCoreV2 = async (
        VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
       newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
     );
-    return { prize, newInventoryId, isDrawAgain: true, isBonusCoins: false, bonusCoins: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered };
+    return { prize, newInventoryId, isDrawAgain: true, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'bonus_coins') {
@@ -1246,7 +1362,29 @@ export const drawPrizeCoreV2 = async (
        VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
       newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
     );
-    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: true, bonusCoins: bonusAmount, isFreeSpin: false, isDoubleNext: false, pityTriggered };
+    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: true, bonusCoins: bonusAmount, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+  }
+
+  if (effectType === 'bonus_xp') {
+    const bonusAmount = Math.max(1, Number(prize.cost || 10));
+    await db.run('UPDATE users SET xp = xp + ? WHERE id = ?', bonusAmount, childId);
+    await db.run(
+      `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
+       VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
+      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+    );
+    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: true, bonusXp: bonusAmount, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+  }
+
+  if (effectType === 'bonus_privilege') {
+    const bonusAmount = Math.max(1, Number(prize.cost || 1));
+    await db.run('UPDATE users SET privilegePoints = privilegePoints + ? WHERE id = ?', bonusAmount, childId);
+    await db.run(
+      `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
+       VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
+      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+    );
+    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: true, bonusPrivilegePoints: bonusAmount, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'free_spin') {
@@ -1254,7 +1392,7 @@ export const drawPrizeCoreV2 = async (
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'pending')`,
       newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source
     );
-    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isFreeSpin: true, isDoubleNext: false, pityTriggered };
+    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: true, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'double_next') {
@@ -1262,7 +1400,7 @@ export const drawPrizeCoreV2 = async (
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'pending')`,
       newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source
     );
-    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isFreeSpin: false, isDoubleNext: true, pityTriggered };
+    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: true, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   // 普通奖品
@@ -1271,14 +1409,34 @@ export const drawPrizeCoreV2 = async (
     newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source
   );
 
-  return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered };
+  return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
 };
 
 // 获取抽奖保底信息
-export const getLotteryPityInfo = async (db: any, childId: string) => {
+export const getLotteryPityInfo = async (db: any, childId: string, familyId?: string) => {
   const stats = await db.get('SELECT * FROM lottery_stats WHERE childId = ?', childId);
+  const monthlyEpicOrAboveCount = await getMonthlyEpicOrAboveCount(db, childId);
+  const odds = await getLotteryOddsInfo(db, familyId, monthlyEpicOrAboveCount);
+  const monthlyInfo = {
+    monthlyEpicOrAboveCount,
+    monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT,
+    epicOrAboveAvailable: monthlyEpicOrAboveCount < LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT,
+    odds
+  };
   if (!stats) {
-    return { totalDraws: 0, rareStreak: 0, epicStreak: 0, legendaryStreak: 0, rarePityProgress: 0, epicPityProgress: 0, legendaryPityProgress: 0 };
+    return {
+      totalDraws: 0,
+      rareStreak: 0,
+      epicStreak: 0,
+      legendaryStreak: 0,
+      rarePityProgress: 0,
+      epicPityProgress: 0,
+      legendaryPityProgress: 0,
+      epicPityDisabled: true,
+      legendaryPityDisabled: true,
+      epicOrAboveRule: '史诗/传说不按固定次数保底，按奖池权重随机出现，并受每月2次上限控制。',
+      ...monthlyInfo
+    };
   }
   return {
     totalDraws: stats.totalDraws || 0,
@@ -1286,7 +1444,11 @@ export const getLotteryPityInfo = async (db: any, childId: string) => {
     epicStreak: stats.epicStreak || 0,
     legendaryStreak: stats.legendaryStreak || 0,
     rarePityProgress: Math.min(100, Math.round((stats.rareStreak / 10) * 100)),
-    epicPityProgress: Math.min(100, Math.round((stats.epicStreak / 30) * 100)),
-    legendaryPityProgress: Math.min(100, Math.round((stats.legendaryStreak / 100) * 100))
+    epicPityProgress: 0,
+    legendaryPityProgress: 0,
+    epicPityDisabled: true,
+    legendaryPityDisabled: true,
+    epicOrAboveRule: '史诗/传说不按固定次数保底，按奖池权重随机出现，并受每月2次上限控制。',
+    ...monthlyInfo
   };
 };

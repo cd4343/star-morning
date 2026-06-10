@@ -707,6 +707,16 @@ export default function ChildChallenge() {
     if (!dashboard) {
       return { title: '正在同步今天的下一步', tab: 'today' as TabKey, action: 'tab' as const };
     }
+    // B3-6: 早晨时段（6-9点）推荐早晨流程
+    const hour = new Date().getHours();
+    if (hour >= 6 && hour < 9 && openRegularTasks.length > 0) {
+      const morningTask = openRegularTasks.find((t: Task) =>
+        t.category === 'morning' || t.category === '早餐' || t.title?.includes('早晨') || t.title?.includes('早餐')
+      );
+      if (morningTask) {
+        return { title: morningTask.title, tab: 'today' as TabKey, action: 'task' as const, task: morningTask };
+      }
+    }
     if (openRegularTasks[0]) {
       return { title: openRegularTasks[0].title, tab: 'today' as TabKey, action: 'task' as const, task: openRegularTasks[0] };
     }

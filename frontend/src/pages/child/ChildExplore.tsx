@@ -3,49 +3,10 @@ import { useOutletContext } from 'react-router-dom';
 import { Camera, CheckCircle2, Compass, FileText, MapPin, Mic, PauseCircle, Send, Sparkles, Upload, Volume2, X } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
+import { ExplorePlace, ExploreCheckin, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import { compressImage } from '../../utils/imageCompress';
 
-type ExplorePlace = {
-  id: string;
-  title: string;
-  category: string;
-  city?: string;
-  address?: string;
-  summary?: string;
-  whyGo?: string;
-  observeTips?: string;
-  questionPrompts?: string;
-  tags?: string;
-  status: string;
-  checkinCount?: number;
-  lastCheckedInAt?: string;
-};
 
-type ExploreCheckin = {
-  id: string;
-  placeId: string;
-  placeTitle: string;
-  placeCategory: string;
-  mood: string;
-  note?: string;
-  checkedInAt: string;
-  parentConfirmed?: number;
-  mediaCount?: number;
-};
-
-const categories = ['all', '博物馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'];
-const moods = ['好奇', '开心', '勇敢', '惊喜', '有点累'];
-
-const categoryIcon: Record<string, string> = {
-  博物馆: '🏛️',
-  自然: '🌿',
-  公园: '🌳',
-  城市: '🏙️',
-  活动: '🎪',
-  旅行: '🧳',
-  运动体验: '🏃',
-  公益体验: '🤝',
-  其他: '📍'
-};
 
 const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -66,7 +27,7 @@ export default function ChildExplore() {
   const [checkins, setCheckins] = useState<ExploreCheckin[]>([]);
   const [category, setCategory] = useState('all');
   const [selected, setSelected] = useState<ExplorePlace | null>(null);
-  const [mood, setMood] = useState(moods[0]);
+  const [mood, setMood] = useState<string>(EXPLORE_MOODS[0]);
   const [note, setNote] = useState('');
   const [photos, setPhotos] = useState<File[]>([]);
   const [audioDataUrl, setAudioDataUrl] = useState('');
@@ -95,18 +56,40 @@ export default function ChildExplore() {
     loadData().catch(() => toast.error('探索数据加载失败'));
   }, []);
 
+  // B3-2: iOS Safari 兼容——自动检测支持的 MIME 类型
+  const getSupportedMimeType = (): string | null => {
+    const types = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus',
+    ];
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) return type;
+    }
+    return null;
+  };
+
   const startRecording = async () => {
     try {
+      // B3-2: 检测浏览器支持的录音格式
+      const mimeType = getSupportedMimeType();
+      if (!mimeType) {
+        toast.warning('您的浏览器不支持录音功能，可以用文字或照片代替');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream, { mimeType });
       chunks.current = [];
       recorder.ondataavailable = event => {
         if (event.data.size > 0) chunks.current.push(event.data);
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach(track => track.stop());
-        const blob = new Blob(chunks.current, { type: recorder.mimeType || 'audio/webm' });
-        setAudioDataUrl(await fileToDataUrl(new File([blob], 'explore-voice.webm', { type: blob.type })));
+        const blob = new Blob(chunks.current, { type: recorder.mimeType || mimeType });
+        // 根据实际 MIME 类型选择文件扩展名
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        setAudioDataUrl(await fileToDataUrl(new File([blob], `explore-voice.${ext}`, { type: blob.type })));
         setAudioDuration(Math.max(1, Math.round((Date.now() - recordStartedAt.current) / 1000)));
       };
       mediaRecorder.current = recorder;
@@ -125,10 +108,7 @@ export default function ChildExplore() {
 
   const submitCheckin = async () => {
     if (!selected) return;
-    if (!note.trim() && photos.length === 0 && !audioDataUrl) {
-      toast.warning('至少写一句感受，或上传一张照片/一段语音');
-      return;
-    }
+    // B2-4: 仅心情为必填，文字/照片/语音为可选补充
     setSaving(true);
     try {
       const res = await api.post('/child/explore/checkins', {
@@ -177,7 +157,7 @@ export default function ChildExplore() {
       </section>
 
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        {categories.map(item => (
+        {['all', ...EXPLORE_CATEGORIES].map(item => (
           <button
             key={item}
             type="button"
@@ -186,7 +166,7 @@ export default function ChildExplore() {
               category === item ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-600 border-slate-200'
             }`}
           >
-            {item === 'all' ? '全部' : `${categoryIcon[item] || '📍'} ${item}`}
+            {item === 'all' ? '全部' : `${EXPLORE_CATEGORY_ICONS[item] || '📍'} ${item}`}
           </button>
         ))}
       </div>
@@ -209,7 +189,7 @@ export default function ChildExplore() {
           >
             <div className="flex gap-3">
               <div className="w-12 h-12 rounded-2xl bg-sky-50 flex items-center justify-center text-2xl">
-                {categoryIcon[place.category] || '📍'}
+                {EXPLORE_CATEGORY_ICONS[place.category] || '📍'}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
@@ -222,6 +202,9 @@ export default function ChildExplore() {
                   <MapPin size={13} />
                   <span className="truncate">{place.address || place.city || place.category}</span>
                 </div>
+                {place.whyGo && (
+                  <p className="text-xs text-slate-500 line-clamp-1 mt-1">✨ {place.whyGo}</p>
+                )}
                 {place.summary && <p className="mt-2 text-sm text-slate-600 leading-relaxed line-clamp-2">{place.summary}</p>}
                 <div className="mt-3 flex items-center gap-3 text-xs font-bold text-slate-400">
                   <span>打卡 {place.checkinCount || 0} 次</span>
@@ -277,7 +260,7 @@ export default function ChildExplore() {
                 记录这次探索
               </h4>
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                {moods.map(item => (
+                {EXPLORE_MOODS.map(item => (
                   <button
                     key={item}
                     type="button"
@@ -302,10 +285,24 @@ export default function ChildExplore() {
                   accept="image/*"
                   multiple
                   className="hidden"
-                  onChange={event => setPhotos(Array.from(event.target.files || []).slice(0, 3))}
+                  onChange={async event => {
+                    const rawFiles = Array.from(event.target.files || []).slice(0, 3);
+                    // B3-1: 移动端图片压缩 + EXIF 清除
+                    const compressed = await Promise.all(rawFiles.map(f => compressImage(f)));
+                    setPhotos(compressed);
+                  }}
                 />
               </label>
-              {photos.length > 0 && <div className="text-xs font-bold text-slate-500">已选择 {photos.length} 张照片</div>}
+              {photos.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {photos.map((photo, idx) => (
+                    <div key={idx} className="relative shrink-0">
+                      <img src={URL.createObjectURL(photo)} alt={`照片${idx + 1}`} className="w-16 h-16 rounded-xl object-cover border border-slate-200" />
+                      <button type="button" onClick={() => setPhotos(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-black">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -327,8 +324,10 @@ export default function ChildExplore() {
               </div>
               {audioDataUrl && (
                 <div className="flex items-center justify-between rounded-2xl bg-white border border-slate-100 px-3 py-2 text-sm font-bold text-slate-600">
-                  <span className="flex items-center gap-2"><Volume2 size={16} /> 已录音 {audioDuration} 秒</span>
-                  <button type="button" onClick={() => setAudioDataUrl('')} className="text-red-500">删除</button>
+                  <span className="flex items-center gap-2">
+                    <audio src={audioDataUrl} className="h-8 w-32" controls preload="none" />
+                  </span>
+                  <button type="button" onClick={() => setAudioDataUrl('')} className="text-red-500 text-xs font-black">删除</button>
                 </div>
               )}
               <div className="flex items-start gap-2 rounded-2xl bg-amber-50 border border-amber-100 p-3 text-xs font-bold text-amber-700 leading-relaxed">

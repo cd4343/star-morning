@@ -139,7 +139,17 @@ export default function ChildWishes() {
     dailyLimit?: number, remainingDraws?: number,
     pity?: {
       totalDraws: number, rareStreak: number, epicStreak: number, legendaryStreak: number,
-      rarePityProgress: number, epicPityProgress: number, legendaryPityProgress: number
+      rarePityProgress: number, epicPityProgress: number, legendaryPityProgress: number,
+      monthlyEpicOrAboveCount?: number, monthlyEpicOrAboveLimit?: number, epicOrAboveAvailable?: boolean,
+      epicPityDisabled?: boolean, legendaryPityDisabled?: boolean, epicOrAboveRule?: string,
+      odds?: {
+        epicOrAboveProbabilityPercent: number,
+        expectedDrawsForOneEpicOrAbove: number | null,
+        expectedDrawsToMonthlyEpicOrAboveLimit: number | null,
+        remainingEpicOrAboveThisMonth: number,
+        monthlyEpicOrAboveLimit: number,
+        activePrizeCount: number
+      }
     }
   }>({
     todayDrawCount: 0, currentCost: 15, nextCost: 15, dailyLimit: 10, remainingDraws: 10
@@ -208,7 +218,8 @@ export default function ChildWishes() {
           remainingDraws: lotteryRes.data.remainingDraws ?? Math.max(0, 10 - Number(lotteryRes.data.todayDrawCount || 0)),
           pity: lotteryRes.data.pity || {
             totalDraws: 0, rareStreak: 0, epicStreak: 0, legendaryStreak: 0,
-            rarePityProgress: 0, epicPityProgress: 0, legendaryPityProgress: 0
+            rarePityProgress: 0, epicPityProgress: 0, legendaryPityProgress: 0,
+            monthlyEpicOrAboveCount: 0, monthlyEpicOrAboveLimit: 2, epicOrAboveAvailable: true
           }
         });
       }
@@ -569,7 +580,8 @@ export default function ChildWishes() {
                   setActiveGridIndex(winnerIndexInGrid !== -1 ? winnerIndexInGrid : 0);
                   playMagicSound();
 
-                  if (winner.type === 'rare' || winner.type === 'legendary') {
+                  const winnerRank = ({ common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 } as Record<string, number>)[winner.rarity || 'common'] || 1;
+                  if (winnerRank >= 4) {
                     setShowConfetti(true);
                   }
 
@@ -641,12 +653,16 @@ export default function ChildWishes() {
           if (result && !result.isDrawAgain) {
               if (result.isBonusCoins) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！直接获得 ${result.bonusCoins} 金币！`, '💰');
+              } else if (result.isBonusXp) {
+                  showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，获得 ${result.bonusXp} 经验。`, '✨');
+              } else if (result.isBonusPrivilegePoints) {
+                  showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，获得 ${result.bonusPrivilegePoints} 特权点。`, '💎');
               } else if (result.isFreeSpin) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！获得一次免费抽奖机会，已放入背包！`, '🎫');
               } else if (result.isDoubleNext) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！下次任务奖励将翻倍！`, '✨');
-              } else if (result.pityTriggered && (result.pityTriggered.rare || result.pityTriggered.epic || result.pityTriggered.legendary)) {
-                  showTip('🌟 保底触发！', `你抽中了：${prizeTitle(result.winner)}！（触发保底，必出高级奖励）`, '🎊');
+              } else if (result.pityTriggered?.rare) {
+                  showTip('🌟 稀有保底触发！', `你抽中了：${prizeTitle(result.winner)}！（至少匹配稀有档奖励）`, '🎊');
               } else {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！已放入背包，快去"背包"查看并兑现吧！`, '🎊');
               }
@@ -1172,23 +1188,23 @@ export default function ChildWishes() {
                     <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${lotteryInfo.pity.rarePityProgress}%` }} />
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-white/70">
-                    <span>🔥 史诗保底</span>
-                    <span>{lotteryInfo.pity.epicStreak}/30</span>
-                  </div>
-                  <div className="h-2 bg-black/30 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-400 rounded-full transition-all" style={{ width: `${lotteryInfo.pity.epicPityProgress}%` }} />
-                  </div>
-
-                  {lotteryInfo.pity.legendaryStreak > 50 && (
-                    <div className="flex items-center justify-between text-xs text-white/70">
-                      <span>👑 传说保底</span>
-                      <span>{lotteryInfo.pity.legendaryStreak}/100</span>
-                    </div>
-                  )}
-                  {lotteryInfo.pity.legendaryStreak > 50 && (
-                    <div className="h-2 bg-black/30 rounded-full overflow-hidden">
-                      <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${lotteryInfo.pity.legendaryPityProgress}%` }} />
+                  {lotteryInfo.pity.odds && (
+                    <div className="rounded-xl bg-white/10 px-3 py-2 text-xs text-white/80">
+                      <div className="font-bold">
+                        {lotteryInfo.pity.odds.expectedDrawsForOneEpicOrAbove
+                          ? `当前奖池约 ${lotteryInfo.pity.odds.expectedDrawsForOneEpicOrAbove} 抽可能遇到一次史诗/传说。`
+                          : '当前奖池还没有史诗/传说奖励。'}
+                      </div>
+                      <div className="mt-1 text-white/65">
+                        {lotteryInfo.pity.epicOrAboveAvailable === false
+                          ? '本月大奖机会已用完，接下来会优先遇到稀有及以下奖励。'
+                          : lotteryInfo.pity.odds.expectedDrawsToMonthlyEpicOrAboveLimit
+                            ? `按这个奖池，约 ${lotteryInfo.pity.odds.expectedDrawsToMonthlyEpicOrAboveLimit} 抽会接近本月大奖上限。`
+                            : '普通和优秀奖励会更多，用来保持稳定反馈。'}
+                      </div>
+                      <div className="mt-1 text-white/65">
+                        史诗/传说没有固定次数保底，最多合计每月 {lotteryInfo.pity.monthlyEpicOrAboveLimit || 2} 次。
+                      </div>
                     </div>
                   )}
                 </div>

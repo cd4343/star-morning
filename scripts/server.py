@@ -16,6 +16,7 @@ import threading
 HOST = '0.0.0.0'  # 监听所有网络接口
 PORT = 80         # 端口号（HTTP默认端口）
 DOMAIN = 'starcoin.h5-online.com'
+BACKEND_PROXY_TIMEOUT_SECONDS = 25
 
 class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
     """自定义HTTP请求处理器"""
@@ -103,9 +104,9 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 req = urllib.request.Request(backend_url, headers=safe_headers)
                 
                 # 处理 304 Not Modified 响应
-                # 添加超时设置，避免请求挂起（10秒超时）
+                # 添加超时设置，避免请求挂起
                 try:
-                    response = urllib.request.urlopen(req, timeout=10)
+                    response = urllib.request.urlopen(req, timeout=BACKEND_PROXY_TIMEOUT_SECONDS)
                     status_code = response.getcode()
                     
                     # 如果是 304，直接返回 304，不读取响应体
@@ -145,7 +146,7 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                     error_msg = str(e)
                     if 'timeout' in error_msg.lower() or isinstance(e, (socket.timeout, TimeoutError)):
                         print(f"[错误] GET {self.path} - 后端超时 ({elapsed:.3f}s)")
-                        self.send_error(504, f"Backend timeout: Request to backend server timed out after 10 seconds")
+                        self.send_error(504, f"Backend timeout: Request to backend server timed out after {BACKEND_PROXY_TIMEOUT_SECONDS} seconds")
                     else:
                         print(f"[错误] GET {self.path} - 连接错误: {error_msg} ({elapsed:.3f}s)")
                         self.send_error(502, f"Backend connection error: {error_msg}")
@@ -214,8 +215,8 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 
                 req = urllib.request.Request(backend_url, data=post_data, headers=safe_headers)
                 
-                # 添加超时设置（10秒）
-                with urllib.request.urlopen(req, timeout=10) as response:
+                # 添加超时设置
+                with urllib.request.urlopen(req, timeout=BACKEND_PROXY_TIMEOUT_SECONDS) as response:
                     self.send_response(response.getcode())
                     for header, value in response.headers.items():
                         if header.lower() not in ['connection', 'transfer-encoding']:
@@ -227,7 +228,7 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 error_msg = str(e)
                 if 'timeout' in error_msg.lower() or isinstance(e, (socket.timeout, TimeoutError)):
                     print(f"[错误] POST {self.path} - 后端超时 ({elapsed:.3f}s)")
-                    self.send_error(504, f"Backend timeout: Request timed out after 10 seconds")
+                    self.send_error(504, f"Backend timeout: Request timed out after {BACKEND_PROXY_TIMEOUT_SECONDS} seconds")
                 else:
                     print(f"[错误] POST {self.path} - 连接错误: {error_msg} ({elapsed:.3f}s)")
                     self.send_error(502, f"Backend connection error: {error_msg}")
@@ -280,8 +281,8 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 # 关键修复：显式设置 method='PUT'
                 req = urllib.request.Request(backend_url, data=put_data, headers=safe_headers, method='PUT')
                 
-                # 添加超时设置（10秒）
-                with urllib.request.urlopen(req, timeout=10) as response:
+                # 添加超时设置
+                with urllib.request.urlopen(req, timeout=BACKEND_PROXY_TIMEOUT_SECONDS) as response:
                     self.send_response(response.getcode())
                     for header, value in response.headers.items():
                         if header.lower() not in ['connection', 'transfer-encoding']:
@@ -293,7 +294,7 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 error_msg = str(e)
                 if 'timeout' in error_msg.lower() or isinstance(e, (socket.timeout, TimeoutError)):
                     print(f"[错误] PUT {self.path} - 后端超时 ({elapsed:.3f}s)")
-                    self.send_error(504, f"Backend timeout: Request timed out after 10 seconds")
+                    self.send_error(504, f"Backend timeout: Request timed out after {BACKEND_PROXY_TIMEOUT_SECONDS} seconds")
                 else:
                     print(f"[错误] PUT {self.path} - 连接错误: {error_msg} ({elapsed:.3f}s)")
                     self.send_error(502, f"Backend connection error: {error_msg}")
@@ -340,8 +341,8 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
                 
                 req = urllib.request.Request(backend_url, method='DELETE', headers=safe_headers)
                 
-                # 添加超时设置（10秒）
-                with urllib.request.urlopen(req, timeout=10) as response:
+                # 添加超时设置
+                with urllib.request.urlopen(req, timeout=BACKEND_PROXY_TIMEOUT_SECONDS) as response:
                     self.send_response(response.getcode())
                     for header, value in response.headers.items():
                         if header.lower() not in ['connection', 'transfer-encoding']:
@@ -351,7 +352,7 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
                 error_msg = str(e)
                 if 'timeout' in error_msg.lower() or isinstance(e, (socket.timeout, TimeoutError)):
-                    self.send_error(504, f"Backend timeout: Request timed out after 10 seconds")
+                    self.send_error(504, f"Backend timeout: Request timed out after {BACKEND_PROXY_TIMEOUT_SECONDS} seconds")
                 else:
                     self.send_error(502, f"Backend connection error: {error_msg}")
             except Exception as e:
@@ -493,4 +494,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

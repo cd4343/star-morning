@@ -25,6 +25,7 @@ build/
 scripts/production_env.local.bat
 
 # IDE
+.workbuddy/
 .vscode/
 .idea/
 *.swp
@@ -43,6 +44,9 @@ logs/
 # Temporary files
 .tmp/
 临时/
+temp/
+deploy/
+uploads/
 *.tmp
 *.temp
 .cache/

@@ -1,0 +1,26 @@
+{
+  "name": "星辰早晨 - 家庭成长激励系统",
+  "short_name": "星辰早晨",
+  "description": "帮助家长通过游戏化方式激励孩子完成任务、养成好习惯",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "lifestyle"],
+  "lang": "zh-CN"
+}

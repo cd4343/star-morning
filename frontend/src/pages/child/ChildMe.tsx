@@ -253,6 +253,11 @@ export default function ChildMe() {
       case 'category_count': return `完成 ${ach.conditionValue} 个${ach.conditionCategory || ''}任务`;
       case 'streak_days': return `连续 ${ach.conditionValue} 天${ach.conditionCategory ? `完成${ach.conditionCategory}` : '完成任务'}`;
       case 'manual': return '特殊成就';
+      case 'explore_checkin_count': return `完成 ${ach.conditionValue} 次探索打卡`;
+      case 'explore_category_count': return `打卡 ${ach.conditionValue} 个${ach.conditionCategory || '探索'}地点`;
+      case 'explore_media_count': return `上传 ${ach.conditionValue} 次照片纪念`;
+      case 'explore_voice_count': return `留下 ${ach.conditionValue} 条语音留言`;
+      case 'explore_confirmed_count': return `完成 ${ach.conditionValue} 次家长确认探索`;
       default: return ach.description;
     }
   };
@@ -458,97 +463,104 @@ export default function ChildMe() {
             <div>暂无成就，等待家长设置</div>
           </div>
         ) : (
-          <div className="space-y-3 mt-4">
-            {visibleAchievements.map((ach, index) => {
-              const isUnlocked = Boolean(ach.unlocked);
-              const progressPercent = getProgressPercent(ach);
-              const display = getAchievementDisplay(ach);
-              const displayTitle = display.title;
-              const displayDescription = display.description;
-              const displayIcon = display.icon;
-              return (
-                <div
-                  key={ach.id || index}
-                  className={`rounded-3xl border p-3 ${
-                    isUnlocked
-                      ? 'bg-gradient-to-br from-yellow-50 to-orange-50 border-yellow-200'
-                      : 'bg-gray-50 border-gray-100'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 ${isUnlocked ? 'bg-white shadow-sm' : 'bg-white grayscale opacity-60'}`}>
-                      {displayIcon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <div className="font-black text-gray-900">{displayTitle}</div>
-                            {display.rank.label && (
-                              <span className="text-[9px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full">
-                                {display.rank.icon || displayIcon} {display.rank.label}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-500 mt-0.5">{displayDescription}</div>
-                        </div>
-                        <span className={`text-[10px] font-black px-2 py-1 rounded-full flex-shrink-0 ${isUnlocked ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
-                          {isUnlocked ? '已解锁' : `${progressPercent}%`}
-                        </span>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="rounded-2xl bg-white/80 p-2">
-                            <div className="font-black text-gray-400">达成条件</div>
-                          <div className="font-bold text-gray-700 mt-0.5">{displayDescription}</div>
-                        </div>
-                        <div className="rounded-2xl bg-white/80 p-2">
-                          <div className="font-black text-gray-400">解锁奖励</div>
-                          <div className="font-bold text-gray-700 mt-0.5">{getRewardText(ach)}</div>
-                        </div>
-                      </div>
-                      {isUnlocked && (
-                        <div className="mt-3">
-                          {ach.rewardClaimable ? (
-                            <button
-                              type="button"
-                              disabled={claimingAchievementId === ach.id}
-                              onClick={() => claimAchievementReward(ach)}
-                              className="w-full rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-60"
-                            >
-                              {claimingAchievementId === ach.id
-                                ? '领取中...'
-                                : ach.rewardDelivery === 'backpack'
-                                  ? '领取成就礼包'
-                                  : '领取奖励'}
-                            </button>
-                          ) : (
-                            <div className="rounded-2xl bg-white/70 px-3 py-2 text-[11px] font-bold text-emerald-700">
-                              {ach.rewardClaimedAt
-                                ? `奖励已领取：${new Date(ach.rewardClaimedAt).toLocaleDateString('zh-CN')}`
-                                : '这个成就没有额外奖励'}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <div className="mt-3">
-                        <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1">
-                          <span>{isUnlocked ? '完成进度' : `当前 ${Math.min(Number(ach.progress || 0), Number(ach.conditionValue || 0))}/${ach.conditionValue || 0}`}</span>
-                          <span>{isUnlocked && ach.unlockedAt ? `解锁于 ${new Date(ach.unlockedAt).toLocaleDateString('zh-CN')}` : `${progressPercent}%`}</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-white overflow-hidden">
-                          <div className={`h-full rounded-full ${isUnlocked ? 'bg-emerald-400' : 'bg-blue-400'}`} style={{ width: `${progressPercent}%` }} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+          <div className="mt-4 space-y-4">
+            {/* 探索成就区域 */}
+            {visibleAchievements.some(a => a.conditionType?.startsWith('explore_')) && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🧭</span>
+                  <span className="text-sm font-black text-slate-800">探索成就</span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {visibleAchievements.filter(a => a.conditionType?.startsWith('explore_') && a.unlocked).length}/{visibleAchievements.filter(a => a.conditionType?.startsWith('explore_')).length}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="grid grid-cols-2 gap-2">
+                  {visibleAchievements.filter(a => a.conditionType?.startsWith('explore_')).map((ach, index) => {
+                    const isUnlocked = Boolean(ach.unlocked);
+                    const progressPercent = getProgressPercent(ach);
+                    const display = getAchievementDisplay(ach);
+                    return (
+                      <div key={ach.id || index} className={`rounded-2xl border p-2.5 ${isUnlocked ? 'bg-teal-50 border-teal-200' : 'bg-white border-slate-100'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${isUnlocked ? 'bg-white shadow-sm' : 'bg-slate-50 grayscale opacity-50'}`}>
+                            {display.icon}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-black text-gray-900 truncate">{display.title}</div>
+                            <div className="text-[10px] text-gray-500 truncate">{getConditionText(ach)}</div>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full bg-white overflow-hidden">
+                            <div className={`h-full rounded-full ${isUnlocked ? 'bg-teal-400' : 'bg-sky-300'}`} style={{ width: `${progressPercent}%` }} />
+                          </div>
+                          <span className={`text-[10px] font-black flex-shrink-0 ${isUnlocked ? 'text-teal-600' : 'text-gray-400'}`}>
+                            {isUnlocked ? '✅' : `${progressPercent}%`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 常规成就区域 */}
+            {visibleAchievements.some(a => !a.conditionType?.startsWith('explore_')) && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🏆</span>
+                  <span className="text-sm font-black text-slate-800">任务成就</span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {visibleAchievements.filter(a => !a.conditionType?.startsWith('explore_') && a.unlocked).length}/{visibleAchievements.filter(a => !a.conditionType?.startsWith('explore_')).length}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {visibleAchievements.filter(a => !a.conditionType?.startsWith('explore_')).map((ach, index) => {
+                    const isUnlocked = Boolean(ach.unlocked);
+                    const progressPercent = getProgressPercent(ach);
+                    const display = getAchievementDisplay(ach);
+                    return (
+                      <div key={ach.id || index} className={`rounded-2xl border p-2.5 ${isUnlocked ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${isUnlocked ? 'bg-white shadow-sm' : 'bg-slate-50 grayscale opacity-50'}`}>
+                            {display.icon}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-black text-gray-900 truncate">{display.title}</div>
+                            <div className="text-[10px] text-gray-500 truncate">{getConditionText(ach)}</div>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full bg-white overflow-hidden">
+                            <div className={`h-full rounded-full ${isUnlocked ? 'bg-amber-400' : 'bg-sky-300'}`} style={{ width: `${progressPercent}%` }} />
+                          </div>
+                          <span className={`text-[10px] font-black flex-shrink-0 ${isUnlocked ? 'text-amber-600' : 'text-gray-400'}`}>
+                            {isUnlocked ? '✅' : `${progressPercent}%`}
+                          </span>
+                        </div>
+                        {isUnlocked && ach.rewardClaimable && (
+                          <button
+                            type="button"
+                            disabled={claimingAchievementId === ach.id}
+                            onClick={() => claimAchievementReward(ach)}
+                            className="mt-2 w-full rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 py-1.5 text-[11px] font-black text-white shadow-sm disabled:opacity-60"
+                          >
+                            {claimingAchievementId === ach.id ? '领取中...' : '领取'}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {allAchievements.length > 3 && (
               <button
                 type="button"
                 onClick={() => setAchievementsExpanded(prev => !prev)}
-                className="w-full py-3 rounded-2xl bg-amber-50 border border-amber-100 text-sm font-black text-amber-700"
+                className="w-full py-2.5 rounded-2xl bg-amber-50 border border-amber-100 text-sm font-black text-amber-700"
               >
                 {achievementsExpanded ? '收起成就' : `展开全部 ${allAchievements.length} 个成就`}
               </button>

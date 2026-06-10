@@ -1,43 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, CheckCircle2, Compass, Edit3, MapPin, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { Archive, CheckCircle2, ChevronDown, ChevronUp, Compass, Edit3, Image, MapPin, Mic, Plus, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react';
 import { Header } from '../../components/Header';
 import { Button } from '../../components/Button';
 import api from '../../services/api';
 import { useToast } from '../../components/Toast';
+import { ExplorePlace, ExploreCheckin, ExploreMedium, EXPLORE_CATEGORIES } from '../../types/explore';
 
-type ExplorePlace = {
-  id?: string;
-  title: string;
-  category: string;
-  city?: string;
-  address?: string;
-  latitude?: number | null;
-  longitude?: number | null;
-  source?: string;
-  externalId?: string;
-  summary?: string;
-  whyGo?: string;
-  observeTips?: string;
-  questionPrompts?: string;
-  tags?: string;
-  status?: string;
-  checkinCount?: number;
-};
-
-type ExploreCheckin = {
-  id: string;
-  placeTitle: string;
-  placeCategory: string;
-  childName: string;
-  mood: string;
-  note?: string;
-  checkedInAt: string;
-  parentConfirmed?: number;
-  mediaCount?: number;
-};
-
-const categories = ['博物馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'];
+const categories = EXPLORE_CATEGORIES;
 const statusOptions = [
   { label: '计划去', value: 'planned' },
   { label: '想去', value: 'wishlist' },
@@ -79,6 +49,9 @@ export default function ParentExplore() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ExplorePlace>(emptyForm);
   const [confirmNote, setConfirmNote] = useState<Record<string, string>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedMedia, setExpandedMedia] = useState<Record<string, ExploreMedium[]>>({}); // B4-06: 展开的媒体
+  const [loadingMedia, setLoadingMedia] = useState<Record<string, boolean>>({});
 
   const activePlaces = useMemo(() => places.filter(place => place.status !== 'archived'), [places]);
   const pendingCheckins = useMemo(() => checkins.filter(item => !item.parentConfirmed).length, [checkins]);
@@ -171,8 +144,45 @@ export default function ParentExplore() {
     }
   };
 
+  const batchConfirm = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await api.post('/parent/explore/checkins/batch-confirm', { checkinIds: Array.from(selectedIds) });
+      toast.success(`已确认 ${selectedIds.size} 条探索记录`);
+      setSelectedIds(new Set());
+      await loadData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '批量确认失败');
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // B4-06: 加载/展开打卡媒体
+  const toggleMedia = async (checkinId: string) => {
+    if (expandedMedia[checkinId]) {
+      setExpandedMedia(prev => { const next = { ...prev }; delete next[checkinId]; return next; });
+      return;
+    }
+    setLoadingMedia(prev => ({ ...prev, [checkinId]: true }));
+    try {
+      const res = await api.get(`/parent/explore/checkins/${checkinId}/media`);
+      setExpandedMedia(prev => ({ ...prev, [checkinId]: res.data || [] }));
+    } catch {
+      toast.error('媒体加载失败');
+    } finally {
+      setLoadingMedia(prev => ({ ...prev, [checkinId]: false }));
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-8">
+    <div className="min-h-screen bg-gray-50 pb-8 max-w-md mx-auto">
       <Header title="家庭探索" showBack onBack={() => navigate('/parent/dashboard')} />
       <div className="p-4 space-y-4">
         <section className="rounded-[1.75rem] bg-gradient-to-br from-slate-900 via-teal-700 to-sky-500 text-white p-5 shadow-lg shadow-sky-100">
@@ -181,9 +191,6 @@ export default function ParentExplore() {
             读万卷书，行万里路
           </div>
           <h2 className="mt-3 text-2xl font-black">给孩子准备真实世界的任务地图</h2>
-          <p className="mt-2 text-sm font-bold text-white/80 leading-relaxed">
-            家长添加地点，孩子查看内容并自行打卡。这里不发金币，主要点亮探索成就和家庭记忆。
-          </p>
         </section>
 
         <div className="grid grid-cols-3 gap-2 rounded-2xl bg-white p-2 shadow-sm border border-slate-100">
@@ -276,35 +283,97 @@ export default function ParentExplore() {
               <div className="rounded-3xl bg-white border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-500">
                 还没有孩子提交探索打卡。
               </div>
-            ) : checkins.map(item => (
-              <div key={item.id} className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-black text-slate-900">{item.placeTitle}</div>
-                    <div className="mt-1 text-xs font-bold text-slate-500">{item.childName} · {formatDate(item.checkedInAt)} · {item.mood}</div>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-xs font-black ${item.parentConfirmed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                    {item.parentConfirmed ? '已确认' : '待确认'}
-                  </span>
-                </div>
-                {item.note && <p className="mt-3 text-sm text-slate-600 leading-relaxed">{item.note}</p>}
-                <div className="mt-3 text-xs font-bold text-slate-400">照片/语音 {item.mediaCount || 0} 条</div>
-                {!item.parentConfirmed && (
-                  <div className="mt-3 space-y-2">
-                    <input
-                      value={confirmNote[item.id] || ''}
-                      onChange={event => setConfirmNote(prev => ({ ...prev, [item.id]: event.target.value }))}
-                      placeholder="给孩子一句确认反馈，可不填"
-                      className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-emerald-400"
-                    />
-                    <button type="button" onClick={() => confirmCheckin(item)} className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-white flex items-center justify-center gap-2">
+            ) : (
+              <>
+                {checkins.filter(item => !item.parentConfirmed).length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={batchConfirm}
+                      disabled={selectedIds.size === 0}
+                      className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-white flex items-center justify-center gap-2 disabled:opacity-40"
+                    >
                       <CheckCircle2 size={18} />
-                      确认这次探索
+                      批量确认（已选 {selectedIds.size} 项）
                     </button>
                   </div>
                 )}
-              </div>
-            ))}
+                {checkins.map(item => (
+                  <div key={item.id} className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        {!item.parentConfirmed && (
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => toggleSelect(item.id)}
+                            className="mt-1 h-5 w-5 rounded border-slate-300 text-emerald-500 accent-emerald-500"
+                          />
+                        )}
+                        <div>
+                          <div className="font-black text-slate-900">{item.placeTitle}</div>
+                          <div className="mt-1 text-xs font-bold text-slate-500">{item.childName} · {formatDate(item.checkedInAt)} · {item.mood}</div>
+                        </div>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-xs font-black ${item.parentConfirmed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {item.parentConfirmed ? '已确认' : '待确认'}
+                      </span>
+                    </div>
+                    {item.note && <p className="mt-3 text-sm text-slate-600 leading-relaxed">{item.note}</p>}
+                    {/* B4-06: 媒体预览区域 */}
+                    <div className="mt-3 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleMedia(item.id)}
+                        className="flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-700"
+                      >
+                        {loadingMedia[item.id] ? '加载中...' : (
+                          <>
+                            {expandedMedia[item.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            照片/语音 {item.mediaCount || 0} 条
+                          </>
+                        )}
+                      </button>
+                      {expandedMedia[item.id] && (
+                        <div className="space-y-2">
+                          {expandedMedia[item.id].filter((m: ExploreMedium) => m.type === 'image').length > 0 && (
+                            <div className="flex gap-2 flex-wrap">
+                              {expandedMedia[item.id].filter((m: ExploreMedium) => m.type === 'image').map((m: ExploreMedium) => (
+                                <a key={m.id} href={m.filePath} target="_blank" rel="noopener noreferrer">
+                                  <img src={m.filePath} alt="探索照片" className="w-20 h-20 rounded-xl object-cover border border-slate-100 hover:opacity-80 transition-opacity" />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                          {expandedMedia[item.id].filter((m: ExploreMedium) => m.type === 'audio').map((m: ExploreMedium) => (
+                            <div key={m.id} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
+                              <Volume2 size={16} className="text-slate-500" />
+                              <audio src={m.filePath} controls preload="none" className="h-8 flex-1" />
+                              {m.durationSeconds && <span className="text-xs font-bold text-slate-400">{m.durationSeconds}s</span>}
+                            </div>
+                          ))}
+                          {expandedMedia[item.id].length === 0 && <div className="text-xs text-slate-400">暂无媒体</div>}
+                        </div>
+                      )}
+                    </div>
+                    {!item.parentConfirmed && !selectedIds.has(item.id) && (
+                      <div className="mt-3 space-y-2">
+                        <input
+                          value={confirmNote[item.id] || ''}
+                          onChange={event => setConfirmNote(prev => ({ ...prev, [item.id]: event.target.value }))}
+                          placeholder="给孩子一句确认反馈，可不填"
+                          className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-emerald-400"
+                        />
+                        <button type="button" onClick={() => confirmCheckin(item)} className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-white flex items-center justify-center gap-2">
+                          <CheckCircle2 size={18} />
+                          确认这次探索
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
           </section>
         )}
       </div>

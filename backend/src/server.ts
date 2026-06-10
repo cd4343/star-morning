@@ -18,15 +18,21 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'stellar-system-dev-secret-change-in-production';
 const isProduction = process.env.NODE_ENV === 'production';
 const verboseRequestLogs = process.env.REQUEST_LOGS === 'true' || !isProduction;
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  console.warn('⚠️ 生产环境未设置 JWT_SECRET，建议在服务器环境变量中配置强随机密钥。');
+if (isProduction && !process.env.JWT_SECRET) {
+  console.error('❌ 生产环境必须设置 JWT_SECRET 环境变量！服务拒绝启动。');
+  process.exit(1);
 }
 
 // 启动时打印日志，便于调试
 console.log('🔧 Initializing Express app...');
 
 const corsOrigin = process.env.CORS_ORIGIN;
-app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(origin => origin.trim()), credentials: true } : undefined));
+app.use(cors(corsOrigin
+  ? { origin: corsOrigin.split(',').map(origin => origin.trim()), credentials: true }
+  : isProduction
+    ? { origin: false }
+    : { origin: true, credentials: true }
+));
 app.use(helmet());
 app.use(express.json({ limit: '20mb' }));
 
@@ -151,7 +157,7 @@ const EXPLORE_STATUSES = ['wishlist', 'planned', 'visited', 'archived'];
 const EXPLORE_MOODS = ['开心', '好奇', '勇敢', '惊喜', '有点累'];
 
 const normalizeExploreCategory = (value: unknown) => {
-  const text = decodeQueryText(value).trim();
+  const text = String(value || '').trim();
   return EXPLORE_CATEGORIES.includes(text) ? text : '其他';
 };
 
@@ -161,7 +167,7 @@ const normalizeExploreStatus = (value: unknown) => {
 };
 
 const normalizeExploreMood = (value: unknown) => {
-  const text = decodeQueryText(value).trim();
+  const text = String(value || '').trim();
   return EXPLORE_MOODS.includes(text) ? text : '好奇';
 };
 
@@ -192,6 +198,17 @@ const mapAmapPoi = (poi: any) => {
     summary: poi.type || '',
     source: 'amap'
   };
+};
+
+const FAMILY_UPLOAD_QUOTA_MB = 500;
+
+const checkFamilyUploadQuota = async (familyId: string): Promise<boolean> => {
+  const row = await getDb().get(
+    'SELECT COALESCE(SUM(sizeBytes), 0) as totalBytes FROM explore_media WHERE familyId = ?',
+    familyId
+  );
+  const usedMB = (row?.totalBytes || 0) / (1024 * 1024);
+  return usedMB < FAMILY_UPLOAD_QUOTA_MB;
 };
 
 const getExplorePlaceSelect = () => `
@@ -253,7 +270,7 @@ const saveExploreMediaFile = async (payload: any, familyId: string, childId: str
   };
 };
 
-const ACHIEVEMENT_DISPLAY_CATEGORIES = ['启动', '坚持', '生活', '学习', '早晨启动', '运动', '活动', '情绪', '金币', '成长', '品格', '家庭', '其他'];
+const ACHIEVEMENT_DISPLAY_CATEGORIES = ['启动', '坚持', '生活', '学习', '运动', '活动', '情绪', '金币', '成长', '探索', '品格', '家庭', '其他'];
 
 const inferAchievementCategory = (achievement: any) => {
   const stored = String(achievement?.category || '').trim();
@@ -274,7 +291,7 @@ const inferAchievementCategory = (achievement: any) => {
   if (conditionType === 'category_count') return ACHIEVEMENT_DISPLAY_CATEGORIES.includes(conditionCategory) ? conditionCategory : '启动';
   if (conditionType === 'streak_days') return conditionCategory && conditionCategory !== '其他' ? conditionCategory : '坚持';
   if (/(感受|冷静|求助|情绪|生气|着急)/.test(text)) return '情绪';
-  if (/(早晨|晨读|晨间|起床复习|早读)/.test(text)) return '早晨启动';
+  if (/(早晨|晨读|晨间|起床复习|早读)/.test(text)) return '生活';
   if (/(学习|阅读|作业|背诵|课文|口算)/.test(text)) return '学习';
   if (/(运动|锻炼|跑|跳|体能)/.test(text)) return '运动';
   if (/(生活|家务|劳动|整理|自理|刷牙|洗|睡|喝水|饮食|干净)/.test(text)) return '生活';
@@ -518,26 +535,73 @@ type AchievementSeed = {
 
 const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '初次出发', desc: '完成 1 次探索打卡', icon: '🧭', type: 'explore_checkin_count', value: 1, category: '探索', rewardCoins: 0, rewardXp: 5 },
+  { title: '见识在路上', desc: '完成 5 次探索打卡', icon: '🗺️', type: 'explore_checkin_count', value: 5, category: '探索', rewardCoins: 0, rewardXp: 10 },
+  { title: '行路少年', desc: '完成 10 次探索打卡', icon: '🚶', type: 'explore_checkin_count', value: 10, category: '探索', rewardCoins: 0, rewardXp: 15 },
   { title: '博物初见', desc: '打卡 1 个博物馆', icon: '🏛️', type: 'explore_category_count', value: 1, conditionCategory: '博物馆', category: '探索', rewardCoins: 0, rewardXp: 5 },
-  { title: '自然观察员', desc: '打卡 3 个自然或公园地点', icon: '🌿', type: 'explore_category_count', value: 3, conditionCategory: '公园', category: '探索', rewardCoins: 0, rewardXp: 8 },
+  { title: '自然观察员', desc: '打卡 3 个自然或公园地点', icon: '🌿', type: 'explore_category_count', value: 3, conditionCategory: '自然,公园', category: '探索', rewardCoins: 0, rewardXp: 8 },
+  { title: '城市小旅人', desc: '打卡 3 个城市地点', icon: '🏙️', type: 'explore_category_count', value: 3, conditionCategory: '城市', category: '探索', rewardCoins: 0, rewardXp: 8 },
   { title: '勇敢表达', desc: '留下 1 条语音留言', icon: '🎙️', type: 'explore_voice_count', value: 1, category: '探索', rewardCoins: 0, rewardXp: 5 },
   { title: '小小记录家', desc: '上传 3 次照片纪念', icon: '📷', type: 'explore_media_count', value: 3, category: '探索', rewardCoins: 0, rewardXp: 8 },
   { title: '亲子探索家', desc: '完成 3 次家长确认的探索', icon: '🎒', type: 'explore_confirmed_count', value: 3, category: '探索', rewardCoins: 0, rewardXp: 10 },
   { title: '启程有光', desc: '完成 1 个任务', icon: '🌱', type: 'task_count', value: 1, category: '启动', rewardCoins: 5, rewardXp: 5 },
   { title: '小步成章', desc: '完成 10 个任务', icon: '🧭', type: 'task_count', value: 10, category: '启动', rewardCoins: 8, rewardXp: 10 },
   { title: '百炼成章', desc: '完成 50 个任务', icon: '🏆', type: 'task_count', value: 50, category: '启动', rewardCoins: 25, rewardXp: 50 },
-  { title: '三天不断线', desc: '连续 3 天完成任务，先守住小周期', icon: '📅', type: 'streak_days', value: 3, category: '坚持', rewardCoins: 10, rewardXp: 10 },
-  { title: '一周节奏', desc: '连续 7 天完成任务，节奏开始成形', icon: '🗓️', type: 'streak_days', value: 7, category: '坚持', rewardCoins: 21, rewardXp: 21 },
-  { title: '生活小帮手', desc: '完成第 1 个生活任务', icon: '🧹', type: 'category_count', value: 1, conditionCategory: '生活', category: '生活', rewardCoins: 5, rewardXp: 5 },
-  { title: '学习启动', desc: '完成第 1 个学习任务，先开始就算赢', icon: '📚', type: 'category_count', value: 1, conditionCategory: '学习', category: '学习', rewardCoins: 5, rewardXp: 5 },
-  { title: '晨光小启动', desc: '完成第 1 个早晨启动任务，只要开始就是进步', icon: '🌤️', type: 'category_count', value: 1, conditionCategory: '早晨启动', category: '早晨启动', rewardCoins: 5, rewardXp: 8 },
-  { title: '动起来', desc: '完成第 1 个运动任务，不用比快，只要参与', icon: '🏃', type: 'category_count', value: 1, conditionCategory: '运动', category: '运动', rewardCoins: 5, rewardXp: 5 },
-  { title: '探索新事物', desc: '完成第 1 个活动任务', icon: '🎹', type: 'category_count', value: 1, conditionCategory: '活动', category: '活动', rewardCoins: 5, rewardXp: 5 },
+  { title: '星路领航', desc: '完成 100 个任务', icon: '🌟', type: 'task_count', value: 100, category: '启动', rewardCoins: 40, rewardXp: 80, rewardPrivilegePoints: 1 },
+  { title: '一路繁星', desc: '完成 300 个任务', icon: '✨', type: 'task_count', value: 300, category: '启动', rewardCoins: 80, rewardXp: 120, rewardPrivilegePoints: 2 },
+  { title: '三天不断线', desc: '连续 3 天完成任务', icon: '📅', type: 'streak_days', value: 3, category: '坚持', rewardCoins: 10, rewardXp: 10 },
+  { title: '一周节奏', desc: '连续 7 天完成任务', icon: '🗓️', type: 'streak_days', value: 7, category: '坚持', rewardCoins: 21, rewardXp: 21 },
+  { title: '习惯成风', desc: '连续 21 天完成任务', icon: '💯', type: 'streak_days', value: 21, category: '坚持', rewardCoins: 63, rewardXp: 63 },
+  { title: '月满常新', desc: '连续 30 天完成任务', icon: '⚡', type: 'streak_days', value: 30, category: '坚持', rewardCoins: 90, rewardXp: 90, rewardPrivilegePoints: 1 },
+  { title: '久久为功', desc: '连续 60 天完成任务', icon: '🔥', type: 'streak_days', value: 60, category: '坚持', rewardCoins: 100, rewardXp: 120, rewardPrivilegePoints: 2 },
+  { title: '百日如一', desc: '连续 100 天完成任务', icon: '🎊', type: 'streak_days', value: 100, category: '坚持', rewardCoins: 120, rewardXp: 150, rewardPrivilegePoints: 3 },
+  { title: '生活小帮手', desc: '完成 1 个生活任务', icon: '🧹', type: 'category_count', value: 1, conditionCategory: '生活', category: '生活', rewardCoins: 5, rewardXp: 5 },
+  { title: '自理有方', desc: '完成 10 个生活任务', icon: '🛏️', type: 'category_count', value: 10, conditionCategory: '生活', category: '生活', rewardCoins: 8, rewardXp: 10 },
+  { title: '井井有条', desc: '完成 30 个生活任务', icon: '🍽️', type: 'category_count', value: 30, conditionCategory: '生活', category: '生活', rewardCoins: 15, rewardXp: 30 },
+  { title: '家务担当', desc: '完成 60 个生活任务', icon: '🧺', type: 'category_count', value: 60, conditionCategory: '生活', category: '生活', rewardCoins: 30, rewardXp: 60 },
+  { title: '生活小管家', desc: '完成 100 个生活任务', icon: '🏠', type: 'category_count', value: 100, conditionCategory: '生活', category: '生活', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '整洁一周', desc: '连续 7 天完成生活任务', icon: '🍽️', type: 'streak_days', value: 7, conditionCategory: '生活', category: '生活', rewardCoins: 21, rewardXp: 21 },
+  { title: '日常有序', desc: '连续 21 天完成生活任务', icon: '🧺', type: 'streak_days', value: 21, conditionCategory: '生活', category: '生活', rewardCoins: 63, rewardXp: 63 },
+  { title: '学习启动', desc: '完成 1 个学习任务', icon: '📚', type: 'category_count', value: 1, conditionCategory: '学习', category: '学习', rewardCoins: 5, rewardXp: 5 },
+  { title: '专注小苗', desc: '完成 10 个学习任务', icon: '✏️', type: 'category_count', value: 10, conditionCategory: '学习', category: '学习', rewardCoins: 8, rewardXp: 10 },
+  { title: '作业小闯将', desc: '完成 30 个学习任务', icon: '📖', type: 'category_count', value: 30, conditionCategory: '学习', category: '学习', rewardCoins: 15, rewardXp: 30 },
+  { title: '学海拾贝', desc: '完成 60 个学习任务', icon: '📚', type: 'category_count', value: 60, conditionCategory: '学习', category: '学习', rewardCoins: 30, rewardXp: 60 },
+  { title: '求知小灯塔', desc: '完成 100 个学习任务', icon: '🎓', type: 'category_count', value: 100, conditionCategory: '学习', category: '学习', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '学习一周星', desc: '连续 7 天完成学习任务', icon: '🎓', type: 'streak_days', value: 7, conditionCategory: '学习', category: '学习', rewardCoins: 21, rewardXp: 21 },
+  { title: '书声不断', desc: '连续 21 天完成学习任务', icon: '📖', type: 'streak_days', value: 21, conditionCategory: '学习', category: '学习', rewardCoins: 63, rewardXp: 63 },
+  { title: '动起来', desc: '完成 1 个运动任务', icon: '🏃', type: 'category_count', value: 1, conditionCategory: '运动', category: '运动', rewardCoins: 5, rewardXp: 5 },
+  { title: '活力小步', desc: '完成 10 个运动任务', icon: '⚽', type: 'category_count', value: 10, conditionCategory: '运动', category: '运动', rewardCoins: 8, rewardXp: 10 },
+  { title: '运动小将', desc: '完成 30 个运动任务', icon: '🏸', type: 'category_count', value: 30, conditionCategory: '运动', category: '运动', rewardCoins: 15, rewardXp: 30 },
+  { title: '体能守护者', desc: '完成 60 个运动任务', icon: '🚴', type: 'category_count', value: 60, conditionCategory: '运动', category: '运动', rewardCoins: 30, rewardXp: 60 },
+  { title: '强健之星', desc: '完成 100 个运动任务', icon: '💪', type: 'category_count', value: 100, conditionCategory: '运动', category: '运动', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '活力一周', desc: '连续 7 天完成运动任务', icon: '🔥', type: 'streak_days', value: 7, conditionCategory: '运动', category: '运动', rewardCoins: 21, rewardXp: 21 },
+  { title: '元气常在', desc: '连续 21 天完成运动任务', icon: '🏅', type: 'streak_days', value: 21, conditionCategory: '运动', category: '运动', rewardCoins: 63, rewardXp: 63 },
+  { title: '探索新事物', desc: '完成 1 个活动任务', icon: '🎹', type: 'category_count', value: 1, conditionCategory: '活动', category: '活动', rewardCoins: 5, rewardXp: 5 },
+  { title: '兴趣练习者', desc: '完成 10 个活动任务', icon: '🎨', type: 'category_count', value: 10, conditionCategory: '活动', category: '活动', rewardCoins: 8, rewardXp: 10 },
+  { title: '灵感小匠', desc: '完成 30 个活动任务', icon: '🎸', type: 'category_count', value: 30, conditionCategory: '活动', category: '活动', rewardCoins: 15, rewardXp: 30 },
+  { title: '小小创作者', desc: '完成 60 个活动任务', icon: '🎤', type: 'category_count', value: 60, conditionCategory: '活动', category: '活动', rewardCoins: 30, rewardXp: 60 },
+  { title: '创意满格', desc: '完成 100 个活动任务', icon: '🌈', type: 'category_count', value: 100, conditionCategory: '活动', category: '活动', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '活动坚持星', desc: '连续 7 天完成活动任务', icon: '🎸', type: 'streak_days', value: 7, conditionCategory: '活动', category: '活动', rewardCoins: 21, rewardXp: 21 },
+  { title: '艺海拾光', desc: '连续 21 天完成活动任务', icon: '🎤', type: 'streak_days', value: 21, conditionCategory: '活动', category: '活动', rewardCoins: 63, rewardXp: 63 },
   { title: '会说感受', desc: '能说出自己现在的感受', icon: '💝', type: 'manual', value: 0, category: '情绪', rewardCoins: 10, rewardXp: 10 },
+  { title: '冷静有方', desc: '尝试一次冷静动作', icon: '🤫', type: 'manual', value: 0, category: '情绪', rewardCoins: 10, rewardXp: 10 },
+  { title: '求助很勇敢', desc: '卡住时能主动求助', icon: '🦸', type: 'manual', value: 0, category: '情绪', rewardCoins: 10, rewardXp: 10 },
   { title: '积少成多', desc: '获得 100 金币', icon: '🪙', type: 'coin_count', value: 100, category: '金币', rewardCoins: 0, rewardXp: 10 },
+  { title: '聚沙成塔', desc: '获得 500 金币', icon: '💰', type: 'coin_count', value: 500, category: '金币', rewardCoins: 0, rewardXp: 25 },
+  { title: '家财万贯', desc: '获得 1000 金币', icon: '🏦', type: 'coin_count', value: 1000, category: '金币', rewardCoins: 0, rewardXp: 50, rewardPrivilegePoints: 1 },
+  { title: '富足有方', desc: '获得 3000 金币', icon: '💎', type: 'coin_count', value: 3000, category: '金币', rewardCoins: 0, rewardXp: 80, rewardPrivilegePoints: 1 },
+  { title: '星河宝藏', desc: '获得 5000 金币', icon: '🎁', type: 'coin_count', value: 5000, category: '金币', rewardCoins: 0, rewardXp: 100, rewardPrivilegePoints: 2 },
+  { title: '丰盈之库', desc: '获得 10000 金币', icon: '👑', type: 'coin_count', value: 10000, category: '金币', rewardCoins: 0, rewardXp: 120, rewardPrivilegePoints: 3 },
+  { title: '初露锋芒', desc: '达到 2 级', icon: '⭐', type: 'level_reach', value: 2, category: '成长', rewardCoins: 20, rewardXp: 0 },
   { title: '成长之路', desc: '达到 5 级', icon: '📈', type: 'level_reach', value: 5, category: '成长', rewardCoins: 50, rewardXp: 0, rewardPrivilegePoints: 1 },
+  { title: '进阶高手', desc: '达到 10 级', icon: '🚀', type: 'level_reach', value: 10, category: '成长', rewardCoins: 80, rewardXp: 0, rewardPrivilegePoints: 1 },
+  { title: '闪耀成长', desc: '达到 20 级', icon: '🌟', type: 'level_reach', value: 20, category: '成长', rewardCoins: 120, rewardXp: 0, rewardPrivilegePoints: 2 },
+  { title: '登峰造极', desc: '达到 30 级', icon: '👑', type: 'level_reach', value: 30, category: '成长', rewardCoins: 150, rewardXp: 0, rewardPrivilegePoints: 3 },
   { title: '礼貌小天使', desc: '能用礼貌的话表达需要', icon: '😊', type: 'manual', value: 0, category: '品格', rewardCoins: 10, rewardXp: 10 },
+  { title: '乐于助人', desc: '主动帮助别人一次', icon: '🤝', type: 'manual', value: 0, category: '品格', rewardCoins: 10, rewardXp: 10 },
+  { title: '诚实守信', desc: '遇到问题能诚实说明', icon: '🦁', type: 'manual', value: 0, category: '品格', rewardCoins: 10, rewardXp: 10 },
   { title: '家庭小帮手', desc: '主动为家里做一件小事', icon: '🏠', type: 'manual', value: 0, category: '家庭', rewardCoins: 10, rewardXp: 10 },
+  { title: '合作之星', desc: '和家人合作完成一件事', icon: '🤝', type: 'manual', value: 0, category: '家庭', rewardCoins: 10, rewardXp: 10 },
+  { title: '约定守护者', desc: '遵守一次家庭约定', icon: '🎯', type: 'manual', value: 0, category: '家庭', rewardCoins: 10, rewardXp: 10 },
 ];
 
 // 数据库操作包装器 - 带重试机制
@@ -1027,9 +1091,15 @@ const checkAchievements = async (childId: string, db: any) => {
         case 'explore_checkin_count':
           unlocked = exploreCheckinCount >= def.conditionValue;
           break;
-        case 'explore_category_count':
-          unlocked = (exploreCategoryCountMap[def.conditionCategory] || 0) >= def.conditionValue;
+        case 'explore_category_count': {
+          // B4-01: 支持逗号分隔的多分类 OR 统计（如"自然,公园"）
+          const cats = String(def.conditionCategory || '').split(',').map(c => c.trim()).filter(Boolean);
+          const totalCatCount = cats.length > 0
+            ? cats.reduce((sum, cat) => sum + (exploreCategoryCountMap[cat] || 0), 0)
+            : 0;
+          unlocked = totalCatCount >= def.conditionValue;
           break;
+        }
         case 'explore_media_count':
           unlocked = exploreMediaCount >= def.conditionValue;
           break;
@@ -2399,7 +2469,29 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     `, req.params.entryId);
     if (!entry) return res.status(404).json({ message: '不存在' });
     if (entry.familyId !== request.user!.familyId) return res.status(403).json({ message: '无权操作' });
-    if (entry.status !== 'pending') return res.status(409).json({ message: '该任务已处理，请勿重复审核' });
+    if (entry.status !== 'pending') {
+        if (action === 'approve' && entry.status === 'approved') {
+            return res.json({
+                message: '该任务已通过',
+                alreadyReviewed: true,
+                coinsAwarded: entry.earnedCoins || 0,
+                xpAwarded: entry.earnedXp || 0,
+                rewardXpAwarded: entry.rewardXp || 0,
+                privilegePointsAwarded: 0,
+                gameTicketMinutesAwarded: 0,
+                gameTicketAwardLabel: '',
+                gameTicketMinutesRequested: 0,
+                gameTicketMinutesCapped: 0,
+                gameTicketGrant: null,
+                morningStartupTicketMinutesAwarded: 0,
+                morningStartupStreakBonusAwarded: 0,
+                morningStartupStreakDays: 0,
+                unlockedAchievements: [],
+                suggestion: null
+            });
+        }
+        return res.status(409).json({ message: '该任务已处理，请勿重复审核' });
+    }
 
     if (action === 'reject') {
         await getDb().run("UPDATE task_entries SET status = 'rejected', reviewedAt = ? WHERE id = ? AND status = 'pending'", new Date().toISOString(), req.params.entryId);
@@ -4783,7 +4875,7 @@ app.get('/api/parent/explore/places', protect, requireParent, async (req: any, r
   const status = String(req.query.status || '').trim();
   const category = String(req.query.category || '').trim();
   const params: any[] = [request.user!.familyId];
-  let where = 'WHERE p.familyId = ?';
+  let where = 'WHERE p.familyId = ? AND p.deletedAt IS NULL';
   if (status && status !== 'all') {
     where += ' AND p.status = ?';
     params.push(normalizeExploreStatus(status));
@@ -4792,7 +4884,7 @@ app.get('/api/parent/explore/places', protect, requireParent, async (req: any, r
   }
   if (category && category !== 'all') {
     where += ' AND p.category = ?';
-    params.push(normalizeExploreCategory(category));
+    params.push(normalizeExploreCategory(decodeQueryText(category)));
   }
   const rows = await db.all(`${getExplorePlaceSelect()} ${where} ORDER BY p.createdAt DESC`, ...params);
   res.json(rows);
@@ -4865,14 +4957,10 @@ app.put('/api/parent/explore/places/:id', protect, requireParent, async (req: an
 app.delete('/api/parent/explore/places/:id', protect, requireParent, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
-  const place = await db.get('SELECT * FROM explore_places WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  const place = await db.get('SELECT * FROM explore_places WHERE id = ? AND familyId = ? AND deletedAt IS NULL', req.params.id, request.user!.familyId);
   if (!place) return res.status(404).json({ message: '探索地点不存在' });
-  const checkins = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE placeId = ?', req.params.id))?.count || 0;
-  if (checkins > 0) {
-    await db.run("UPDATE explore_places SET status = 'archived', updatedAt = ? WHERE id = ? AND familyId = ?", new Date().toISOString(), req.params.id, request.user!.familyId);
-    return res.json({ message: '已有打卡记录，地点已归档' });
-  }
-  await db.run('DELETE FROM explore_places WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  // B2-3: 软删除——标记 deletedAt，保留打卡记录
+  await db.run('UPDATE explore_places SET deletedAt = ?, updatedAt = ? WHERE id = ? AND familyId = ?', new Date().toISOString(), new Date().toISOString(), req.params.id, request.user!.familyId);
   res.json({ message: '探索地点已删除' });
 });
 
@@ -4883,13 +4971,44 @@ app.get('/api/parent/explore/checkins', protect, requireParent, async (req: any,
     SELECT ec.*, p.title as placeTitle, p.category as placeCategory, p.address, u.name as childName,
       (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id) as mediaCount
     FROM explore_checkins ec
-    JOIN explore_places p ON ec.placeId = p.id
+    LEFT JOIN explore_places p ON ec.placeId = p.id
     JOIN users u ON ec.childId = u.id
     WHERE ec.familyId = ?
     ORDER BY ec.checkedInAt DESC
     LIMIT 100
   `, request.user!.familyId);
   res.json(rows);
+});
+
+// B4-06: 家长查看打卡媒体（照片/语音）
+app.get('/api/parent/explore/checkins/:id/media', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const checkin = await db.get('SELECT * FROM explore_checkins WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+  if (!checkin) return res.status(404).json({ message: '打卡记录不存在' });
+  const media = await db.all('SELECT * FROM explore_media WHERE checkinId = ? ORDER BY createdAt ASC', req.params.id);
+  res.json(media);
+});
+
+app.post('/api/parent/explore/checkins/batch-confirm', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const { checkinIds } = req.body as { checkinIds: string[] };
+  if (!Array.isArray(checkinIds) || checkinIds.length === 0) {
+    return res.status(400).json({ message: '请选择要确认的打卡记录' });
+  }
+  const placeholders = checkinIds.map(() => '?').join(',');
+  await db.run(
+    `UPDATE explore_checkins SET parentConfirmed = 1, confirmedAt = datetime('now'), updatedAt = datetime('now')
+     WHERE id IN (${placeholders}) AND familyId = ?`,
+    [...checkinIds, request.user!.familyId]
+  );
+  // 触发成就检查
+  for (const id of checkinIds) {
+    const checkin = await db.get('SELECT childId, familyId FROM explore_checkins WHERE id = ?', id);
+    if (checkin) await checkAchievements(checkin.childId, db);
+  }
+  res.json({ message: '批量确认成功', count: checkinIds.length });
 });
 
 app.post('/api/parent/explore/checkins/:id/confirm', protect, requireParent, async (req: any, res) => {
@@ -4914,10 +5033,10 @@ app.get('/api/child/explore/places', protect, requireChild, async (req: any, res
   const db = getDb();
   const category = String(req.query.category || '').trim();
   const params: any[] = [request.user!.familyId];
-  let where = "WHERE p.familyId = ? AND p.status != 'archived'";
+  let where = "WHERE p.familyId = ? AND p.status != 'archived' AND p.deletedAt IS NULL";
   if (category && category !== 'all') {
     where += ' AND p.category = ?';
-    params.push(normalizeExploreCategory(category));
+    params.push(normalizeExploreCategory(decodeQueryText(category)));
   }
   const rows = await db.all(`${getExplorePlaceSelect()} ${where} ORDER BY CASE p.status WHEN 'planned' THEN 0 WHEN 'wishlist' THEN 1 WHEN 'visited' THEN 2 ELSE 3 END, p.createdAt DESC`, ...params);
   res.json(rows);
@@ -4926,7 +5045,7 @@ app.get('/api/child/explore/places', protect, requireChild, async (req: any, res
 app.get('/api/child/explore/places/:id', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
-  const place = await db.get(`${getExplorePlaceSelect()} WHERE p.id = ? AND p.familyId = ?`, req.params.id, request.user!.familyId);
+  const place = await db.get(`${getExplorePlaceSelect()} WHERE p.id = ? AND p.familyId = ? AND p.deletedAt IS NULL`, req.params.id, request.user!.familyId);
   if (!place) return res.status(404).json({ message: '探索地点不存在' });
   const checkins = await db.all('SELECT * FROM explore_checkins WHERE placeId = ? AND childId = ? ORDER BY checkedInAt DESC', req.params.id, request.user!.id);
   const media = checkins.length
@@ -4942,7 +5061,7 @@ app.get('/api/child/explore/checkins', protect, requireChild, async (req: any, r
     SELECT ec.*, p.title as placeTitle, p.category as placeCategory, p.address,
       (SELECT COUNT(*) FROM explore_media em WHERE em.checkinId = ec.id) as mediaCount
     FROM explore_checkins ec
-    JOIN explore_places p ON ec.placeId = p.id
+    LEFT JOIN explore_places p ON ec.placeId = p.id
     WHERE ec.familyId = ? AND ec.childId = ?
     ORDER BY ec.checkedInAt DESC
     LIMIT 100
@@ -4950,11 +5069,82 @@ app.get('/api/child/explore/checkins', protect, requireChild, async (req: any, r
   res.json(rows);
 });
 
+// B4-07: 探索成就进度接口 — 返回当前孩子的探索类成就完成进度
+app.get('/api/child/explore/achievement-progress', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const childId = request.user!.id;
+  const familyId = request.user!.familyId;
+
+  const exploreDefs = await db.all(
+    `SELECT * FROM achievement_defs WHERE familyId = ? AND conditionType LIKE 'explore_%'`,
+    familyId
+  );
+
+  const unlocked = await db.all(
+    'SELECT achievementId FROM user_achievements WHERE childId = ?',
+    childId
+  );
+  const unlockedSet = new Set(unlocked.map((u: any) => u.achievementId));
+
+  // 基础统计（与 checkAchievements 一致）
+  const exploreCheckinCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId))?.count || 0;
+  const exploreMediaCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId))?.count || 0;
+  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio'", childId))?.count || 0;
+  const exploreConfirmedCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId))?.count || 0;
+  const exploreCategoryStats = await db.all(
+    `SELECT p.category, COUNT(*) as count FROM explore_checkins ec JOIN explore_places p ON ec.placeId = p.id WHERE ec.childId = ? GROUP BY p.category`,
+    childId
+  );
+  const exploreCategoryCountMap: Record<string, number> = {};
+  exploreCategoryStats.forEach((s: any) => { exploreCategoryCountMap[s.category] = s.count; });
+
+  const progress = exploreDefs.map((def: any) => {
+    let current = 0;
+    switch (def.conditionType) {
+      case 'explore_checkin_count':
+        current = exploreCheckinCount;
+        break;
+      case 'explore_category_count': {
+        const cats = String(def.conditionCategory || '').split(',').map((c: string) => c.trim()).filter(Boolean);
+        current = cats.reduce((sum, cat) => sum + (exploreCategoryCountMap[cat] || 0), 0);
+        break;
+      }
+      case 'explore_media_count':
+        current = exploreMediaCount;
+        break;
+      case 'explore_voice_count':
+        current = exploreVoiceCount;
+        break;
+      case 'explore_confirmed_count':
+        current = exploreConfirmedCount;
+        break;
+    }
+    return {
+      id: def.id,
+      title: def.title,
+      icon: def.icon,
+      conditionType: def.conditionType,
+      target: def.conditionValue,
+      current: Math.min(current, def.conditionValue),
+      unlocked: unlockedSet.has(def.id),
+    };
+  });
+
+  res.json(progress);
+});
+
 app.post('/api/child/explore/checkins', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
-  const place = await db.get("SELECT * FROM explore_places WHERE id = ? AND familyId = ? AND status != 'archived'", req.body.placeId, request.user!.familyId);
+  const place = await db.get("SELECT * FROM explore_places WHERE id = ? AND familyId = ? AND status != 'archived' AND deletedAt IS NULL", req.body.placeId, request.user!.familyId);
   if (!place) return res.status(404).json({ message: '探索地点不存在' });
+  // B2-2: 同日重复打卡检查（多孩子场景下，同一孩子同日同地点只能打卡一次）
+  const existingToday = await db.get(
+    "SELECT id FROM explore_checkins WHERE placeId = ? AND childId = ? AND date(checkedInAt) = date('now')",
+    req.body.placeId, request.user!.id
+  );
+  if (existingToday) return res.status(409).json({ message: '今天已经在这个地点打卡过了' });
   const id = randomUUID();
   const checkedInAt = new Date().toISOString();
   await db.run(
@@ -4980,6 +5170,8 @@ app.post('/api/child/explore/checkins/:id/media', protect, requireChild, async (
     const db = getDb();
     const checkin = await db.get('SELECT * FROM explore_checkins WHERE id = ? AND familyId = ? AND childId = ?', req.params.id, request.user!.familyId, request.user!.id);
     if (!checkin) return res.status(404).json({ message: '打卡记录不存在' });
+    const quotaOk = await checkFamilyUploadQuota(request.user!.familyId);
+    if (!quotaOk) return res.status(429).json({ message: '家庭探索存储空间已满，请联系家长清理' });
     const type = req.body?.type === 'audio' ? 'audio' : 'image';
     const existing = (await db.get('SELECT COUNT(*) as count FROM explore_media WHERE checkinId = ? AND type = ?', req.params.id, type))?.count || 0;
     if (type === 'image' && existing >= 3) return res.status(400).json({ message: '每次打卡最多上传 3 张照片' });
@@ -5445,12 +5637,23 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         childInfo.maxXp = childInfo.level * 100;
     }
 
+    // B3-5: 最近24小时审核结果（用于即时通知）
+    const recentReviews = await db.all(
+      `SELECT te.id, te.status, te.earnedCoins, te.earnedXp, te.reviewedAt, t.title as taskTitle, t.category
+       FROM task_entries te JOIN tasks t ON te.taskId = t.id
+       WHERE te.childId = ? AND te.status = 'approved' AND te.reviewedAt IS NOT NULL
+         AND te.reviewedAt > datetime('now', '-24 hours', '+8 hours')
+       ORDER BY te.reviewedAt DESC LIMIT 10`,
+      childId
+    );
+
     res.json({
         child: childInfo,
         tasks,
         weeklyStats: last7Days,
         viewingDate: getLocalDateString(targetDate),
-        isToday
+        isToday,
+        recentReviews
     });
 });
 app.post('/api/child/tasks/:taskId/start', protect, requireChild, async (req: any, res) => {
@@ -5961,7 +6164,7 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
     const nextCost = currentCost;
     const remainingDraws = Math.max(0, LOTTERY_DAILY_LIMIT - todayCount);
 
-    const pityInfo = await getLotteryPityInfo(db, request.user!.id);
+    const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
     // 获取奖池奖品
     const prizes = await db.all(
@@ -6044,7 +6247,7 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
         const actualCount = todayCount + 1;
         const nextCost = getLotteryCost();
         const remainingDraws = Math.max(0, LOTTERY_DAILY_LIMIT - actualCount);
-        const pityInfo = await getLotteryPityInfo(db, request.user!.id);
+        const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
         res.json({
             winner: result.prize,
@@ -6057,6 +6260,10 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             isDrawAgain: result.isDrawAgain,
             isBonusCoins: result.isBonusCoins,
             bonusCoins: result.bonusCoins,
+            isBonusXp: result.isBonusXp,
+            bonusXp: result.bonusXp,
+            isBonusPrivilegePoints: result.isBonusPrivilegePoints,
+            bonusPrivilegePoints: result.bonusPrivilegePoints,
             isFreeSpin: result.isFreeSpin,
             isDoubleNext: result.isDoubleNext,
             pityTriggered: result.pityTriggered,
@@ -6099,13 +6306,17 @@ app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
 
         // 执行免费抽奖 V2
         const result = await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, 0, 'free_draw');
-        const pityInfo = await getLotteryPityInfo(db, request.user!.id);
+        const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
         res.json({
             winner: result.prize,
             isDrawAgain: result.isDrawAgain,
             isBonusCoins: result.isBonusCoins,
             bonusCoins: result.bonusCoins,
+            isBonusXp: result.isBonusXp,
+            bonusXp: result.bonusXp,
+            isBonusPrivilegePoints: result.isBonusPrivilegePoints,
+            bonusPrivilegePoints: result.bonusPrivilegePoints,
             isFreeSpin: result.isFreeSpin,
             isDoubleNext: result.isDoubleNext,
             pityTriggered: result.pityTriggered,
@@ -6707,6 +6918,98 @@ app.put('/api/parent/task-entries/:id/adjust', protect, async (req: any, res) =>
   }
 });
 
+// B3-7: 批量审核通过（按基础奖励发放，不加评分、不惩罚）
+app.post('/api/parent/task-entries/batch-review', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const { entryIds, action } = req.body as { entryIds: string[]; action: 'approve' | 'reject' };
+    if (!Array.isArray(entryIds) || entryIds.length === 0) {
+        return res.status(400).json({ message: '请选择要审核的任务' });
+    }
+    if (!['approve', 'reject'].includes(action)) {
+        return res.status(400).json({ message: '无效的审核操作' });
+    }
+    if (entryIds.length > 20) {
+        return res.status(400).json({ message: '单次批量审核不能超过20条' });
+    }
+
+    const results: Array<{ id: string; status: string; coinsAwarded?: number; xpAwarded?: number }> = [];
+    const childIdsToCheck = new Set<string>();
+
+    for (const entryId of entryIds) {
+        try {
+            const entry = await db.get(`
+                SELECT te.*, t.coinReward, t.xpReward, t.taskType, t.category, t.familyId as taskFamilyId
+                FROM task_entries te
+                JOIN tasks t ON te.taskId = t.id
+                WHERE te.id = ?
+            `, entryId);
+
+            if (!entry) { results.push({ id: entryId, status: 'not_found' }); continue; }
+            if (entry.taskFamilyId !== request.user!.familyId) { results.push({ id: entryId, status: 'forbidden' }); continue; }
+            if (entry.status !== 'pending') { results.push({ id: entryId, status: 'already_processed' }); continue; }
+
+            if (action === 'reject') {
+                await db.run("UPDATE task_entries SET status = 'rejected', reviewedAt = ? WHERE id = ? AND status = 'pending'",
+                    new Date().toISOString(), entryId);
+                results.push({ id: entryId, status: 'rejected' });
+                continue;
+            }
+
+            // 审核通过：按基础奖励发放
+            let coinsToAward = Math.max(0, Math.round(Number(entry.coinReward || 0)));
+            let xpToAward = Math.round(Number(entry.xpReward || 0));
+            // 合作任务加成
+            if (entry.taskType === 'family') {
+                coinsToAward = Math.round(coinsToAward * 1.5);
+                xpToAward = Math.round(xpToAward * 1.3);
+            }
+            const rewardXpToAward = xpToAward;
+            const now = new Date().toISOString();
+
+            const updateResult = await db.run(
+                "UPDATE task_entries SET status = 'approved', reviewedAt = ?, earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ? AND status = 'pending'",
+                now, coinsToAward, xpToAward, rewardXpToAward, entryId
+            );
+            if ((updateResult.changes || 0) !== 1) {
+                results.push({ id: entryId, status: 'conflict' });
+                continue;
+            }
+
+            await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', coinsToAward, xpToAward, entry.childId);
+
+            if (rewardXpToAward > 0) {
+                const user = await db.get('SELECT rewardXpTotal, privilegePoints FROM users WHERE id = ?', entry.childId);
+                const oldRewardXpTotal = user.rewardXpTotal || 0;
+                const newRewardXpTotal = oldRewardXpTotal + rewardXpToAward;
+                const newPrivilegePoints = Math.floor(newRewardXpTotal / 100);
+                const privilegePointsDelta = newPrivilegePoints - (user.privilegePoints || 0);
+                await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+                    newRewardXpTotal, privilegePointsDelta, entry.childId);
+            }
+
+            childIdsToCheck.add(entry.childId);
+            results.push({ id: entryId, status: 'approved', coinsAwarded: coinsToAward, xpAwarded: xpToAward });
+        } catch (err) {
+            console.error(`批量审核单项失败 [${entryId}]:`, err);
+            results.push({ id: entryId, status: 'error' });
+        }
+    }
+
+    // 批量结束后统一触发成就检查
+    for (const childId of childIdsToCheck) {
+        try { await checkAchievements(childId, db); } catch (e) { console.error('批量审核成就检查失败:', e); }
+    }
+
+    res.json({
+        message: `批量审核完成`,
+        results,
+        approved: results.filter(r => r.status === 'approved').length,
+        rejected: results.filter(r => r.status === 'rejected').length,
+        failed: results.filter(r => !['approved', 'rejected'].includes(r.status)).length,
+    });
+});
+
 // 执行惩罚（任务审核时调用）
 app.post('/api/parent/task-entries/:id/punish', protect, async (req: any, res) => {
     const request = req as AuthRequest;
@@ -6747,6 +7050,19 @@ app.post('/api/parent/task-entries/:id/punish', protect, async (req: any, res) =
 
     if (entry.familyId !== request.user!.familyId) {
         return res.status(403).json({ message: '无权操作' });
+    }
+
+    const existingPunishment = await db.get(
+        'SELECT COALESCE(SUM(deductedCoins), 0) as deducted FROM punishment_records WHERE taskEntryId = ?',
+        entryId
+    );
+    if ((existingPunishment?.deducted || 0) > 0) {
+        return res.json({
+            message: '惩罚已执行',
+            alreadyPunished: true,
+            deducted: existingPunishment.deducted,
+            notified: false
+        });
     }
 
     // 获取惩罚设置
@@ -7098,13 +7414,15 @@ initializeDatabase()
       });
     });
 
-    // 未捕获异常处理 - 记录但不退出
+    // 未捕获异常处理 - 记录并退出（配合 PM2 自动重启）
     process.on('uncaughtException', (error) => {
-      console.error('💥 Uncaught Exception:', error);
+      console.error('❌ Uncaught Exception - 进程将退出:', error);
+      setTimeout(() => process.exit(1), 1000);
     });
 
     process.on('unhandledRejection', (reason, promise) => {
-      console.error('💥 Unhandled Rejection:', reason);
+      console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+      setTimeout(() => process.exit(1), 1000);
     });
   })
   .catch((error) => {

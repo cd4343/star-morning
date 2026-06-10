@@ -14,7 +14,7 @@ interface ExtendedAxiosConfig extends AxiosRequestConfig {
 const api = axios.create({
   baseURL: '/api',
   headers: {
-    'Content-Type': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
   },
   timeout: 15000,
 });

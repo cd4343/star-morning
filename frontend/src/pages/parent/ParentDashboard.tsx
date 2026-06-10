@@ -409,26 +409,25 @@ export default function ParentDashboard() {
     if (!confirmed) return;
 
     setBatchApproving(true);
-    let success = 0;
-    let failed = 0;
+    try {
+      // B3-7: 单次批量审核请求，减少网络开销
+      const res = await api.post('/parent/task-entries/batch-review', {
+        entryIds: Array.from(selectedReviewIds),
+        action: 'approve',
+      });
+      const { approved, rejected, failed } = res.data;
+      setSelectedReviewIds(new Set());
+      fetchDashboard();
 
-    for (const id of selectedReviewIds) {
-      try {
-        await api.post(`/parent/review/${id}`, { action: 'approve', finalCoins: undefined });
-        success++;
-      } catch {
-        failed++;
+      if (failed === 0) {
+        toast.success(`✅ 成功批量通过 ${approved} 个任务！`);
+      } else {
+        toast.warning(`通过 ${approved} 个，失败 ${failed} 个`);
       }
-    }
-
-    setBatchApproving(false);
-    setSelectedReviewIds(new Set());
-    fetchDashboard();
-
-    if (failed === 0) {
-      toast.success(`✅ 成功批量通过 ${success} 个任务！`);
-    } else {
-      toast.warning(`通过 ${success} 个，失败 ${failed} 个`);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '批量审核失败');
+    } finally {
+      setBatchApproving(false);
     }
   };
 
@@ -479,9 +478,7 @@ export default function ParentDashboard() {
     if (!currentReview) return 0;
     const baseCoins = currentReview.coinReward;
     const totalBonus = timeScore + qualityScore + initiativeScore;
-    const finalCoins = Math.round(baseCoins * (100 + totalBonus) / 100);
-    const punishmentDeduction = getPunishmentDeduction();
-    return finalCoins - punishmentDeduction; // 允许为负数，惩罚可能超过奖励
+    return Math.round(baseCoins * (100 + totalBonus) / 100);
   };
 
   const getScoreValue = (key: ScoreKey) => {
@@ -593,6 +590,7 @@ export default function ParentDashboard() {
 
   const handleApprove = async () => {
     if (!currentReview) return;
+    if (submitting) return;
 
     // 如果启用惩罚但未填写原因
     if (enablePunishment && punishmentSettings?.requireReason && !punishmentReason.trim()) {
@@ -669,12 +667,18 @@ export default function ParentDashboard() {
       }
       if (enablePunishment && savedPunishmentDeduction > 0) {
         message += `\n\n🚨 已执行惩罚\n`;
-        message += `扣除金币：-${savedPunishmentDeduction}\n`;
+        message += `扣除金币：-${punishmentResult?.deducted ?? savedPunishmentDeduction}\n`;
         message += `惩罚原因：${savedPunishmentReason}`;
       }
       toast.success(message);
-    } catch (err) {
-      toast.error('操作失败');
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        toast.warning(err.response?.data?.message || '该任务已处理，请刷新后查看');
+        setShowReviewModal(false);
+        fetchDashboard();
+      } else {
+        toast.error(err.response?.data?.message || '操作失败，请稍后重试');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1381,23 +1385,23 @@ export default function ParentDashboard() {
                     <div className={`text-2xl font-black ${totalBonus >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {totalBonus > 0 ? `+${totalBonus}%` : `${totalBonus}%`}
                     </div>
-                    {enablePunishment && (
-                      <div className="text-xs text-red-600 mt-1">
-                        惩罚扣分: -{getPunishmentDeduction()} 金币
-                      </div>
-                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-gray-600">最终奖励</div>
-                    <div className={`text-3xl font-black ${calculateFinalCoins() < 0 ? 'text-red-600' : 'text-yellow-600'}`}>
+                    <div className="text-3xl font-black text-yellow-600">
                       {calculateFinalCoins()} 💰
                     </div>
+                    {enablePunishment && (
+                      <div className="mt-1 text-xs font-bold text-red-600">
+                        另扣惩罚 {getPunishmentDeduction()} 金币
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 mt-2 text-center">
                   {enablePunishment ? (
                     <>
-                      计算公式：{currentReview.coinReward} × (100% + {totalBonus}%) - {getPunishmentDeduction()} = {calculateFinalCoins()} 金币
+                      奖励公式：{currentReview.coinReward} × (100% + {totalBonus}%) = {calculateFinalCoins()} 金币；惩罚会单独记录并扣除 {getPunishmentDeduction()} 金币
                     </>
                   ) : (
                     <>

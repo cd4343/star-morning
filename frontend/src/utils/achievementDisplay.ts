@@ -112,6 +112,14 @@ const THEMES: Record<string, Array<{ title: string; icon: string }>> = {
     { title: '家庭星光', icon: '✨' },
     { title: '温暖同行', icon: '💝' },
   ],
+  探索: [
+    { title: '初次出发', icon: '🧭' },
+    { title: '博物初见', icon: '🏛️' },
+    { title: '自然观察员', icon: '🌿' },
+    { title: '城市小旅人', icon: '🗺️' },
+    { title: '勇敢表达', icon: '🎙️' },
+    { title: '行路少年', icon: '🎒' },
+  ],
   default: [
     { title: '小有收获', icon: '🏅' },
     { title: '渐有章法', icon: '🎯' },
@@ -143,6 +151,7 @@ const getThemeKey = (item: AchievementLike) => {
   if (item.conditionType === 'coin_count') return 'coin_count';
   if (item.conditionType === 'xp_count' || item.conditionType === 'level_reach') return 'growth';
   if (item.conditionType === 'streak_days') return 'streak';
+  if (String(item.conditionType || '').startsWith('explore_')) return '探索';
   if (item.conditionType === 'category_count') return item.conditionCategory || item.category || 'default';
   return item.category || 'default';
 };
@@ -177,6 +186,16 @@ export const getAchievementConditionDescription = (item: AchievementLike) => {
       return `完成 ${value} 个${category || '指定'}任务`;
     case 'streak_days':
       return category && category !== '其他' ? `连续 ${value} 天${category}` : `连续 ${value} 天`;
+    case 'explore_checkin_count':
+      return `完成 ${value} 次探索打卡`;
+    case 'explore_category_count':
+      return `打卡 ${value} 个${category || '探索'}地点`;
+    case 'explore_media_count':
+      return `上传 ${value} 次照片纪念`;
+    case 'explore_voice_count':
+      return `留下 ${value} 条语音留言`;
+    case 'explore_confirmed_count':
+      return `完成 ${value} 次家长确认探索`;
     default:
       return item.description || '家长确认解锁';
   }
@@ -189,6 +208,18 @@ export const getAchievementDisplay = (item: AchievementLike) => {
       title: item.displayTitle || item.title || '专属成就',
       description: item.displayDescription || item.description || '家长确认解锁',
       icon: item.displayIcon || item.icon || rank.icon,
+      rank,
+    };
+  }
+
+  // 探索成就直接使用原始标题和图标，不走等级主题映射
+  // 因为探索成就是多维度独立成就（地点类型、打卡次数、表达形式等），
+  // 不是等级递进关系，不能用 rankIndex 去 THEMES 数组中挑选
+  if (String(item.conditionType || '').startsWith('explore_')) {
+    return {
+      title: item.displayTitle || item.title || '探索成就',
+      description: item.displayDescription || getAchievementConditionDescription(item) || item.description || '',
+      icon: item.displayIcon || item.icon || '🧭',
       rank,
     };
   }

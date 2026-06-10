@@ -21,6 +21,7 @@ export default function ChildLayout() {
   const retryCount = useRef(0);
   const lastDataErrorAt = useRef(0);
   const previousUserId = useRef<string | null>(null);
+  const lastSeenReviewAt = useRef<string>(''); // B3-5: 上次看到的审核时间
   const MAX_RETRIES = 3;
 
   const fetchData = useCallback(async () => {
@@ -39,6 +40,24 @@ export default function ChildLayout() {
       }
       retryCount.current = 0;
       setChildData(res.data.child);
+
+      // B3-5: 检测新的审核通过结果，显示即时通知
+      if (res.data.recentReviews?.length > 0) {
+        const latestReviewAt = res.data.recentReviews[0]?.reviewedAt;
+        if (lastSeenReviewAt.current && latestReviewAt > lastSeenReviewAt.current) {
+          // 找出新增的审核通过项
+          const newReviews = res.data.recentReviews.filter(
+            (r: any) => r.reviewedAt > lastSeenReviewAt.current
+          );
+          if (newReviews.length > 0) {
+            const totalCoins = newReviews.reduce((sum: number, r: any) => sum + (r.earnedCoins || 0), 0);
+            const totalXp = newReviews.reduce((sum: number, r: any) => sum + (r.earnedXp || 0), 0);
+            toast.showToast(`🌟 审核通过！获得 ${totalCoins} 金币 + ${totalXp} 经验`, 'success', 5000);
+          }
+        }
+        lastSeenReviewAt.current = latestReviewAt;
+      }
+
       try {
         const reminderRes = await api.get('/child/task-session-reminders');
         setTaskReminders(reminderRes.data || []);
@@ -173,7 +192,7 @@ export default function ChildLayout() {
 
             {/* 特权点进度条 */}
             {(() => {
-              // 奖励经验每累计 100 点自动兑换 1 个特权点，和等级经验分开显示。
+              // 任务/学习审核经验每累计 100 点自动兑换 1 个特权点；抽奖经验只用于等级成长。
               const rewardXpTotal = childData?.rewardXpTotal || 0;
               const xpInCurrentCycle = rewardXpTotal % 100;
               const xpNeeded = 100 - xpInCurrentCycle;
@@ -183,7 +202,7 @@ export default function ChildLayout() {
                 <div className="mt-1.5 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] text-blue-500 font-bold whitespace-nowrap">特权进度</span>
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden" title="100 奖励经验 = 1 特权点">
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden" title="任务和学习审核经验每100点=1特权点；抽奖经验只用于等级">
                       <div
                         className="h-full bg-gradient-to-r from-blue-400 to-indigo-400 rounded-full transition-all duration-700"
                         style={{ width: `${progressPercent}%` }}
@@ -194,8 +213,8 @@ export default function ChildLayout() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[9px] text-gray-400 font-medium">
-                    <span>100 奖励经验 = 1 特权点</span>
-                    <span>{privPoints} 点 · 还差 {xpNeeded === 100 ? 100 : xpNeeded} 奖励经验</span>
+                    <span>任务/学习经验 100 = 1 特权点</span>
+                    <span>{privPoints} 点 · 还差 {xpNeeded === 100 ? 100 : xpNeeded} 点</span>
                   </div>
                 </div>
               );
