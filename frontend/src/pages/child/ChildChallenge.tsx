@@ -380,7 +380,7 @@ export default function ChildChallenge() {
   const [selectedWeeklyDate, setSelectedWeeklyDate] = useState('');
   const [selectedTaskCategory, setSelectedTaskCategory] = useState('全部');
   const [taskListExpanded, setTaskListExpanded] = useState(false);
-  const timerDragRef = useRef({ dragging: false, moved: false, offsetX: 0, offsetY: 0, startX: 0, startY: 0 });
+  const timerDragRef = useRef({ dragging: false, moved: false, offsetX: 0, offsetY: 0, startX: 0, startY: 0, lastPos: null as { x: number; y: number } | null });
   const focusRequestNonceRef = useRef(0);
 
   const refreshActiveTimerTasks = () => {
@@ -848,6 +848,7 @@ export default function ChildChallenge() {
       offsetY: e.clientY - timerBarPosition.y,
       startX: e.clientX,
       startY: e.clientY,
+      lastPos: null,
     };
   };
 
@@ -861,10 +862,15 @@ export default function ChildChallenge() {
       }
     }
     if (!timerDragRef.current.moved) return;
-    setTimerBarPosition(clampTimerBarPosition(
+    // 拖动期间直接写 style，避免每次 move 触发整页重渲染导致卡顿；松手时再提交 state
+    const pos = clampTimerBarPosition(
       e.clientX - timerDragRef.current.offsetX,
       e.clientY - timerDragRef.current.offsetY
-    ));
+    );
+    timerDragRef.current.lastPos = pos;
+    const el = e.currentTarget as HTMLElement;
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
   };
 
   const handleTimerBarPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -872,6 +878,7 @@ export default function ChildChallenge() {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    if (timerDragRef.current.lastPos) setTimerBarPosition(timerDragRef.current.lastPos);
     window.setTimeout(() => {
       timerDragRef.current.moved = false;
     }, 0);
@@ -884,6 +891,7 @@ export default function ChildChallenge() {
         left: timerBarPosition.x,
         top: timerBarPosition.y,
         width: getTimerBarWidth(),
+        touchAction: 'none',
       }}
       onPointerDown={handleTimerBarPointerDown}
       onPointerMove={handleTimerBarPointerMove}

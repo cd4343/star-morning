@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import PullToRefresh from '../../components/PullToRefresh';
+import { GlobalTimerBar } from '../../components/GlobalTimerBar';
 
 export default function ChildLayout() {
   const navigate = useNavigate();
@@ -245,6 +246,9 @@ export default function ChildLayout() {
             data-child-overlay-root="true"
             className="absolute inset-0 pointer-events-none z-[60]"
           />
+
+          {/* 跨页面「挑战进行中」浮窗：挑战页有自带的完整版，避免重复渲染 */}
+          {!location.pathname.startsWith('/child/challenge') && <GlobalTimerBar />}
 
           {currentTaskReminder && (
             <div className="absolute inset-0 z-[70] bg-slate-900/45 backdrop-blur-sm flex items-end px-4 pb-24">
