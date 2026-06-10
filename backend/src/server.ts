@@ -1630,7 +1630,8 @@ app.post('/api/auth/switch-user', protect, async (req: any, res) => {
     const today = getLocalDateString();
     await getDb().run('UPDATE users SET lastLoginDate = ? WHERE id = ?', today, u.id);
 
-    res.json({token:jwt.sign({id:u.id, role:u.role, familyId:u.familyId}, JWT_SECRET), user:u});
+    // 字段白名单：绝不把 password/pin 哈希返回给前端（单设备场景下孩子可接触到响应数据）
+    res.json({token:jwt.sign({id:u.id, role:u.role, familyId:u.familyId}, JWT_SECRET), user:serializeAuthMember(u)});
 });
 
 // Child switch to parent via PIN
@@ -5626,8 +5627,9 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
 
     const isToday = getLocalDateString(targetDate) === getLocalDateString(today);
 
-    // 获取孩子数据并计算真实等级
-    const childInfo = await db.get('SELECT * FROM users WHERE id = ?', childId);
+    // 获取孩子数据并计算真实等级（字段白名单：剥离 password/pin 哈希）
+    const childInfoRaw = await db.get('SELECT * FROM users WHERE id = ?', childId);
+    const childInfo = childInfoRaw ? serializeAuthMember(childInfoRaw) : childInfoRaw;
     if (childInfo) {
         // 等级根据XP实时计算：每100XP升一级
         childInfo.level = Math.floor((childInfo.xp || 0) / 100) + 1;
@@ -7413,10 +7415,4 @@ initializeDatabase()
       });
     });
 
-    // 未捕获异常处理 - 记录并退出（配合 PM2 自动重启）
-    process.on('uncaughtException', (error) => {
-      console.error('❌ Uncaught Exception - 进程将退出:', error);
-      setTimeout(() => process.exit(1), 1000);
-    });
-
-    process.on('unhandledRejection', (reason, promise) => 
+    // 未捕获异常处�
