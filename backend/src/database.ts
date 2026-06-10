@@ -44,6 +44,7 @@ export const initializeDatabase = async () => {
     { version: '007', description: '探索表及索引' },
     { version: '008', description: '探索地点软删除' },
     { version: '009', description: '探索媒体 senderRole 与家庭照片要求开关' },
+    { version: '010', description: '探索二期发现资讯流（feed 表/关注源/家庭城市配置）' },
   ];
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);
@@ -148,6 +149,51 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE explore_checkins ADD COLUMN longitude REAL'); } catch (e) {}
   try { await db.run('ALTER TABLE explore_checkins ADD COLUMN distanceMeters INTEGER'); } catch (e) {}
   try { await db.run('ALTER TABLE families ADD COLUMN exploreGeoVerify INTEGER DEFAULT 0'); } catch (e) {}
+
+  // 探索二期（发现资讯流）：每日推荐卡片表 + 家长关注源表 + 家庭推送配置列（全部幂等，只增不改）
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS explore_feed_items (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      type TEXT CHECK(type IN ('poi','festival','parent','source')),
+      title TEXT NOT NULL,
+      summary TEXT,
+      imageUrl TEXT,
+      category TEXT,
+      latitude REAL,
+      longitude REAL,
+      amapPoiId TEXT,
+      sourceUrl TEXT,
+      status TEXT CHECK(status IN ('pending_review','new','wanted','dismissed')) DEFAULT 'new',
+      recommendDate TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+    )
+  `);
+  await db.run('CREATE INDEX IF NOT EXISTS idx_explore_feed_items_familyId_status ON explore_feed_items(familyId, status)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_explore_feed_items_familyId_recommendDate ON explore_feed_items(familyId, recommendDate)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_explore_feed_items_familyId_amapPoiId ON explore_feed_items(familyId, amapPoiId)');
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS explore_feed_sources (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      url TEXT NOT NULL,
+      label TEXT,
+      lastFetchedAt DATETIME,
+      lastItemHash TEXT,
+      isActive INTEGER DEFAULT 1,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+    )
+  `);
+  await db.run('CREATE INDEX IF NOT EXISTS idx_explore_feed_sources_familyId_isActive ON explore_feed_sources(familyId, isActive)');
+
+  try { await db.run('ALTER TABLE families ADD COLUMN exploreCity TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN exploreFeedDailyLimit INTEGER DEFAULT 3'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN exploreFeedCategories TEXT'); } catch (e) {}
+  // 发现卡「想去」落地图：记录地点来自哪条资讯
+  try { await db.run('ALTER TABLE explore_places ADD COLUMN sourceFeedId TEXT'); } catch (e) {}
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}

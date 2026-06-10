@@ -6,7 +6,7 @@ import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import BottomSheet from '../../components/BottomSheet';
 import ExploreMap, { hasAmapKey } from '../../components/ExploreMap';
-import { ExplorePlace, ExploreCheckin, ExploreMapPlace, ExploreMedium, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import { ExplorePlace, ExploreCheckin, ExploreMapPlace, ExploreMedium, ExploreFeedItem, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
 
 
@@ -69,11 +69,16 @@ export default function ChildExplore() {
   const [checkinMedia, setCheckinMedia] = useState<Record<string, ExploreMedium[]>>({});
   const [loadingCheckinMedia, setLoadingCheckinMedia] = useState<Record<string, boolean>>({});
   // 探索地图一期：地图/列表切换（有 key 默认地图；偏好存 localStorage）
-  const [viewMode, setViewMode] = useState<'map' | 'list'>(() => {
-    if (!hasAmapKey()) return 'list';
+  // 探索二期：新增「发现」资讯流段（无 key 时地图段隐藏，发现/列表仍可用）
+  const [viewMode, setViewMode] = useState<'map' | 'feed' | 'list'>(() => {
     const saved = localStorage.getItem('explore.viewMode');
-    return saved === 'list' ? 'list' : 'map';
+    if (saved === 'feed' || saved === 'list') return saved;
+    return hasAmapKey() ? 'map' : 'list';
   });
+  // 探索二期：今日发现卡片流
+  const [feedItems, setFeedItems] = useState<ExploreFeedItem[]>([]);
+  const [feedLeaving, setFeedLeaving] = useState<Set<string>>(new Set());
+  const [feedBusy, setFeedBusy] = useState<string | null>(null);
   const [mapPlaces, setMapPlaces] = useState<ExploreMapPlace[]>([]);
   const [mapSheetPlace, setMapSheetPlace] = useState<ExploreMapPlace | null>(null);
   const [showObserveTips, setShowObserveTips] = useState(false);
@@ -96,8 +101,14 @@ export default function ChildExplore() {
     setMapPlaces(mapRes.data || []);
   };
 
+  // 探索二期：发现卡片加载失败不打扰主流程（地图/列表照常可用）
+  const loadFeed = () => api.get('/child/explore/feed')
+    .then(res => setFeedItems(res.data || []))
+    .catch(() => {});
+
   useEffect(() => {
     loadData().catch(() => toast.error('探索数据加载失败'));
+    loadFeed();
     api.get('/child/explore/settings')
       .then(res => {
         setRequirePhoto(!!res.data?.exploreRequirePhoto);
@@ -173,8 +184,8 @@ export default function ChildExplore() {
     }
   };
 
-  // 探索地图一期：切换地图/列表并记住偏好
-  const switchViewMode = (mode: 'map' | 'list') => {
+  // 探索地图一期：切换地图/发现/列表并记住偏好
+  const switchViewMode = (mode: 'map' | 'feed' | 'list') => {
     setViewMode(mode);
     try { localStorage.setItem('explore.viewMode', mode); } catch { /* 隐私模式下存不了就算了 */ }
   };
@@ -185,6 +196,44 @@ export default function ChildExplore() {
     const fullPlace: ExplorePlace = places.find(place => place.id === mapSheetPlace.id) || mapSheetPlace;
     setMapSheetPlace(null);
     setSelected(fullPlace);
+  };
+
+  // 探索二期：发现卡「想去」→ 有坐标自动落地图变蓝色标记，卡片消失
+  const wantFeedItem = async (item: ExploreFeedItem) => {
+    if (feedBusy) return;
+    setFeedBusy(item.id);
+    try {
+      const res = await api.post(`/child/explore/feed/${item.id}/want`);
+      toast.success(res.data?.placeId ? t('explore.feedWantSuccess') : t('explore.feedWantSaved'));
+      setFeedItems(prev => prev.filter(card => card.id !== item.id));
+      loadData().catch(() => {});
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setFeedBusy(null);
+    }
+  };
+
+  // 探索二期：发现卡「下次再说」→ 淡出后移除，不再出现
+  const dismissFeedItem = async (item: ExploreFeedItem) => {
+    if (feedBusy) return;
+    setFeedBusy(item.id);
+    try {
+      await api.post(`/child/explore/feed/${item.id}/dismiss`);
+      setFeedLeaving(prev => new Set(prev).add(item.id));
+      window.setTimeout(() => {
+        setFeedItems(prev => prev.filter(card => card.id !== item.id));
+        setFeedLeaving(prev => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+      }, 300);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setFeedBusy(null);
+    }
   };
 
   const submitCheckin = async () => {
@@ -238,8 +287,8 @@ export default function ChildExplore() {
 
   return (
     <div className={viewMode === 'map' ? 'h-full flex flex-col gap-3 p-4 pb-2' : 'p-4 space-y-4 pb-8'}>
-      {hasAmapKey() && (
-        <div className="flex rounded-2xl bg-white border border-slate-200 p-1 shadow-sm">
+      <div className="flex rounded-2xl bg-white border border-slate-200 p-1 shadow-sm">
+        {hasAmapKey() && (
           <button
             type="button"
             onClick={() => switchViewMode('map')}
@@ -247,15 +296,27 @@ export default function ChildExplore() {
           >
             {t('explore.viewMap')}
           </button>
-          <button
-            type="button"
-            onClick={() => switchViewMode('list')}
-            className={`flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
-          >
-            {t('explore.viewList')}
-          </button>
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          onClick={() => switchViewMode('feed')}
+          className={`relative flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'feed' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
+        >
+          {t('explore.viewFeed')}
+          {feedItems.length > 0 && viewMode !== 'feed' && (
+            <span className="absolute top-0.5 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center">
+              {feedItems.length}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => switchViewMode('list')}
+          className={`flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
+        >
+          {t('explore.viewList')}
+        </button>
+      </div>
 
       {viewMode === 'map' ? (
         <ExploreMap
@@ -266,6 +327,74 @@ export default function ChildExplore() {
           }}
           className="flex-1 min-h-0"
         />
+      ) : viewMode === 'feed' ? (
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-black text-slate-900">{t('explore.feedTitle')}</h3>
+          {feedItems.length > 0 && (
+            <span className="text-xs font-bold text-slate-400">{t('explore.feedCount', { count: feedItems.length })}</span>
+          )}
+        </div>
+        {feedItems.length === 0 ? (
+          <div className="rounded-3xl bg-white border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-500 leading-relaxed">
+            {t('explore.feedEmpty')}
+          </div>
+        ) : feedItems.map(item => (
+          <div
+            key={item.id}
+            className={`rounded-3xl border p-4 shadow-sm transition-all duration-300 ${
+              feedLeaving.has(item.id) ? 'opacity-0 scale-95' : 'opacity-100'
+            } ${item.type === 'parent' ? 'bg-rose-50 border-rose-200' : item.type === 'festival' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}
+          >
+            {item.type === 'parent' && (
+              <div className="mb-2 inline-flex rounded-full bg-rose-500 text-white px-3 py-1 text-xs font-black">
+                {t('explore.feedParentBadge')}
+              </div>
+            )}
+            {item.type === 'festival' && (
+              <div className="mb-2 inline-flex rounded-full bg-amber-400 text-white px-3 py-1 text-xs font-black">
+                {t('explore.feedFestivalBadge')}
+              </div>
+            )}
+            {item.imageUrl && (
+              <img
+                src={item.imageUrl}
+                alt={item.title}
+                loading="lazy"
+                onError={event => event.currentTarget.classList.add('hidden')}
+                className="w-full h-36 rounded-2xl object-cover border border-slate-100"
+              />
+            )}
+            <div className="mt-2 flex items-start justify-between gap-2">
+              <div className="font-black text-slate-900 text-lg leading-snug">{item.title}</div>
+              {item.category && (
+                <span className="shrink-0 rounded-full bg-sky-50 text-sky-700 px-2 py-1 text-[11px] font-black">
+                  {EXPLORE_CATEGORY_ICONS[item.category] || '📍'} {item.category}
+                </span>
+              )}
+            </div>
+            {item.summary && <p className="mt-1 text-sm text-slate-600 leading-relaxed line-clamp-3">{item.summary}</p>}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => dismissFeedItem(item)}
+                disabled={feedBusy === item.id}
+                className="min-h-[44px] rounded-2xl bg-white border border-slate-200 text-slate-500 text-sm font-black disabled:opacity-50"
+              >
+                {t('explore.feedDismiss')}
+              </button>
+              <button
+                type="button"
+                onClick={() => wantFeedItem(item)}
+                disabled={feedBusy === item.id}
+                className="min-h-[44px] rounded-2xl bg-emerald-500 text-white text-sm font-black shadow-md shadow-emerald-100 active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                {t('explore.feedWant')}
+              </button>
+            </div>
+          </div>
+        ))}
+      </section>
       ) : (
       <>
       <section className="rounded-[1.75rem] bg-gradient-to-br from-emerald-400 via-sky-400 to-indigo-500 text-white p-5 shadow-lg shadow-sky-100">

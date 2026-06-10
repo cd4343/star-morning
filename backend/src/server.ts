@@ -12,6 +12,7 @@ import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
+import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -1762,6 +1763,7 @@ app.post('/api/child/switch-to-parent', protect, async (req: any, res) => {
 app.use('/api/parent', protect, requireParent);
 app.use('/api/child', protect, requireChild);
 registerRewardSystemRoutes(app, protect);
+registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 
 // Parent Family Management
 app.post('/api/parent/set-pin', protect, async (req: any, res) => {
@@ -7749,6 +7751,7 @@ initializeDatabase()
     if (process.env.ENABLE_DB_BACKUP === 'true' || process.env.NODE_ENV === 'production') {
       startBackupScheduler();
     }
+    startExploreFeedScheduler();
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
       console.log(`📡 API ready at http://localhost:${PORT}/api`);

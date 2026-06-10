@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, Award, Camera, CheckCircle2, ChevronDown, ChevronUp, Compass, Edit3, HardDrive, MapPin, Mic, Plus, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react';
+import { Archive, Award, BarChart3, Camera, CheckCircle2, ChevronDown, ChevronUp, Compass, Edit3, Globe, HardDrive, Heart, MapPin, Mic, Plus, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react';
 import { Header } from '../../components/Header';
 import { Button } from '../../components/Button';
 import api from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
-import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, EXPLORE_CATEGORIES } from '../../types/explore';
+import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, EXPLORE_CATEGORIES } from '../../types/explore';
 
 const categories = EXPLORE_CATEGORIES;
 const statusOptions = [
@@ -97,6 +97,19 @@ export default function ParentExplore() {
   const [poiUnconfigured, setPoiUnconfigured] = useState(false);
   // 探索改版③：回忆时间线
   const [timeline, setTimeline] = useState<ExploreTimelineMonth[] | null>(null);
+  // 探索二期：发现推送设置 + 观察统计
+  const [feedSettings, setFeedSettings] = useState<ExploreFeedSettings | null>(null);
+  const [feedCity, setFeedCity] = useState('');
+  const [feedLimit, setFeedLimit] = useState(3);
+  const [savingFeed, setSavingFeed] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [sourceLabel, setSourceLabel] = useState('');
+  const [addingSource, setAddingSource] = useState(false);
+  const [pushUrl, setPushUrl] = useState('');
+  const [pushPreviewLoading, setPushPreviewLoading] = useState(false);
+  const [pushForm, setPushForm] = useState({ title: '', summary: '', imageUrl: '', sourceUrl: '' });
+  const [pushing, setPushing] = useState(false);
+  const [stats, setStats] = useState<ExploreStats | null>(null);
 
   const activePlaces = useMemo(() => places.filter(place => place.status !== 'archived'), [places]);
   const pendingCheckins = useMemo(() => checkins.filter(item => !item.parentConfirmed).length, [checkins]);
@@ -115,6 +128,16 @@ export default function ParentExplore() {
     loadData().catch(() => toast.error('探索数据加载失败'));
   }, []);
 
+  // 探索二期：发现推送设置（城市/条数/关注源/待审核）
+  const loadFeedSettings = async () => {
+    try {
+      const res = await api.get('/parent/explore/feed-settings');
+      setFeedSettings(res.data);
+      setFeedCity(res.data?.exploreCity || '');
+      setFeedLimit(res.data?.exploreFeedDailyLimit || 3);
+    } catch { /* 静默：设置区其余部分仍可用 */ }
+  };
+
   useEffect(() => {
     if (tab === 'settings') {
       api.get('/parent/explore/quota').then(res => setQuota(res.data)).catch(() => {});
@@ -122,6 +145,8 @@ export default function ParentExplore() {
         setRequirePhoto(!!res.data?.exploreRequirePhoto);
         setGeoVerify(!!res.data?.exploreGeoVerify);
       }).catch(() => {});
+      loadFeedSettings();
+      api.get('/parent/explore/stats').then(res => setStats(res.data)).catch(() => {});
     }
     if (tab === 'memories' && timeline === null) {
       api.get('/parent/explore/timeline').then(res => setTimeline(res.data || [])).catch(() => toast.error('回忆加载失败'));
@@ -328,6 +353,97 @@ export default function ParentExplore() {
       toast.error(e.response?.data?.message || t('toast.operateFailed'));
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  // 探索二期：保存城市/每日条数
+  const saveFeedSettings = async () => {
+    setSavingFeed(true);
+    try {
+      await api.put('/parent/explore/feed-settings', { exploreCity: feedCity, exploreFeedDailyLimit: feedLimit });
+      toast.success(t('explore.feedSettingsSaved'));
+      await loadFeedSettings();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setSavingFeed(false);
+    }
+  };
+
+  // 探索二期：关注源增删（软删）
+  const addFeedSource = async () => {
+    if (!sourceUrl.trim()) return;
+    setAddingSource(true);
+    try {
+      await api.post('/parent/explore/feed-sources', { url: sourceUrl.trim(), label: sourceLabel.trim() });
+      toast.success(t('explore.feedSourceAdded'));
+      setSourceUrl('');
+      setSourceLabel('');
+      await loadFeedSettings();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setAddingSource(false);
+    }
+  };
+
+  const removeFeedSource = async (id: string) => {
+    try {
+      await api.delete(`/parent/explore/feed-sources/${id}`);
+      toast.success(t('explore.feedSourceDeleted'));
+      await loadFeedSettings();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    }
+  };
+
+  // 探索二期：待审核条目通过/忽略
+  const reviewFeedItem = async (id: string, action: 'approve' | 'reject') => {
+    try {
+      await api.post(`/parent/explore/feed/${id}/${action}`);
+      toast.success(action === 'approve' ? t('explore.feedApproved') : t('explore.feedRejected'));
+      setFeedSettings(prev => prev ? { ...prev, pendingReview: prev.pendingReview.filter(item => item.id !== id) } : prev);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    }
+  };
+
+  // 探索二期：粘贴链接生成推荐预览（og 标签）
+  const previewPushLink = async () => {
+    if (!pushUrl.trim()) return;
+    setPushPreviewLoading(true);
+    try {
+      const res = await api.post('/parent/explore/feed/push-link', { url: pushUrl.trim() });
+      setPushForm({
+        title: res.data?.title || '',
+        summary: res.data?.summary || '',
+        imageUrl: res.data?.imageUrl || '',
+        sourceUrl: res.data?.sourceUrl || pushUrl.trim()
+      });
+    } catch (e: any) {
+      toast.warning(e.response?.data?.message || t('toast.operateFailed'));
+      setPushForm(prev => ({ ...prev, sourceUrl: pushUrl.trim() }));
+    } finally {
+      setPushPreviewLoading(false);
+    }
+  };
+
+  // 探索二期：推送家长推荐卡（孩子端置顶展示）
+  const pushFeedCard = async () => {
+    if (!pushForm.title.trim()) {
+      toast.warning(t('explore.feedPushTitlePlaceholder'));
+      return;
+    }
+    setPushing(true);
+    try {
+      await api.post('/parent/explore/feed/push', pushForm);
+      toast.success(t('explore.feedPushSuccess'));
+      setPushUrl('');
+      setPushForm({ title: '', summary: '', imageUrl: '', sourceUrl: '' });
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setPushing(false);
     }
   };
 
@@ -635,6 +751,192 @@ export default function ParentExplore() {
               </button>
             </div>
 
+            {/* 探索二期：发现推送设置 */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="font-black text-slate-900 flex items-center gap-2">
+                <Sparkles size={18} className="text-violet-500" />
+                {t('explore.feedSettingsTitle')}
+              </div>
+              <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.feedSettingsDesc')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="mb-1 text-xs font-black text-slate-500">{t('explore.feedCityLabel')}</div>
+                  <input
+                    value={feedCity}
+                    onChange={event => setFeedCity(event.target.value)}
+                    placeholder={t('explore.feedCityPlaceholder')}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-violet-400"
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-black text-slate-500">{t('explore.feedDailyLimitLabel')}</div>
+                  <select
+                    value={feedLimit}
+                    onChange={event => setFeedLimit(Number(event.target.value))}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-violet-400"
+                  >
+                    {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+              </div>
+              <Button fullWidth onClick={saveFeedSettings} loading={savingFeed} className="bg-violet-600 hover:bg-violet-700">
+                {t('explore.feedSaveSettings')}
+              </Button>
+            </div>
+
+            {/* 探索二期：关注源列表（增删） */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="font-black text-slate-900 flex items-center gap-2">
+                <Globe size={18} className="text-sky-500" />
+                {t('explore.feedSourcesTitle')}
+              </div>
+              <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.feedSourcesDesc')}</p>
+              {feedSettings && feedSettings.sources.length === 0 && (
+                <div className="rounded-2xl bg-slate-50 px-3 py-3 text-xs font-bold text-slate-400">{t('explore.feedSourcesEmpty')}</div>
+              )}
+              {feedSettings?.sources.map(source => (
+                <div key={source.id} className="flex items-center gap-2 rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    {source.label && <div className="text-sm font-black text-slate-700 truncate">{source.label}</div>}
+                    <div className="text-xs font-bold text-slate-400 truncate">{source.url}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFeedSource(source.id)}
+                    className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-red-500"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+              <input
+                value={sourceUrl}
+                onChange={event => setSourceUrl(event.target.value)}
+                placeholder={t('explore.feedSourceUrlPlaceholder')}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-sky-400"
+              />
+              <input
+                value={sourceLabel}
+                onChange={event => setSourceLabel(event.target.value)}
+                placeholder={t('explore.feedSourceLabelPlaceholder')}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-sky-400"
+              />
+              <Button fullWidth onClick={addFeedSource} loading={addingSource} disabled={!sourceUrl.trim()} className="bg-sky-600 hover:bg-sky-700">
+                {t('explore.feedSourceAdd')}
+              </Button>
+            </div>
+
+            {/* 探索二期：待审核队列（关注源抓取结果） */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="font-black text-slate-900 flex items-center gap-2">
+                <CheckCircle2 size={18} className="text-amber-500" />
+                {t('explore.feedPendingTitle')}{feedSettings && feedSettings.pendingReview.length > 0 ? `（${feedSettings.pendingReview.length}）` : ''}
+              </div>
+              {!feedSettings || feedSettings.pendingReview.length === 0 ? (
+                <div className="rounded-2xl bg-slate-50 px-3 py-3 text-xs font-bold text-slate-400">{t('explore.feedPendingEmpty')}</div>
+              ) : feedSettings.pendingReview.map(item => (
+                <div key={item.id} className="rounded-2xl bg-slate-50 border border-slate-100 p-3 space-y-2">
+                  <div className="text-sm font-black text-slate-800 leading-snug">{item.title}</div>
+                  {item.sourceUrl && (
+                    <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="block text-xs font-bold text-sky-600 truncate">
+                      {t('explore.feedViewSource')}：{item.sourceUrl}
+                    </a>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => reviewFeedItem(item.id, 'reject')}
+                      className="min-h-[44px] rounded-2xl bg-white border border-slate-200 text-slate-500 text-sm font-black"
+                    >
+                      {t('explore.feedReject')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reviewFeedItem(item.id, 'approve')}
+                      className="min-h-[44px] rounded-2xl bg-emerald-500 text-white text-sm font-black"
+                    >
+                      {t('explore.feedApprove')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 探索二期：推荐给孩子（粘贴链接预览或手填） */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="font-black text-slate-900 flex items-center gap-2">
+                <Heart size={18} className="text-rose-500" />
+                {t('explore.feedPushTitle')}
+              </div>
+              <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.feedPushDesc')}</p>
+              <div className="grid grid-cols-[1fr_6rem] gap-2">
+                <input
+                  value={pushUrl}
+                  onChange={event => setPushUrl(event.target.value)}
+                  placeholder={t('explore.feedPushLinkPlaceholder')}
+                  className="rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-rose-300"
+                />
+                <button
+                  type="button"
+                  onClick={previewPushLink}
+                  disabled={pushPreviewLoading || !pushUrl.trim()}
+                  className="min-h-[44px] rounded-2xl bg-slate-900 text-white text-xs font-black disabled:opacity-40"
+                >
+                  {pushPreviewLoading ? t('common.loading') : t('explore.feedPushPreview')}
+                </button>
+              </div>
+              {pushForm.imageUrl && (
+                <img src={pushForm.imageUrl} alt={pushForm.title} className="w-full h-32 rounded-2xl object-cover border border-slate-100" />
+              )}
+              <input
+                value={pushForm.title}
+                onChange={event => setPushForm(prev => ({ ...prev, title: event.target.value }))}
+                placeholder={t('explore.feedPushTitlePlaceholder')}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-rose-300"
+              />
+              <input
+                value={pushForm.summary}
+                onChange={event => setPushForm(prev => ({ ...prev, summary: event.target.value }))}
+                placeholder={t('explore.feedPushSummaryPlaceholder')}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-rose-300"
+              />
+              <Button fullWidth onClick={pushFeedCard} loading={pushing} disabled={!pushForm.title.trim()} className="bg-rose-500 hover:bg-rose-600">
+                {t('explore.feedPushConfirm')}
+              </Button>
+            </div>
+
+            {/* 探索二期：观察统计 */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="font-black text-slate-900 flex items-center gap-2">
+                <BarChart3 size={18} className="text-teal-500" />
+                {t('explore.statsTitle')}
+              </div>
+              {stats ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <StatCard label={t('explore.statsMonthCheckins')} value={String(stats.monthCheckinCount)} />
+                    <StatCard label={t('explore.statsLitPlaces')} value={String(stats.visitedPlaceCount)} />
+                    <StatCard label={t('explore.statsMonthWanted')} value={String(stats.monthWantedCount)} />
+                    <StatCard
+                      label={t('explore.statsTopCategory')}
+                      value={stats.categoryDistribution[0] ? stats.categoryDistribution[0].category : t('explore.statsNone')}
+                    />
+                  </div>
+                  {stats.categoryDistribution.length > 0 && (
+                    <div className="flex gap-2 flex-wrap">
+                      {stats.categoryDistribution.map(item => (
+                        <span key={item.category} className="rounded-full bg-teal-50 border border-teal-100 px-3 py-1 text-xs font-black text-teal-700">
+                          {item.category} × {item.count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-xs font-bold text-slate-400">{t('common.loading')}</div>
+              )}
+            </div>
+
             {/* 探索改版②：探索成就入口 */}
             <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
               <div className="font-black text-slate-900 flex items-center gap-2">
@@ -726,6 +1028,16 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
     >
       {label}
     </button>
+  );
+}
+
+// 探索二期：观察统计数字卡
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 border border-slate-100 px-3 py-3 text-center">
+      <div className="text-xl font-black text-slate-900 leading-tight">{value}</div>
+      <div className="mt-1 text-[11px] font-bold text-slate-500">{label}</div>
+    </div>
   );
 }
 

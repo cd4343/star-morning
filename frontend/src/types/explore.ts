@@ -99,6 +99,45 @@ export type ExploreTimelineMonth = {
   checkins: ExploreTimelineCheckin[];
 };
 
+// 探索二期（发现资讯流）：/api/child/explore/feed 卡片
+export type ExploreFeedItem = {
+  id: string;
+  type: 'poi' | 'festival' | 'parent' | 'source';
+  title: string;
+  summary?: string | null;
+  imageUrl?: string | null;
+  category?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  sourceUrl?: string | null;
+  status: string;
+  recommendDate?: string;
+  createdAt?: string;
+};
+
+export type ExploreFeedSource = {
+  id: string;
+  url: string;
+  label?: string | null;
+  lastFetchedAt?: string | null;
+  createdAt?: string;
+};
+
+export type ExploreFeedSettings = {
+  exploreCity: string;
+  exploreFeedDailyLimit: number;
+  exploreFeedCategories: string[] | null;
+  sources: ExploreFeedSource[];
+  pendingReview: ExploreFeedItem[];
+};
+
+export type ExploreStats = {
+  monthCheckinCount: number;
+  visitedPlaceCount: number;
+  categoryDistribution: { category: string; count: number }[];
+  monthWantedCount: number;
+};
+
 // B4-07: 探索成就进度
 export type ExploreAchievementProgress = {
   id: string;
