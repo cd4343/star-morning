@@ -1941,7 +1941,7 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
            COALESCE(t.durationMinutes, 30) as expectedDuration
     FROM task_entries te
     LEFT JOIN tasks t ON te.taskId = t.id
-    WHERE (t.familyId = ? OR t.familyId IS NULL) AND te.submittedAt >= date('now', '-7 days')
+    WHERE (t.familyId = ? OR t.familyId IS NULL) AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
     AND EXISTS (SELECT 1 FROM users u WHERE u.id = te.childId AND u.familyId = ?)`, familyId, familyId);
 
   const total = weekEntries.length; // 本周提交总数
@@ -1974,7 +1974,7 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     JOIN tasks t ON te.taskId = t.id
     JOIN users u ON te.childId = u.id
     WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
-    AND te.submittedAt >= date('now', '-7 days')
+    AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
     ORDER BY te.submittedAt DESC
     LIMIT 20`, familyId);
 
@@ -2044,7 +2044,7 @@ app.get('/api/parent/review-history', protect, async (req: any, res) => {
     }
   } else {
     // 默认返回最近7天
-    query += ` AND te.submittedAt >= date('now', '-7 days', '+8 hours')`;
+    query += ` AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')`;
   }
   if (status && ['approved', 'rejected'].includes(String(status))) {
     query += ` AND te.status = ?`;
@@ -2079,7 +2079,7 @@ app.get('/api/parent/review-history', protect, async (req: any, res) => {
           AND date(te2.submittedAt, '+8 hours') = date(te.submittedAt, '+8 hours')
       )
     )
-    AND te.submittedAt >= date('now', '-30 days')
+    AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-30 days')
     GROUP BY date(te.submittedAt, '+8 hours')
     ORDER BY date DESC
   `, familyId);
@@ -2301,7 +2301,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     SELECT COUNT(DISTINCT date(submittedAt, '+8 hours')) as days
     FROM task_entries
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
-    AND submittedAt >= DATE('now', '-30 days')
+    AND date(submittedAt, '+8 hours') >= date('now', '+8 hours', '-30 days')
   `, ...childIds))?.days || 0;
 
   const dailyAverage = activeDays > 0 ? Math.round((monthTasks / activeDays) * 10) / 10 : 0;
@@ -2311,7 +2311,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     SELECT date(submittedAt, '+8 hours') as date, COALESCE(SUM(earnedCoins), 0) as earned
     FROM task_entries
     WHERE childId IN (${childIdPlaceholders}) AND status = 'approved'
-    AND submittedAt >= date('now', '-7 days', '+8 hours')
+    AND date(submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
     GROUP BY date(submittedAt, '+8 hours')
     ORDER BY date ASC
   `, ...childIds);
@@ -2397,35 +2397,35 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
   const recentPunishments = (await db.get(`
     SELECT COUNT(*) as count
     FROM punishment_records
-    WHERE familyId = ? AND createdAt >= date('now', '-7 days')
+    WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, familyId))?.count || 0;
   const recentAutoCompleted = (await db.get(`
     SELECT COUNT(*) as count
     FROM task_sessions
-    WHERE familyId = ? AND status = 'auto_completed' AND autoCompletedAt >= date('now', '-7 days')
+    WHERE familyId = ? AND status = 'auto_completed' AND date(autoCompletedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, familyId))?.count || 0;
   const recentEmotion = await db.get(`
     SELECT COUNT(*) as count,
            SUM(CASE WHEN helped = 1 THEN 1 ELSE 0 END) as helpedCount
     FROM emotion_checkins
-    WHERE familyId = ? AND createdAt >= date('now', '-7 days')
+    WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, familyId);
   const recentScreen = await db.get(`
     SELECT COUNT(*) as sessions,
            COALESCE(SUM(CASE WHEN status IN ('running', 'completed', 'cancelled') THEN plannedMinutes ELSE 0 END), 0) as minutes
     FROM screen_time_sessions
-    WHERE familyId = ? AND startedAt >= date('now', '-7 days')
+    WHERE familyId = ? AND date(startedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, familyId);
   const recentChest = (await db.get(`
     SELECT COUNT(*) as count
     FROM chest_records
-    WHERE familyId = ? AND createdAt >= date('now', '-7 days')
+    WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, familyId))?.count || 0;
   const recentAchievements = (await db.get(`
     SELECT COUNT(*) as count
     FROM user_achievements ua
     JOIN users u ON ua.childId = u.id
-    WHERE u.familyId = ? AND ua.unlockedAt >= date('now', '-7 days')
+    WHERE u.familyId = ? AND date(ua.unlockedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, familyId))?.count || 0;
 
   const recentEmotionCount = Number(recentEmotion?.count || 0);
@@ -4594,7 +4594,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
     `SELECT s.status, COUNT(*) as count
        FROM learning_sessions s
        JOIN learning_quests q ON s.questId = q.id
-      WHERE q.familyId = ? AND s.createdAt >= date('now', ?)
+      WHERE q.familyId = ? AND date(s.createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY s.status`,
     familyId,
     `-${days} days`
@@ -4604,7 +4604,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
        FROM learning_sessions s
        JOIN learning_quests q ON s.questId = q.id
       WHERE q.familyId = ? AND s.stuckReason IS NOT NULL AND TRIM(s.stuckReason) != ''
-        AND s.createdAt >= date('now', ?)
+        AND date(s.createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY s.stuckReason
       ORDER BY count DESC
       LIMIT 8`,
@@ -4617,7 +4617,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             SUM(CASE WHEN s.status = 'rejected' THEN 1 ELSE 0 END) as rejectedCount,
             SUM(CASE WHEN s.stuckReason IS NOT NULL AND TRIM(s.stuckReason) != '' THEN 1 ELSE 0 END) as stuckCount
        FROM learning_quests q
-       LEFT JOIN learning_sessions s ON s.questId = q.id AND s.createdAt >= date('now', ?)
+       LEFT JOIN learning_sessions s ON s.questId = q.id AND date(s.createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       WHERE q.familyId = ?
       GROUP BY q.id
       HAVING attempts > 0
@@ -4631,7 +4631,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
     `SELECT scene, intensity, COUNT(*) as count,
             SUM(CASE WHEN helped = 1 THEN 1 ELSE 0 END) as helpedCount
        FROM emotion_checkins
-      WHERE familyId = ? AND createdAt >= date('now', ?)
+      WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY scene, intensity
       ORDER BY count DESC`,
     familyId,
@@ -4642,7 +4642,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             SUM(CASE WHEN helped = 1 THEN 1 ELSE 0 END) as helpedCount
        FROM emotion_checkins
       WHERE familyId = ? AND action IS NOT NULL AND TRIM(action) != ''
-        AND createdAt >= date('now', ?)
+        AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY action
       ORDER BY helpedCount DESC, count DESC
       LIMIT 8`,
@@ -4653,7 +4653,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
   const breakfastStats = await db.all(
     `SELECT title, icon, COUNT(*) as count, COALESCE(SUM(costCoins), 0) as spentCoins
        FROM breakfast_orders
-      WHERE familyId = ? AND status != 'cancelled' AND createdAt >= date('now', ?)
+      WHERE familyId = ? AND status != 'cancelled' AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY title, icon
       ORDER BY count DESC
       LIMIT 8`,
@@ -4669,7 +4669,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
        LEFT JOIN screen_time_sessions s
          ON s.childId = u.id
         AND s.familyId = ?
-        AND s.startedAt >= date('now', ?)
+        AND date(s.startedAt, '+8 hours') >= date('now', '+8 hours', ?)
       WHERE u.familyId = ? AND u.role = 'child'
       GROUP BY u.id
       ORDER BY usedMinutes DESC`,
@@ -4682,7 +4682,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
     `SELECT COALESCE(SUM(te.earnedCoins), 0) as total
        FROM task_entries te
        JOIN tasks t ON te.taskId = t.id
-      WHERE t.familyId = ? AND te.status = 'approved' AND te.reviewedAt >= date('now', ?)`,
+      WHERE t.familyId = ? AND te.status = 'approved' AND date(te.reviewedAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
@@ -4691,14 +4691,14 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
        FROM user_inventory ui
        JOIN users u ON ui.childId = u.id
       WHERE u.familyId = ? AND ui.costType = 'coins' AND ui.status != 'cancelled'
-        AND ui.acquiredAt >= date('now', ?)`,
+        AND date(ui.acquiredAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
   const spentBreakfast = await db.get(
     `SELECT COALESCE(SUM(costCoins), 0) as total
        FROM breakfast_orders
-      WHERE familyId = ? AND status != 'cancelled' AND createdAt >= date('now', ?)`,
+      WHERE familyId = ? AND status != 'cancelled' AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
@@ -4708,13 +4708,13 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             SUM(CASE WHEN te.status = 'rejected' THEN 1 ELSE 0 END) as rejectedCount,
             SUM(CASE WHEN te.status = 'pending' THEN 1 ELSE 0 END) as pendingCount,
             SUM(CASE WHEN COALESCE(te.isOverdue, 0) = 1 THEN 1 ELSE 0 END) as overdueCount,
-            COUNT(DISTINCT date(te.submittedAt)) as activeDays,
+            COUNT(DISTINCT date(te.submittedAt, '+8 hours')) as activeDays,
             COALESCE(AVG(CASE WHEN te.actualDurationMinutes IS NOT NULL THEN te.actualDurationMinutes END), 0) as avgActualMinutes,
             COALESCE(SUM(CASE WHEN te.status = 'approved' THEN te.earnedCoins ELSE 0 END), 0) as earnedCoins,
             COALESCE(SUM(CASE WHEN te.status = 'approved' THEN te.earnedXp ELSE 0 END), 0) as earnedXp
        FROM task_entries te
        JOIN tasks t ON te.taskId = t.id
-      WHERE t.familyId = ? AND te.submittedAt >= date('now', ?)`,
+      WHERE t.familyId = ? AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
@@ -4726,7 +4726,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             COALESCE(SUM(CASE WHEN te.status = 'approved' THEN te.earnedCoins ELSE 0 END), 0) as earnedCoins
        FROM task_entries te
        JOIN tasks t ON te.taskId = t.id
-      WHERE t.familyId = ? AND te.submittedAt >= date('now', ?)
+      WHERE t.familyId = ? AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY t.category
       ORDER BY submittedCount DESC`,
     familyId,
@@ -4737,12 +4737,12 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             COUNT(te.id) as submittedCount,
             SUM(CASE WHEN te.status = 'approved' THEN 1 ELSE 0 END) as approvedCount,
             SUM(CASE WHEN te.status = 'rejected' THEN 1 ELSE 0 END) as rejectedCount,
-            COUNT(DISTINCT date(te.submittedAt)) as activeDays,
+            COUNT(DISTINCT date(te.submittedAt, '+8 hours')) as activeDays,
             COALESCE(SUM(CASE WHEN te.status = 'approved' THEN te.earnedCoins ELSE 0 END), 0) as earnedCoins
        FROM users u
        LEFT JOIN task_entries te
          ON te.childId = u.id
-        AND te.submittedAt >= date('now', ?)
+        AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', ?)
        LEFT JOIN tasks t ON te.taskId = t.id AND t.familyId = ?
       WHERE u.familyId = ? AND u.role = 'child'
       GROUP BY u.id
@@ -4757,14 +4757,14 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             SUM(CASE WHEN level IN ('severe', 'custom') THEN 1 ELSE 0 END) as highCount,
             COUNT(DISTINCT childId) as affectedChildren
        FROM punishment_records
-      WHERE familyId = ? AND createdAt >= date('now', ?)`,
+      WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
   const punishmentReasons = await db.all(
     `SELECT reason, level, COUNT(*) as count, COALESCE(SUM(deductedCoins), 0) as deductedCoins
        FROM punishment_records
-      WHERE familyId = ? AND createdAt >= date('now', ?)
+      WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY reason, level
       ORDER BY count DESC, deductedCoins DESC
       LIMIT 8`,
@@ -4777,14 +4777,14 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             COALESCE(SUM(CASE WHEN rewardType = 'xp' THEN rewardValue ELSE 0 END), 0) as xp,
             COALESCE(SUM(CASE WHEN rewardType = 'privilegePoints' THEN rewardValue ELSE 0 END), 0) as privilegePoints
        FROM chest_records
-      WHERE familyId = ? AND createdAt >= date('now', ?)`,
+      WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
   const chestRarityStats = await db.all(
     `SELECT rewardRarity as rarity, COUNT(*) as count
        FROM chest_records
-      WHERE familyId = ? AND createdAt >= date('now', ?)
+      WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', ?)
       GROUP BY rewardRarity
       ORDER BY count DESC`,
     familyId,
@@ -4795,7 +4795,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
             COUNT(DISTINCT ua.achievementId) as uniqueAchievements
        FROM user_achievements ua
        JOIN users u ON ua.childId = u.id
-      WHERE u.familyId = ? AND ua.unlockedAt >= date('now', ?)`,
+      WHERE u.familyId = ? AND date(ua.unlockedAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );
@@ -4807,7 +4807,7 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
       WHERE u.familyId = ?
         AND ui.costType = 'privilegePoints'
         AND ui.status != 'cancelled'
-        AND ui.acquiredAt >= date('now', ?)`,
+        AND date(ui.acquiredAt, '+8 hours') >= date('now', '+8 hours', ?)`,
     familyId,
     `-${days} days`
   );

@@ -503,7 +503,7 @@ export const calculateAdjustedPunishment = async (
       FROM tasks t
       LEFT JOIN task_entries te ON t.id = te.taskId
       LEFT JOIN punishment_records pr ON te.id = pr.taskEntryId
-      WHERE t.id = ? AND te.submittedAt >= date('now', '-30 days')
+      WHERE t.id = ? AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-30 days')
     `, taskId);
 
     if (taskStats && taskStats.totalSubmissions > 0) {
@@ -519,7 +519,7 @@ export const calculateAdjustedPunishment = async (
     }
 
     const childRecent = await db.get(
-      'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND createdAt >= date("now", "-7 days")',
+      'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND date(createdAt, "+8 hours") >= date("now", "+8 hours", "-7 days")',
       childId
     );
     const recentCount = childRecent?.count || 0;
@@ -842,11 +842,11 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const familyId = request.user!.familyId;
 
     const totalCount = (await db.get('SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ?', familyId))?.count || 0;
-    const weekCount = (await db.get('SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ? AND createdAt >= date("now", "-7 days")', familyId))?.count || 0;
-    const prevWeekCount = (await db.get('SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ? AND createdAt >= date("now", "-14 days") AND createdAt < date("now", "-7 days")', familyId))?.count || 0;
+    const weekCount = (await db.get('SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ? AND date(createdAt, "+8 hours") >= date("now", "+8 hours", "-7 days")', familyId))?.count || 0;
+    const prevWeekCount = (await db.get('SELECT COUNT(*) as count FROM punishment_records WHERE familyId = ? AND date(createdAt, "+8 hours") >= date("now", "+8 hours", "-14 days") AND date(createdAt, "+8 hours") < date("now", "+8 hours", "-7 days")', familyId))?.count || 0;
 
     const byLevel = await db.all(`SELECT level, COUNT(*) as count, SUM(deductedCoins) as totalDeducted FROM punishment_records WHERE familyId = ? GROUP BY level`, familyId);
-    const byChild = await db.all(`SELECT pr.childId, u.name as childName, COUNT(*) as count, SUM(pr.deductedCoins) as totalDeducted, COUNT(CASE WHEN pr.createdAt >= date('now', '-7 days') THEN 1 END) as weekCount, COUNT(CASE WHEN pr.createdAt >= date('now', '-14 days') AND pr.createdAt < date('now', '-7 days') THEN 1 END) as prevWeekCount FROM punishment_records pr JOIN users u ON pr.childId = u.id WHERE pr.familyId = ? GROUP BY pr.childId`, familyId);
+    const byChild = await db.all(`SELECT pr.childId, u.name as childName, COUNT(*) as count, SUM(pr.deductedCoins) as totalDeducted, COUNT(CASE WHEN date(pr.createdAt, '+8 hours') >= date('now', '+8 hours', '-7 days') THEN 1 END) as weekCount, COUNT(CASE WHEN date(pr.createdAt, '+8 hours') >= date('now', '+8 hours', '-14 days') AND date(pr.createdAt, '+8 hours') < date('now', '+8 hours', '-7 days') THEN 1 END) as prevWeekCount FROM punishment_records pr JOIN users u ON pr.childId = u.id WHERE pr.familyId = ? GROUP BY pr.childId`, familyId);
 
     const taskStats = await db.all(`SELECT t.id as taskId, t.title, COUNT(te.id) as totalSubmissions, COUNT(pr.id) as punishmentCount, ROUND(CAST(COUNT(pr.id) AS REAL) * 100.0 / NULLIF(COUNT(te.id), 0), 1) as punishmentRate, ROUND(AVG(pr.deductedCoins), 1) as avgDeduction, MAX(pr.createdAt) as lastPunishmentAt FROM tasks t LEFT JOIN task_entries te ON t.id = te.taskId LEFT JOIN punishment_records pr ON te.id = pr.taskEntryId WHERE t.familyId = ? AND t.isEnabled = 1 GROUP BY t.id HAVING COUNT(te.id) > 0 ORDER BY punishmentRate DESC`, familyId);
 
@@ -859,7 +859,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const activeDaysWithPunishment = (await db.get(
       `SELECT COUNT(DISTINCT date(createdAt, '+8 hours')) as count
          FROM punishment_records
-        WHERE familyId = ? AND createdAt >= date('now', '-30 days')`,
+        WHERE familyId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', '-30 days')`,
       familyId
     ))?.count || 0;
     const perfectDays = Math.max(0, 30 - Number(activeDaysWithPunishment || 0));
@@ -1046,7 +1046,7 @@ export const calculateSmartPricing = async (db: any, childId: string): Promise<S
       COUNT(CASE WHEN status = 'approved' THEN 1 END) as approvedCount,
       COUNT(CASE WHEN status IN ('approved', 'rejected', 'pending') THEN 1 END) as totalCount
     FROM task_entries
-    WHERE childId = ? AND submittedAt >= date('now', '-7 days')
+    WHERE childId = ? AND date(submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, childId);
   const completionRate = completionStats?.totalCount > 0 
     ? (completionStats.approvedCount || 0) / completionStats.totalCount 
@@ -1055,14 +1055,14 @@ export const calculateSmartPricing = async (db: any, childId: string): Promise<S
   // 2. 近7天惩罚率
   const punishmentStats = await db.get(`
     SELECT COUNT(*) as count FROM punishment_records
-    WHERE childId = ? AND createdAt >= date('now', '-7 days')
+    WHERE childId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, childId);
   const recentPunishmentRate = Math.min((punishmentStats?.count || 0) / 7, 1);
 
   // 3. 近7天获得金币
   const weeklyCoinStats = await db.get(`
     SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries
-    WHERE childId = ? AND status = 'approved' AND submittedAt >= date('now', '-7 days')
+    WHERE childId = ? AND status = 'approved' AND date(submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
   `, childId);
   const weeklyCoinEarned = weeklyCoinStats?.total || 0;
 
@@ -1070,7 +1070,7 @@ export const calculateSmartPricing = async (db: any, childId: string): Promise<S
   const avgTaskStats = await db.get(`
     SELECT COALESCE(AVG(coinReward), 0) as avg FROM tasks t
     JOIN task_entries te ON t.id = te.taskId
-    WHERE te.childId = ? AND te.status = 'approved' AND te.submittedAt >= date('now', '-30 days')
+    WHERE te.childId = ? AND te.status = 'approved' AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-30 days')
   `, childId);
   const avgTaskCoins = avgTaskStats?.avg || 10;
 
