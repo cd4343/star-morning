@@ -68,7 +68,7 @@ export const IntroModal: React.FC<IntroModalProps> = ({ onClose }) => (
               </li>
               <li className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
-                <span>抽奖玩法：参与趣味金币大抽奖</span>
+                <span>冷静能量站：心情不好时去那里找回平静</span>
               </li>
             </ul>
           </div>

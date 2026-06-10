@@ -304,11 +304,11 @@ export default function ChildMe() {
 
   const getLevelName = (level: string) => {
     switch (level) {
-      case 'mild': return '轻度警告';
-      case 'moderate': return '中度惩罚';
-      case 'severe': return '严重惩罚';
-      case 'custom': return '自定义扣除';
-      default: return '惩罚';
+      case 'mild': return '小提醒';
+      case 'moderate': return '需要注意';
+      case 'severe': return '重要约定';
+      case 'custom': return '特别约定';
+      default: return '约定';
     }
   };
 
@@ -326,11 +326,11 @@ export default function ChildMe() {
     }
 
     if (weekCount < prevWeekCount) {
-      return { text: '📈 有进步！惩罚次数比上周减少了', type: 'improve' };
+      return { text: '📈 有进步！提醒比上周少了', type: 'improve' };
     } else if (weekCount > prevWeekCount) {
-      return { text: '⚠️ 需要改进，惩罚次数比上周增加了', type: 'warn' };
+      return { text: '💬 这周提醒多了一些，看看是哪件事卡住了？', type: 'warn' };
     } else if (weekCount === prevWeekCount && weekCount > 0) {
-      return { text: '📊 保持稳定，继续努力减少惩罚', type: 'neutral' };
+      return { text: '📊 保持稳定，继续努力减少提醒', type: 'neutral' };
     }
 
     return null;
@@ -643,7 +643,7 @@ export default function ChildMe() {
                 <button
                   key={filter}
                   onClick={() => setTimeFilter(filter)}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                  className={`px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${
                     timeFilter === filter ? 'bg-orange-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'
                   }`}
                 >
@@ -657,16 +657,16 @@ export default function ChildMe() {
               <div>
                 <div className="text-[10px] font-black text-gray-400 mb-1">显示</div>
                 <div className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-50 p-1">
-              <button onClick={() => setGroupMode('none')} className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${groupMode === 'none' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>列表</button>
-              <button onClick={() => setGroupMode('category')} className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${groupMode === 'category' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>分类</button>
+              <button onClick={() => setGroupMode('none')} className={`px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${groupMode === 'none' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>列表</button>
+              <button onClick={() => setGroupMode('category')} className={`px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${groupMode === 'category' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>分类</button>
                 </div>
               </div>
               <div>
                 <div className="text-[10px] font-black text-gray-400 mb-1">排序</div>
                 <div className="grid grid-cols-3 gap-1 rounded-2xl bg-gray-50 p-1">
-                  <button onClick={() => setSortMode('time')} className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${sortMode === 'time' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>最近</button>
-                  <button onClick={() => setSortMode('coins')} className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${sortMode === 'coins' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>扣分</button>
-                  <button onClick={() => setSortMode('name')} className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${sortMode === 'name' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>名称</button>
+                  <button onClick={() => setSortMode('time')} className={`px-2 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${sortMode === 'time' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>最近</button>
+                  <button onClick={() => setSortMode('coins')} className={`px-2 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${sortMode === 'coins' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>扣分</button>
+                  <button onClick={() => setSortMode('name')} className={`px-2 py-2 min-h-[36px] rounded-lg text-xs font-bold transition-all ${sortMode === 'name' ? 'bg-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>名称</button>
                 </div>
               </div>
             </div>
@@ -823,7 +823,7 @@ export default function ChildMe() {
 
               <div className="pt-2 border-t">
                 <div className="text-xs text-gray-500 text-center">
-                  执行人：{selectedRecord.parentName}
+                  和你复盘的人：{selectedRecord.parentName}
                 </div>
               </div>
             </div>

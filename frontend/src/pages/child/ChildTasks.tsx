@@ -382,7 +382,8 @@ const TaskTimerModal = ({ task, anchor, onClose, onComplete, onAbandon }: { task
                     </div>
                 </div>
 
-                <video ref={videoRef} style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0 }} loop muted playsInline src="https://media.githubusercontent.com/media/anars/blank-audio/master/1-second-of-silence.mp4" />
+                {/* 本地静音文件，替代不可达的 GitHub CDN */}
+                <video ref={videoRef} style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0 }} loop muted playsInline src="/silence.mp4" />
                 <div className="mt-8 text-[10px] text-gray-300 text-center font-bold uppercase tracking-widest">
                     Screen Stay Awake Enabled
                 </div>

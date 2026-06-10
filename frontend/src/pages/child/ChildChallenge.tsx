@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Play, Send, Sparkles, Star, Users, X, Zap } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { useToast } from '../../components/Toast';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
 import { TASK_CATEGORY_FILTERS, getTaskCategoryInfo, normalizeTaskCategory, taskMatchesCategory } from '../../utils/taskCategories';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
@@ -345,6 +346,7 @@ const scrollTaskElementIntoChildViewport = (taskId: string) => {
 export default function ChildChallenge() {
   const location = useLocation();
   const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState<TabKey>(() => getInitialTab(location.search));
   const cachedChallenge = useMemo(() => readChildChallengeCache(), []);
   const [dashboard, setDashboard] = useState<any>(cachedChallenge?.dashboard || null);
@@ -596,6 +598,14 @@ export default function ChildChallenge() {
 
   const abandonRunningTask = async () => {
     if (!runningTask) return;
+    const elapsedMinutes = Math.max(1, Math.round(getElapsedSeconds(runningTask) / 60));
+    const ok = await confirm({
+      title: '放弃任务',
+      message: `已经坚持了 ${elapsedMinutes} 分钟，真的要放弃吗？也可以先休息一下再继续`,
+      type: 'warning',
+      confirmText: '先放弃这次',
+    });
+    if (!ok) return;
     const taskId = runningTask.id;
     setRunningTask(null);
     setTimerMinimized(false);
@@ -784,7 +794,9 @@ export default function ChildChallenge() {
     setStuckHint(option.hint);
     try {
       await updateLearningProgress(learningStepIndex, option.label);
-    } catch {}
+    } catch {
+      toast.showToast('网络不太好，选择没保存上，可以再点一次', 'warning', 4000);
+    }
   };
 
   const submitLearningQuest = async () => {
@@ -1575,6 +1587,7 @@ export default function ChildChallenge() {
       )}
 
       {minimizedTimerBar && (getChildOverlayRoot() ? createPortal(minimizedTimerBar, getChildOverlayRoot()!) : minimizedTimerBar)}
+      <ConfirmDialog />
     </div>
   );
 }

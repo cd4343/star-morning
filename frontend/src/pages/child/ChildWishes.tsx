@@ -329,6 +329,15 @@ export default function ChildWishes() {
           showTip('金币不足', `你只有 ${childData.coins} 金币，无法存入 ${depositAmount} 金币`, '💰');
           return;
       }
+      if (depositAmount >= 50) {
+          const ok = await confirm({
+              title: '存入储蓄罐',
+              message: `要把 ${depositAmount} 金币存进储蓄罐吗？存进去就要等目标达成才能拿回哦`,
+              type: 'warning',
+              confirmText: '确定存入',
+          });
+          if (!ok) return;
+      }
       try {
           const res = await api.post(`/child/savings/deposit`, { amount: depositAmount, goalId: goal.id });
           refresh();
@@ -947,7 +956,7 @@ export default function ChildWishes() {
                                             <button
                                                 onClick={() => handleUseDrawAgain(item)}
                                                 disabled={loading}
-                                                className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center gap-1"
+                                                className="px-3 py-2.5 min-h-[44px] bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center gap-1"
                                             >
                                                 🔄 使用
                                             </button>
@@ -957,14 +966,14 @@ export default function ChildWishes() {
                                             <>
                                               <button
                                                   onClick={() => handleUseItem(item)}
-                                                  className="px-3 py-1.5 bg-blue-500 text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors"
+                                                  className="px-3 py-2.5 min-h-[44px] bg-blue-500 text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors"
                                               >
                                                   {isAchievementReward ? '打开礼包' : '马上使用'}
                                               </button>
                                               {!isAchievementReward && (
                                                 <button
                                                     onClick={() => handleOpenTransfer(item)}
-                                                    className="px-3 py-1.5 bg-purple-500 text-white text-xs font-bold rounded-lg hover:bg-purple-600 transition-colors"
+                                                    className="px-3 py-2.5 min-h-[44px] bg-purple-500 text-white text-xs font-bold rounded-lg hover:bg-purple-600 transition-colors"
                                                 >
                                                     转赠
                                                 </button>
@@ -976,7 +985,7 @@ export default function ChildWishes() {
                                       {canCancelInventoryItem(item) && (
                                           <button
                                               onClick={() => handleCancel(item)}
-                                              className="px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
+                                              className="px-3 py-2.5 min-h-[44px] bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
                                           >
                                               <RotateCcw size={12}/> 撤销
                                           </button>
@@ -1133,7 +1142,7 @@ export default function ChildWishes() {
                   <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-300 to-cyan-300 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
                       幸运大转盘
                   </h2>
-                  <p className="text-purple-200 text-xs mt-1">100% 中奖 · 惊喜不断</p>
+                  <p className="text-purple-200 text-xs mt-1">每次都会有奖品 · 普通奖品最常见</p>
               </div>
 
               <div className="bg-gradient-to-b from-orange-400 to-red-500 p-4 rounded-[2rem] shadow-[0_10px_30px_rgba(0,0,0,0.5)] border-4 border-yellow-400 relative w-full max-w-[320px] aspect-square mx-auto">
@@ -1279,7 +1288,15 @@ export default function ChildWishes() {
                                             return (
                                               <div className="flex flex-col gap-1">
                                                   <button
-                                                      onClick={() => executeRedeemPrivilege(priv, true)}
+                                                      onClick={async () => {
+                                                          const ok = await confirm({
+                                                              title: '使用特权',
+                                                              message: `确定现在使用「${priv.title}」吗？特权用掉就不能退回啦`,
+                                                              type: 'warning',
+                                                              confirmText: '确定使用',
+                                                          });
+                                                          if (ok) executeRedeemPrivilege(priv, true);
+                                                      }}
                                                       disabled={(childData.privilegePoints || 0) < priv.cost}
                                                       className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${
                                                           (childData.privilegePoints || 0) >= priv.cost
