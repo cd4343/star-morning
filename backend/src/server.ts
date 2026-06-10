@@ -257,6 +257,30 @@ const saveExploreMediaFile = async (payload: any, familyId: string, childId: str
     error.status = 400;
     throw error;
   }
+  // M3: magic bytes 校验——不信任客户端声明的 MIME，校验真实文件头
+  const matchesMagic = (() => {
+    const startsWith = (bytes: number[], offset = 0) =>
+      buffer.length >= offset + bytes.length && bytes.every((b, i) => buffer[offset + i] === b);
+    const ascii = (str: string, offset = 0) =>
+      buffer.length >= offset + str.length && buffer.toString('latin1', offset, offset + str.length) === str;
+    switch (mimeType) {
+      case 'image/jpeg': return startsWith([0xFF, 0xD8, 0xFF]);
+      case 'image/png': return startsWith([0x89, 0x50, 0x4E, 0x47]);
+      case 'image/webp': return ascii('RIFF') && ascii('WEBP', 8);
+      case 'image/gif': return ascii('GIF8');
+      case 'audio/webm': return startsWith([0x1A, 0x45, 0xDF, 0xA3]);
+      case 'audio/mp4': return ascii('ftyp', 4);
+      case 'audio/mpeg': return ascii('ID3') || (buffer.length > 1 && buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);
+      case 'audio/wav': return ascii('RIFF') && ascii('WAVE', 8);
+      case 'audio/ogg': return ascii('OggS');
+      default: return false;
+    }
+  })();
+  if (!matchesMagic) {
+    const error: any = new Error('文件内容与声明的格式不一致，请重新选择文件');
+    error.status = 400;
+    throw error;
+  }
 
   const extMap: Record<string, string> = {
     'image/jpeg': 'jpg',
@@ -5173,7 +5197,7 @@ app.post('/api/child/explore/checkins', protect, requireChild, async (req: any, 
   if (!place) return res.status(404).json({ message: '探索地点不存在' });
   // B2-2: 同日重复打卡检查（多孩子场景下，同一孩子同日同地点只能打卡一次）
   const existingToday = await db.get(
-    "SELECT id FROM explore_checkins WHERE placeId = ? AND childId = ? AND date(checkedInAt) = date('now')",
+    "SELECT id FROM explore_checkins WHERE placeId = ? AND childId = ? AND date(checkedInAt, '+8 hours') = date('now', '+8 hours')",
     req.body.placeId, request.user!.id
   );
   if (existingToday) return res.status(409).json({ message: '今天已经在这个地点打卡过了' });
@@ -7434,13 +7458,13 @@ app.get('/api/child/punishment-stats', protect, async (req: any, res) => {
 
     // 最近7天惩罚次数
     const weekCount = (await db.get(
-        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND createdAt >= date(\'now\', \'-7 days\', \'localtime\')',
+        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND date(createdAt, \'+8 hours\') >= date(\'now\', \'+8 hours\', \'-7 days\')',
         childId
     ))?.count || 0;
 
     // 前7天（8-14天前）惩罚次数（用于趋势对比）
     const prevWeekCount = (await db.get(
-        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND createdAt >= date(\'now\', \'-14 days\', \'localtime\') AND createdAt < date(\'now\', \'-7 days\', \'localtime\')',
+        'SELECT COUNT(*) as count FROM punishment_records WHERE childId = ? AND date(createdAt, \'+8 hours\') >= date(\'now\', \'+8 hours\', \'-14 days\') AND date(createdAt, \'+8 hours\') < date(\'now\', \'+8 hours\', \'-7 days\')',
         childId
     ))?.count || 0;
 
@@ -7552,9 +7576,10 @@ initializeDatabase()
       process.exit(1);
     });
 
+    // 单次未捕获的 Promise 拒绝（如某路由一次 SQLITE_BUSY）不应导致整个服务重启，
+    // 记录详细日志即可；真正不可恢复的同步异常仍由 uncaughtException 退出重启。
     process.on('unhandledRejection', (reason, promise) => {
       console.error('💥 Unhandled Rejection:', reason);
-      process.exit(1);
     });
   })
   .catch((error) => {

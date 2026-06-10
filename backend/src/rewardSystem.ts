@@ -857,7 +857,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
       .slice(0, 5)
       .map((t: any) => ({ taskId: t.taskId, title: t.title, count: t.punishmentCount }));
     const activeDaysWithPunishment = (await db.get(
-      `SELECT COUNT(DISTINCT date(createdAt, 'localtime')) as count
+      `SELECT COUNT(DISTINCT date(createdAt, '+8 hours')) as count
          FROM punishment_records
         WHERE familyId = ? AND createdAt >= date('now', '-30 days')`,
       familyId
