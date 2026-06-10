@@ -2513,8 +2513,11 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     }
 
     if (action === 'reject') {
-        await getDb().run("UPDATE task_entries SET status = 'rejected', reviewedAt = ? WHERE id = ? AND status = 'pending'", new Date().toISOString(), req.params.entryId);
-        return res.json({ message: '已打回' });
+        // P3：打回必须告诉孩子原因，否则孩子"做了但不知道为什么没通过"
+        const reason = String(req.body.reason || '').trim();
+        if (!reason) return res.status(400).json({ message: '请填写打回原因，让孩子知道哪里可以改进' });
+        await getDb().run("UPDATE task_entries SET status = 'rejected', reviewedAt = ?, reviewNote = ? WHERE id = ? AND status = 'pending'", new Date().toISOString(), reason.slice(0, 200), req.params.entryId);
+        return res.json({ message: '已打回，孩子会看到你的说明' });
     }
 
     // 计算建议奖励
@@ -5659,10 +5662,10 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
 
     // B3-5: 最近24小时审核结果（用于即时通知）
     const recentReviews = await db.all(
-      `SELECT te.id, te.status, te.earnedCoins, te.earnedXp, te.reviewedAt, t.title as taskTitle, t.category
+      `SELECT te.id, te.status, te.earnedCoins, te.earnedXp, te.reviewedAt, te.reviewNote, t.title as taskTitle, t.category
        FROM task_entries te JOIN tasks t ON te.taskId = t.id
-       WHERE te.childId = ? AND te.status = 'approved' AND te.reviewedAt IS NOT NULL
-         AND te.reviewedAt > datetime('now', '-24 hours', '+8 hours')
+       WHERE te.childId = ? AND te.status IN ('approved', 'rejected') AND te.reviewedAt IS NOT NULL
+         AND te.reviewedAt > datetime('now', '-24 hours')
        ORDER BY te.reviewedAt DESC LIMIT 10`,
       childId
     );
@@ -7006,6 +7009,10 @@ app.post('/api/parent/task-entries/batch-review', protect, async (req: any, res)
     if (!['approve', 'reject'].includes(action)) {
         return res.status(400).json({ message: '无效的审核操作' });
     }
+    const batchReason = String((req.body as any).reason || '').trim();
+    if (action === 'reject' && !batchReason) {
+        return res.status(400).json({ message: '请填写打回原因，让孩子知道哪里可以改进' });
+    }
     if (entryIds.length > 20) {
         return res.status(400).json({ message: '单次批量审核不能超过20条' });
     }
@@ -7027,8 +7034,8 @@ app.post('/api/parent/task-entries/batch-review', protect, async (req: any, res)
             if (entry.status !== 'pending') { results.push({ id: entryId, status: 'already_processed' }); continue; }
 
             if (action === 'reject') {
-                await db.run("UPDATE task_entries SET status = 'rejected', reviewedAt = ? WHERE id = ? AND status = 'pending'",
-                    new Date().toISOString(), entryId);
+                await db.run("UPDATE task_entries SET status = 'rejected', reviewedAt = ?, reviewNote = ? WHERE id = ? AND status = 'pending'",
+                    new Date().toISOString(), batchReason.slice(0, 200), entryId);
                 results.push({ id: entryId, status: 'rejected' });
                 continue;
             }

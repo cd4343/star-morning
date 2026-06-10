@@ -249,6 +249,8 @@ const createTables = async () => {
   `);
   // 添加奖励经验字段（如果不存在）
   try { await db.run('ALTER TABLE task_entries ADD COLUMN rewardXp INTEGER DEFAULT 0'); } catch (e) {}
+  // B3-1 打回原因：让孩子知道哪里可以改进（幂等加列）
+  try { await db.run('ALTER TABLE task_entries ADD COLUMN reviewNote TEXT'); } catch (e) {}
 
   // 学习闯关：独立于普通任务，避免影响现有线上任务/审核数据
   await db.exec(`
