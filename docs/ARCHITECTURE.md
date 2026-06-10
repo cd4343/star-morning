@@ -46,6 +46,8 @@
 - **punishment_records**：惩罚记录，关联 taskEntryId、childId、parentId、level、deductedCoins
 - **wishes**：心愿/商品/抽奖奖品，`type` = shop/savings/lottery，`effectType` = null 或 draw_again
 - **user_inventory**：背包，来源 source = shop/lottery/privilege/savings，联表 wishes 得 effectType
+- **explore_places / explore_checkins / explore_media**：家庭探索模块（家长发现地点、孩子打卡、家长确认回应；media 含 senderRole 区分孩子上传与家长语音回应；不发金币不发任务）
+- **rewardSystem.ts**：宝箱/抽奖/惩罚计算/转赠/智能定价的独立路由模块（registerRewardSystemRoutes）
 - **achievement_defs / user_achievements**：成就定义与解锁
 
 ## 关键 API 分组
