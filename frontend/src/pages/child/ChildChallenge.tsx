@@ -72,6 +72,25 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
 ];
 
 const isDone = (status?: string) => ['approved', 'completed', 'pending'].includes(String(status || ''));
+
+// 与家长端审批维度命名保持一致（孩子看到的 = 家长评的）；家长自定义的 reviewFocus 优先生效
+const REVIEW_FOCUS_BY_CATEGORY: Record<string, string> = {
+  学习: '专注投入、认真程度、自主与求助（求助加分）',
+  生活: '及时完成、仔细程度、不用提醒',
+  运动: '坚持时长、投入程度、愿意开始',
+  早晨启动: '按点启动、流程完整、自己起床',
+  情绪调节: '及时使用、方法完成度、主动觉察',
+};
+
+const getAlignedReviewFocus = (
+  task: { reviewFocus?: string | null; taskType?: string; category?: string },
+  fallback: string
+): string => {
+  const custom = String(task.reviewFocus || '').trim();
+  if (custom) return custom;
+  if (String(task.taskType || '') === 'family') return '准时参与、配合度、带动气氛';
+  return REVIEW_FOCUS_BY_CATEGORY[normalizeTaskCategory(task.category)] || fallback;
+};
 const ACTIVE_TASKS_KEY = 'stellar_active_tasks_v2';
 const CHILD_CHALLENGE_CACHE_KEY = 'stellar_child_challenge_cache_v1';
 const getTaskDataKey = (id: string) => `stellar_task_data_${id}`;
@@ -1578,7 +1597,7 @@ export default function ChildChallenge() {
                 </div>
               )}
               <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3 text-xs text-emerald-700 font-bold leading-relaxed">
-                家长会主要看：{completionSummary.reviewFocus}
+                家长会主要看：{getAlignedReviewFocus(selectedTask, completionSummary.reviewFocus)}
               </div>
             </div>
           );

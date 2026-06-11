@@ -372,6 +372,87 @@ export const initializeDatabase = async () => {
     console.error('⚠️ 游戏加场特权预置失败:', e);
   }
 
+  // N1: 生活/学习/运动成就阶梯补齐——为存量家庭补「连续3天」档（新家庭由 DEFAULT_ACHIEVEMENT_SEEDS 直接覆盖）。
+  // 仅当家庭内不存在同 title 的成就时插入，家长自定义成就不受影响。
+  try {
+    const achvExpandMark = await db.run(
+      'INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)',
+      ['achv-seed-expand-2026-06', '生活/学习/运动成就补齐「连续3天」档']
+    );
+    if ((achvExpandMark.changes || 0) === 1) {
+      const NEW_STREAK3_SEEDS = [
+        { title: '三日小当家', desc: '连续 3 天完成生活任务', icon: '🧹', type: 'streak_days', value: 3, conditionCategory: '生活', category: '生活', rewardCoins: 10, rewardXp: 10, rewardPrivilegePoints: 0 },
+        { title: '三日书声', desc: '连续 3 天完成学习任务', icon: '📅', type: 'streak_days', value: 3, conditionCategory: '学习', category: '学习', rewardCoins: 10, rewardXp: 10, rewardPrivilegePoints: 0 },
+        { title: '连动三天', desc: '连续 3 天完成运动任务', icon: '🔥', type: 'streak_days', value: 3, conditionCategory: '运动', category: '运动', rewardCoins: 10, rewardXp: 10, rewardPrivilegePoints: 0 },
+      ];
+      const achvFams = await db.all(`SELECT id FROM families WHERE id != 'TEMP'`);
+      let achvInserted = 0;
+      for (const fam of achvFams) {
+        for (const ach of NEW_STREAK3_SEEDS) {
+          const dup = await db.get(
+            'SELECT 1 FROM achievement_defs WHERE familyId = ? AND title = ?',
+            fam.id, ach.title
+          );
+          if (dup) continue;
+          await db.run(
+            `INSERT INTO achievement_defs (
+                id, familyId, title, description, icon, conditionType, conditionValue,
+                conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            randomUUID(), fam.id, ach.title, ach.desc, ach.icon, ach.type, ach.value,
+            ach.conditionCategory, ach.category, ach.rewardCoins, ach.rewardXp, ach.rewardPrivilegePoints, 'instant'
+          );
+          achvInserted++;
+        }
+      }
+      console.log(`✅ 成就阶梯补齐：检查 ${achvFams.length} 个家庭，新增 ${achvInserted} 条「连续3天」成就`);
+    }
+  } catch (e) {
+    console.error('⚠️ 成就阶梯补齐迁移失败:', e);
+  }
+
+  // 高光时刻：为存量家庭回填 6 条 manual 成就，由家长在成就管理页手动颁发（新家庭由 DEFAULT_ACHIEVEMENT_SEEDS 直接覆盖）。
+  // 仅当家庭内不存在同 title 的成就时插入，家长自定义成就不受影响。
+  try {
+    const manualPackMark = await db.run(
+      'INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)',
+      ['achv-manual-pack-2026-06', '高光时刻：6 条 manual 成就回填']
+    );
+    if ((manualPackMark.changes || 0) === 1) {
+      const MANUAL_PACK_SEEDS = [
+      { title: '第一次独立完成', desc: '不用任何帮助独立完成一件家务', icon: '🧽', type: 'manual', value: 0, category: '生活', rewardCoins: 8, rewardXp: 15 },
+      { title: '主动多做一件', desc: '没人要求，主动帮家里做了额外的事', icon: '🤝', type: 'manual', value: 0, category: '生活', rewardCoins: 10, rewardXp: 15 },
+      { title: '自己发现错误', desc: '检查作业时自己找出并改正了错误', icon: '🔍', type: 'manual', value: 0, category: '学习', rewardCoins: 10, rewardXp: 15 },
+      { title: '教会别人一次', desc: '把学会的东西讲给家人听懂', icon: '🎓', type: 'manual', value: 0, category: '学习', rewardCoins: 10, rewardXp: 20 },
+      { title: '坚持到最后', desc: '很累但坚持完成了整场运动', icon: '🏁', type: 'manual', value: 0, category: '运动', rewardCoins: 10, rewardXp: 15 },
+      { title: '勇敢再试一次', desc: '失败后没放弃，重新尝试', icon: '🌈', type: 'manual', value: 0, category: '成长', rewardCoins: 12, rewardXp: 20 },
+      ];
+      const manualFams = await db.all(`SELECT id FROM families WHERE id != 'TEMP'`);
+      let manualInserted = 0;
+      for (const fam of manualFams) {
+        for (const ach of MANUAL_PACK_SEEDS) {
+          const dup = await db.get(
+            'SELECT 1 FROM achievement_defs WHERE familyId = ? AND title = ?',
+            fam.id, ach.title
+          );
+          if (dup) continue;
+          await db.run(
+            `INSERT INTO achievement_defs (
+                id, familyId, title, description, icon, conditionType, conditionValue,
+                conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            randomUUID(), fam.id, ach.title, ach.desc, ach.icon, ach.type, ach.value,
+            null, ach.category, ach.rewardCoins, ach.rewardXp, 0, 'instant'
+          );
+          manualInserted++;
+        }
+      }
+      console.log(`✅ 高光时刻成就回填：检查 ${manualFams.length} 个家庭，新增 ${manualInserted} 条 manual 成就`);
+    }
+  } catch (e) {
+    console.error('⚠️ 高光时刻成就回填迁移失败:', e);
+  }
+
   // R4: 周报表（每周日 20:00 北京时间由 weeklyReport.ts 调度生成，确定性规则拼装文案）
   await db.exec(`
     CREATE TABLE IF NOT EXISTS weekly_reports (

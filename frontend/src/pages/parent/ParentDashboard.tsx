@@ -139,6 +139,72 @@ const LIFE_RESULT_OPTIONS: ScoreOption[] = [
   { label: '需要返工', value: -20, emoji: '🔁' },
 ];
 
+// 早晨启动：分值分别复用 TIME / QUALITY / INITIATIVE 既有档位
+const MORNING_START_OPTIONS: ScoreOption[] = [
+  { label: '提前就绪', value: 20, emoji: '🌅' },
+  { label: '按点启动', value: 0, emoji: '✅' },
+  { label: '稍有磨蹭', value: -10, emoji: '⏰' },
+  { label: '拖延较久', value: -20, emoji: '🐢' },
+];
+
+const MORNING_FLOW_OPTIONS: ScoreOption[] = [
+  { label: '全部完成', value: 30, emoji: '🌟' },
+  { label: '基本完成', value: 10, emoji: '👍' },
+  { label: '少了一两项', value: 0, emoji: '😐' },
+  { label: '大多没做', value: -30, emoji: '😞' },
+];
+
+const MORNING_WAKE_OPTIONS: ScoreOption[] = [
+  { label: '闹钟即起', value: 20, emoji: '⏰' },
+  { label: '叫一次就起', value: 0, emoji: '👌' },
+  { label: '叫了几次', value: -10, emoji: '📢' },
+  { label: '反复催促', value: -20, emoji: '🔔' },
+];
+
+// 情绪调节：分值分别复用 SPORT_PARTICIPATION / SPORT_ACTION / SPORT_INITIATIVE 既有档位
+const EMOTION_TIMING_OPTIONS: ScoreOption[] = [
+  { label: '很快用上', value: 10, emoji: '🌈' },
+  { label: '用上了', value: 0, emoji: '✅' },
+  { label: '提醒后用', value: -10, emoji: '📣' },
+  { label: '这次没用上', value: -20, emoji: '🫧' },
+];
+
+const EMOTION_METHOD_OPTIONS: ScoreOption[] = [
+  { label: '完整做完', value: 20, emoji: '🧘' },
+  { label: '做了大半', value: 10, emoji: '💪' },
+  { label: '开了个头', value: 0, emoji: '🌱' },
+  { label: '这次没做', value: -20, emoji: '🫂' },
+];
+
+const EMOTION_AWARENESS_OPTIONS: ScoreOption[] = [
+  { label: '自己觉察', value: 20, emoji: '💡' },
+  { label: '提醒后接受', value: 0, emoji: '🤝' },
+  { label: '多次提醒', value: -10, emoji: '🔔' },
+  { label: '还需要陪练', value: -20, emoji: '🫂' },
+];
+
+// 全家任务：分值分别复用 SPORT_PARTICIPATION / ACTIVITY_RESULT / ACTIVITY_COOPERATION 既有档位
+const FAMILY_ONTIME_OPTIONS: ScoreOption[] = [
+  { label: '准时到位', value: 10, emoji: '🕖' },
+  { label: '基本准时', value: 0, emoji: '✅' },
+  { label: '迟到一会', value: -10, emoji: '⏱️' },
+  { label: '迟到很久', value: -20, emoji: '🐢' },
+];
+
+const FAMILY_COOPERATION_OPTIONS: ScoreOption[] = [
+  { label: '全程配合', value: 20, emoji: '🌟' },
+  { label: '配合良好', value: 10, emoji: '🤝' },
+  { label: '基本配合', value: 0, emoji: '👌' },
+  { label: '配合较少', value: -20, emoji: '📝' },
+];
+
+const FAMILY_VIBE_OPTIONS: ScoreOption[] = [
+  { label: '带动全场', value: 20, emoji: '🎉' },
+  { label: '气氛融洽', value: 0, emoji: '🙂' },
+  { label: '有点游离', value: -10, emoji: '💭' },
+  { label: '影响气氛', value: -20, emoji: '🌧️' },
+];
+
 export default function ParentDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -502,13 +568,23 @@ export default function ParentDashboard() {
 
   const getReviewScoreDimensions = (): ScoreDimension[] => {
     const rawCategory = String(reviewSuggestion?.category || currentReview?.category || '');
-    const category = ['劳动', '生活习惯', '日常', '家务'].includes(rawCategory) ? '生活' : rawCategory;
+    const category = ['劳动', '生活习惯', '日常', '家务'].includes(rawCategory) ? '生活'
+      : ['晨间启动', '晨读', '早晨复习', '起床复习'].includes(rawCategory) ? '早晨启动'
+      : ['情绪', '冷静', '冷静练习', '情绪自助'].includes(rawCategory) ? '情绪调节'
+      : rawCategory;
     const completionMode = String(reviewSuggestion?.completionMode || currentReview?.completionMode || 'timer');
+    if (String(currentReview?.taskType || '') === 'family' || ['协作', '合作'].includes(rawCategory)) {
+      return [
+        { key: 'time' as ScoreKey, title: '准时参与', icon: <Users size={16} className="text-emerald-500" />, activeClass: 'bg-emerald-500', options: FAMILY_ONTIME_OPTIONS, hint: '按约定时间加入全家行动就好，不比快慢。' },
+        { key: 'quality' as ScoreKey, title: '配合度', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: FAMILY_COOPERATION_OPTIONS, hint: '看是否听安排、和家人互相搭把手。' },
+        { key: 'initiative' as ScoreKey, title: '带动气氛', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: FAMILY_VIBE_OPTIONS, hint: '愿意出主意、给家人鼓劲都算带动气氛。' },
+      ];
+    }
     if (category === '运动') {
       return [
-        { key: 'time' as ScoreKey, title: '参与完整度', icon: <HeartPulse size={16} className="text-emerald-500" />, activeClass: 'bg-emerald-500', options: SPORT_PARTICIPATION_OPTIONS, hint: '只看是否参与到位，不奖励“做得更快”。' },
-        { key: 'quality' as ScoreKey, title: '动作与安全', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: SPORT_ACTION_OPTIONS, hint: '动作完成、安全和强度适配比速度更重要。' },
-        { key: 'initiative' as ScoreKey, title: '运动主动性', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: SPORT_INITIATIVE_OPTIONS, hint: '鼓励愿意开始和持续尝试。' },
+        { key: 'time' as ScoreKey, title: '坚持时长', icon: <HeartPulse size={16} className="text-emerald-500" />, activeClass: 'bg-emerald-500', options: SPORT_PARTICIPATION_OPTIONS, hint: '动起来并坚持到约定时长，不奖励“做得更快”。' },
+        { key: 'quality' as ScoreKey, title: '投入程度', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: SPORT_ACTION_OPTIONS, hint: '是否尽力、姿态认真、注意安全，不和别人比。' },
+        { key: 'initiative' as ScoreKey, title: '愿意开始', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: SPORT_INITIATIVE_OPTIONS, hint: '鼓励愿意开始和持续尝试。' },
       ];
     }
     if (category === '活动') {
@@ -520,16 +596,30 @@ export default function ParentDashboard() {
     }
     if (category === '学习') {
       return [
-        { key: 'time' as ScoreKey, title: '学习过程', icon: <BookOpen size={16} className="text-indigo-500" />, activeClass: 'bg-indigo-500', options: STUDY_PROCESS_OPTIONS, hint: '学习不奖励“越快越好”，看是否按小步推进。' },
-        { key: 'quality' as ScoreKey, title: '完成质量', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: QUALITY_OPTIONS, hint: '看认真程度、正确率和是否敷衍。' },
-        { key: 'initiative' as ScoreKey, title: '求助与坚持', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: STUDY_PERSISTENCE_OPTIONS, hint: '不会时能求助、愿意坚持，比速度更重要。' },
+        { key: 'time' as ScoreKey, title: '专注投入', icon: <BookOpen size={16} className="text-indigo-500" />, activeClass: 'bg-indigo-500', options: STUDY_PROCESS_OPTIONS, hint: '按计划开始、中途离开少即可给高分，不奖励“越快越好”。' },
+        { key: 'quality' as ScoreKey, title: '认真程度', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: QUALITY_OPTIONS, hint: '看字迹、正确率、有没有检查一遍。' },
+        { key: 'initiative' as ScoreKey, title: '自主与求助', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: STUDY_PERSISTENCE_OPTIONS, hint: '自己开始加分；卡住时主动求助也是加分项，不是减分项。' },
       ];
     }
     if (category === '生活') {
       return [
-        { key: 'time' as ScoreKey, title: '生活稳定', icon: <CheckCircle2 size={16} className="text-emerald-500" />, activeClass: 'bg-emerald-500', options: LIFE_STABILITY_OPTIONS, hint: '生活类看稳定和关键动作，不因做得快加大奖励。' },
-        { key: 'quality' as ScoreKey, title: '结果可用', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: LIFE_RESULT_OPTIONS, hint: '看整理、清洁或自理结果是否真的可用。' },
-        { key: 'initiative' as ScoreKey, title: '独立程度', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: INITIATIVE_OPTIONS, hint: '少提醒和逐步独立，比单次高额奖励更重要。' },
+        { key: 'time' as ScoreKey, title: '及时完成', icon: <CheckCircle2 size={16} className="text-emerald-500" />, activeClass: 'bg-emerald-500', options: LIFE_STABILITY_OPTIONS, hint: '生活类看稳定和及时做到，不因做得快加大奖励。' },
+        { key: 'quality' as ScoreKey, title: '仔细程度', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: LIFE_RESULT_OPTIONS, hint: '做完是否顺手归位、有没有糊弄。' },
+        { key: 'initiative' as ScoreKey, title: '不用提醒', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: INITIATIVE_OPTIONS, hint: '看叫一次就动，还是催了好几次才动。' },
+      ];
+    }
+    if (category === '早晨启动') {
+      return [
+        { key: 'time' as ScoreKey, title: '按点启动', icon: <Clock size={16} className="text-sky-500" />, activeClass: 'bg-sky-500', options: MORNING_START_OPTIONS, hint: '按约定时间开始行动就是好的开始，不比速度。' },
+        { key: 'quality' as ScoreKey, title: '流程完整', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: MORNING_FLOW_OPTIONS, hint: '洗漱、穿衣、吃饭是否都完成。' },
+        { key: 'initiative' as ScoreKey, title: '自己起床', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: MORNING_WAKE_OPTIONS, hint: '闹钟一响就行动是最高分。' },
+      ];
+    }
+    if (category === '情绪调节') {
+      return [
+        { key: 'time' as ScoreKey, title: '及时使用', icon: <HeartPulse size={16} className="text-rose-500" />, activeClass: 'bg-rose-500', options: EMOTION_TIMING_OPTIONS, hint: '情绪上来时愿意用冷静方法，本身就值得肯定，基准就是高分。' },
+        { key: 'quality' as ScoreKey, title: '方法完成度', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: EMOTION_METHOD_OPTIONS, hint: '用了冷静方法就先肯定，哪怕只开了个头也算进步。' },
+        { key: 'initiative' as ScoreKey, title: '主动觉察', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: EMOTION_AWARENESS_OPTIONS, hint: '能自己发现“我需要冷静一下”最难得；用了方法就值得肯定。' },
       ];
     }
     if (completionMode && completionMode !== 'timer') {

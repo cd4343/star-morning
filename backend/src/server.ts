@@ -614,6 +614,7 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '井井有条', desc: '完成 30 个生活任务', icon: '🍽️', type: 'category_count', value: 30, conditionCategory: '生活', category: '生活', rewardCoins: 15, rewardXp: 30 },
   { title: '家务担当', desc: '完成 60 个生活任务', icon: '🧺', type: 'category_count', value: 60, conditionCategory: '生活', category: '生活', rewardCoins: 30, rewardXp: 60 },
   { title: '生活小管家', desc: '完成 100 个生活任务', icon: '🏠', type: 'category_count', value: 100, conditionCategory: '生活', category: '生活', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '三日小当家', desc: '连续 3 天完成生活任务', icon: '🧹', type: 'streak_days', value: 3, conditionCategory: '生活', category: '生活', rewardCoins: 10, rewardXp: 10 },
   { title: '整洁一周', desc: '连续 7 天完成生活任务', icon: '🍽️', type: 'streak_days', value: 7, conditionCategory: '生活', category: '生活', rewardCoins: 21, rewardXp: 21 },
   { title: '日常有序', desc: '连续 21 天完成生活任务', icon: '🧺', type: 'streak_days', value: 21, conditionCategory: '生活', category: '生活', rewardCoins: 63, rewardXp: 63 },
   { title: '学习启动', desc: '完成 1 个学习任务', icon: '📚', type: 'category_count', value: 1, conditionCategory: '学习', category: '学习', rewardCoins: 5, rewardXp: 5 },
@@ -621,6 +622,7 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '作业小闯将', desc: '完成 30 个学习任务', icon: '📖', type: 'category_count', value: 30, conditionCategory: '学习', category: '学习', rewardCoins: 15, rewardXp: 30 },
   { title: '学海拾贝', desc: '完成 60 个学习任务', icon: '📚', type: 'category_count', value: 60, conditionCategory: '学习', category: '学习', rewardCoins: 30, rewardXp: 60 },
   { title: '求知小灯塔', desc: '完成 100 个学习任务', icon: '🎓', type: 'category_count', value: 100, conditionCategory: '学习', category: '学习', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '三日书声', desc: '连续 3 天完成学习任务', icon: '📅', type: 'streak_days', value: 3, conditionCategory: '学习', category: '学习', rewardCoins: 10, rewardXp: 10 },
   { title: '学习一周星', desc: '连续 7 天完成学习任务', icon: '🎓', type: 'streak_days', value: 7, conditionCategory: '学习', category: '学习', rewardCoins: 21, rewardXp: 21 },
   { title: '书声不断', desc: '连续 21 天完成学习任务', icon: '📖', type: 'streak_days', value: 21, conditionCategory: '学习', category: '学习', rewardCoins: 63, rewardXp: 63 },
   { title: '动起来', desc: '完成 1 个运动任务', icon: '🏃', type: 'category_count', value: 1, conditionCategory: '运动', category: '运动', rewardCoins: 5, rewardXp: 5 },
@@ -628,6 +630,7 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '运动小将', desc: '完成 30 个运动任务', icon: '🏸', type: 'category_count', value: 30, conditionCategory: '运动', category: '运动', rewardCoins: 15, rewardXp: 30 },
   { title: '体能守护者', desc: '完成 60 个运动任务', icon: '🚴', type: 'category_count', value: 60, conditionCategory: '运动', category: '运动', rewardCoins: 30, rewardXp: 60 },
   { title: '强健之星', desc: '完成 100 个运动任务', icon: '💪', type: 'category_count', value: 100, conditionCategory: '运动', category: '运动', rewardCoins: 50, rewardXp: 100, rewardPrivilegePoints: 1 },
+  { title: '连动三天', desc: '连续 3 天完成运动任务', icon: '🔥', type: 'streak_days', value: 3, conditionCategory: '运动', category: '运动', rewardCoins: 10, rewardXp: 10 },
   { title: '活力一周', desc: '连续 7 天完成运动任务', icon: '🔥', type: 'streak_days', value: 7, conditionCategory: '运动', category: '运动', rewardCoins: 21, rewardXp: 21 },
   { title: '元气常在', desc: '连续 21 天完成运动任务', icon: '🏅', type: 'streak_days', value: 21, conditionCategory: '运动', category: '运动', rewardCoins: 63, rewardXp: 63 },
   { title: '探索新事物', desc: '完成 1 个活动任务', icon: '🎹', type: 'category_count', value: 1, conditionCategory: '活动', category: '活动', rewardCoins: 5, rewardXp: 5 },
@@ -657,6 +660,12 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '家庭小帮手', desc: '主动为家里做一件小事', icon: '🏠', type: 'manual', value: 0, category: '家庭', rewardCoins: 10, rewardXp: 10 },
   { title: '合作之星', desc: '和家人合作完成一件事', icon: '🤝', type: 'manual', value: 0, category: '家庭', rewardCoins: 10, rewardXp: 10 },
   { title: '约定守护者', desc: '遵守一次家庭约定', icon: '🎯', type: 'manual', value: 0, category: '家庭', rewardCoins: 10, rewardXp: 10 },
+  { title: '第一次独立完成', desc: '不用任何帮助独立完成一件家务', icon: '🧽', type: 'manual', value: 0, category: '生活', rewardCoins: 8, rewardXp: 15 },
+  { title: '主动多做一件', desc: '没人要求，主动帮家里做了额外的事', icon: '🤝', type: 'manual', value: 0, category: '生活', rewardCoins: 10, rewardXp: 15 },
+  { title: '自己发现错误', desc: '检查作业时自己找出并改正了错误', icon: '🔍', type: 'manual', value: 0, category: '学习', rewardCoins: 10, rewardXp: 15 },
+  { title: '教会别人一次', desc: '把学会的东西讲给家人听懂', icon: '🎓', type: 'manual', value: 0, category: '学习', rewardCoins: 10, rewardXp: 20 },
+  { title: '坚持到最后', desc: '很累但坚持完成了整场运动', icon: '🏁', type: 'manual', value: 0, category: '运动', rewardCoins: 10, rewardXp: 15 },
+  { title: '勇敢再试一次', desc: '失败后没放弃，重新尝试', icon: '🌈', type: 'manual', value: 0, category: '成长', rewardCoins: 12, rewardXp: 20 },
 ];
 
 // 数据库操作包装器 - 带重试机制

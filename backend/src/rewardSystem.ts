@@ -132,7 +132,7 @@ export const calculateReviewSuggestion = (
   } else if (finalFactor >= 0.5) {
     rating = '一般'; ratingColor = 'orange'; message = '完成度偏低，建议给予部分奖励并鼓励';
   } else {
-    rating = '需改进'; ratingColor = 'red'; message = '完成度很低，建议少量奖励或要求重做';
+    rating = '需改进'; ratingColor = 'red'; message = '这次完成度比较低，建议先聊聊卡在哪里，再给少量鼓励性奖励';
   }
 
   if (isOverdue) {
@@ -683,7 +683,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
         reasons.push('运动类不按效率快慢评判，接近预计参与量按基础奖励处理。');
       } else if (ratio >= 0.4) {
         timeScore = -10;
-        reasons.push('运动参与不足，建议轻微下调参与分。');
+        reasons.push('这次动得不太够，可轻微下调参与分。');
       } else {
         timeScore = -20;
         reasons.push('运动参与明显不足，建议先了解体力、抗拒或安全原因。');
@@ -716,16 +716,16 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     } else if (isStudyTask) {
       if (ratio < 0.45) {
         timeScore = -10;
-        reasons.push('学习任务完成过快可能是跳步骤或质量不足，建议检查完成质量。');
+        reasons.push('比预计快了不少，可能跳过了步骤，建议先翻看完成质量再给分。');
       } else if (ratio <= 1.4) {
         timeScore = 0;
         reasons.push('学习类不按速度加分，用时在合理范围内即可，重点看质量和坚持。');
       } else if (ratio <= 2) {
         timeScore = -5;
-        reasons.push('学习用时偏长，建议轻微观察是否卡住，不急着重罚。');
+        reasons.push('比预计多用了一些时间，可能中途卡住或分心了，先不急着扣分。');
       } else {
         timeScore = -10;
-        reasons.push('学习用时明显过长，建议先拆小步骤或提供求助入口。');
+        reasons.push('用时比预计长很多，孩子可能一直卡着，建议把任务拆小一点，并提醒他可以求助。');
       }
     } else if (isLifeTask) {
       if (ratio <= 1.3) {
@@ -733,10 +733,10 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
         reasons.push('生活类看结果可用和少提醒，不因为做得快额外加分。');
       } else if (ratio <= 2) {
         timeScore = -10;
-        reasons.push('生活任务拖延偏多，可轻微下调节奏分并观察原因。');
+        reasons.push('这次开始得有点慢，可轻微下调节奏分，先了解一下原因。');
       } else {
         timeScore = -20;
-        reasons.push('生活任务拖延明显，建议降低步骤数量或改成清单完成。');
+        reasons.push('这次磨蹭得比较久，建议把任务拆小一点或改成清单完成。');
       }
     } else if (ratio <= 0.8) {
       timeScore = 20;
@@ -746,10 +746,10 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
       reasons.push('用时接近预计，建议按基础时间分处理。');
     } else if (ratio <= 1.5) {
       timeScore = -10;
-      reasons.push('有轻微超时，建议小幅下调时间分。');
+      reasons.push('比预计稍微多用了一点时间，可以小幅下调时间分。');
     } else {
       timeScore = -20;
-      reasons.push('超时较多，建议降低时间分并观察原因。');
+      reasons.push('比预计多用了一些时间，可能中途分心了，建议下调时间分并和孩子聊聊原因。');
     }
 
     let qualityScore = 0;
@@ -776,7 +776,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     let initiativeScore = 0;
     if (isAutoCompleted) {
       initiativeScore = -20;
-      reasons.push('忘记结束任务，主动性建议下调。');
+      reasons.push('孩子忘了点结束，不代表没认真做，主动性轻微下调即可。');
     } else if (isSportTask && !isOverdue && ratio >= 0.7) {
       initiativeScore = 10;
       reasons.push('运动参与到位，主动性可给轻微鼓励。');
@@ -788,7 +788,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
       reasons.push('正常提交，主动性按无需提醒处理。');
     } else {
       initiativeScore = -10;
-      reasons.push('提交节奏偏慢，主动性可轻微下调。');
+      reasons.push('这次提交得慢了一些，可能需要多提醒，主动性可轻微下调。');
     }
 
     const totalBonus = timeScore + qualityScore + initiativeScore;
