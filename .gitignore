@@ -49,3 +49,12 @@ _archive/
 临时/
 temp/
 deploy/
+uploads/
+*.tmp
+*.temp
+.cache/
+
+# Coverage
+coverage/
+.nyc_output/
+
