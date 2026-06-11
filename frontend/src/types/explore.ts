@@ -34,6 +34,8 @@ export type ExploreMapPlace = {
   checkinCount: number;
   lastCheckedInAt?: string;
   summary?: string;
+  // 探索三期：来源发现卡的配图（地图抽屉顶部展示）
+  imageUrl?: string | null;
   whyGo?: string;
   observeTips?: string;
   questionPrompts?: string;
@@ -127,6 +129,8 @@ export type ExploreFeedSettings = {
   exploreCity: string;
   exploreFeedDailyLimit: number;
   exploreFeedCategories: string[] | null;
+  // 探索三期：后端是否配置了高德 Web 服务 key（每日 POI 推荐开关）
+  poiEnabled?: boolean;
   sources: ExploreFeedSource[];
   pendingReview: ExploreFeedItem[];
 };

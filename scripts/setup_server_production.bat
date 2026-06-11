@@ -89,6 +89,9 @@ if not defined JWT_SECRET (
     exit /b 1
 )
 
+set "AMAP_WEB_SERVICE_KEY="
+set /p "AMAP_WEB_SERVICE_KEY=AMap Web Service key [optional]: "
+
 echo.
 echo SMS setup:
 echo   Leave SMS provider empty if you do not have a real SMS gateway yet.
@@ -160,6 +163,7 @@ set "ENV_FILE=%CD%\scripts\production_env.local.bat"
     echo set "CORS_ORIGIN=%CORS_ORIGIN%"
     echo set "REQUEST_LOGS=false"
     echo set "TRUST_PROXY=1"
+    if defined AMAP_WEB_SERVICE_KEY echo set "AMAP_WEB_SERVICE_KEY=%AMAP_WEB_SERVICE_KEY%"
     if defined SMS_PROVIDER echo set "SMS_PROVIDER=%SMS_PROVIDER%"
     if defined SMS_HTTP_URL echo set "SMS_HTTP_URL=%SMS_HTTP_URL%"
     if defined SMS_HTTP_TOKEN echo set "SMS_HTTP_TOKEN=%SMS_HTTP_TOKEN%"

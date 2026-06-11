@@ -96,6 +96,12 @@ export default function ChildExplore() {
     return places.filter(place => place.category === category);
   }, [places, category]);
 
+  // 探索三期：还没定位的想去地点（地图上方胶囊托盘，点开与点标记相同的抽屉）
+  const unlocatedWishlist = useMemo(
+    () => mapPlaces.filter(place => place.status === 'wishlist' && (place.latitude == null || place.longitude == null)),
+    [mapPlaces]
+  );
+
   const loadData = async () => {
     const [placeRes, checkinRes, mapRes] = await Promise.all([
       api.get('/child/explore/places'),
@@ -205,15 +211,16 @@ export default function ChildExplore() {
     setSelected(fullPlace);
   };
 
-  // 探索二期：发现卡「想去」→ 有坐标自动落地图变蓝色标记，卡片消失
+  // 探索二期：发现卡「想去」→ 一律落地（有坐标上图，无坐标进待定位托盘），卡片消失
   const wantFeedItem = async (item: ExploreFeedItem) => {
     if (feedBusy) return;
     setFeedBusy(item.id);
     try {
       const res = await api.post(`/child/explore/feed/${item.id}/want`);
-      toast.success(res.data?.placeId ? t('explore.feedWantSuccess') : t('explore.feedWantSaved'));
+      toast.success(res.data?.located ? t('explore.feedWantSuccess') : t('explore.feedWantSaved'));
       setFeedItems(prev => prev.filter(card => card.id !== item.id));
       loadData().catch(() => {});
+      loadFeed();
     } catch (e: any) {
       toast.error(e.response?.data?.message || t('toast.operateFailed'));
     } finally {
@@ -328,6 +335,25 @@ export default function ChildExplore() {
       </div>
 
       {viewMode === 'map' && !mapFailed ? (
+      <>
+        {/* 探索三期：待定位的想去托盘（点胶囊开与点标记相同的抽屉） */}
+        {unlocatedWishlist.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {unlocatedWishlist.map(place => (
+              <button
+                key={place.id}
+                type="button"
+                onClick={() => {
+                  setShowObserveTips(false);
+                  setMapSheetPlace(place);
+                }}
+                className="shrink-0 min-h-[44px] rounded-full bg-white border border-sky-200 px-4 text-sm font-black text-sky-700 shadow-sm active:scale-[0.98] transition-all"
+              >
+                🎈 {place.title}
+              </button>
+            ))}
+          </div>
+        )}
         <ExploreMap
           places={mapPlaces}
           onPlaceClick={place => {
@@ -337,6 +363,7 @@ export default function ChildExplore() {
           onLoadError={() => setMapFailed(true)}
           className="h-[62dvh] min-h-[340px]"
         />
+      </>
       ) : viewMode === 'feed' ? (
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -562,6 +589,16 @@ export default function ChildExplore() {
       >
         {mapSheetPlace && (
           <div className="space-y-3 pb-1">
+            {/* 探索三期：来源发现卡的配图（加载失败时隐藏） */}
+            {mapSheetPlace.imageUrl && (
+              <img
+                src={mapSheetPlace.imageUrl}
+                alt={mapSheetPlace.title}
+                loading="lazy"
+                onError={event => event.currentTarget.classList.add('hidden')}
+                className="w-full h-40 rounded-2xl object-cover border border-slate-100"
+              />
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">
                 {EXPLORE_CATEGORY_ICONS[mapSheetPlace.category] || '📍'} {mapSheetPlace.category}
@@ -572,6 +609,12 @@ export default function ChildExplore() {
                 </span>
               )}
             </div>
+            {/* 探索三期：无坐标地点提示家长帮忙定位（打卡按钮保持可用） */}
+            {(mapSheetPlace.latitude == null || mapSheetPlace.longitude == null) && (
+              <div className="rounded-2xl bg-amber-50 border border-amber-100 px-3 py-2 text-sm font-bold text-amber-700 leading-relaxed">
+                {t('explore.unlocatedSheetHint')}
+              </div>
+            )}
             {mapSheetPlace.summary && (
               <p className="text-sm font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{mapSheetPlace.summary}</p>
             )}

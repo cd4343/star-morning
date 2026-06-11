@@ -109,6 +109,8 @@ export default function ParentExplore() {
   const [pushPreviewLoading, setPushPreviewLoading] = useState(false);
   const [pushForm, setPushForm] = useState({ title: '', summary: '', imageUrl: '', sourceUrl: '' });
   const [pushing, setPushing] = useState(false);
+  // 探索三期：立即生成今日推荐
+  const [generatingNow, setGeneratingNow] = useState(false);
   const [stats, setStats] = useState<ExploreStats | null>(null);
 
   const activePlaces = useMemo(() => places.filter(place => place.status !== 'archived'), [places]);
@@ -367,6 +369,20 @@ export default function ParentExplore() {
       toast.error(e.response?.data?.message || t('toast.operateFailed'));
     } finally {
       setSavingFeed(false);
+    }
+  };
+
+  // 探索三期：立即生成今日推荐（后端幂等，只补足当日缺口，可重复点）
+  const generateFeedNow = async () => {
+    setGeneratingNow(true);
+    try {
+      const res = await api.post('/parent/explore/feed/generate-now');
+      toast.success(t('explore.generateNowSuccess', { count: res.data?.insertedCount ?? 0 }));
+      await loadFeedSettings();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || t('toast.operateFailed'));
+    } finally {
+      setGeneratingNow(false);
     }
   };
 
@@ -782,6 +798,14 @@ export default function ParentExplore() {
               <Button fullWidth onClick={saveFeedSettings} loading={savingFeed} className="bg-violet-600 hover:bg-violet-700">
                 {t('explore.feedSaveSettings')}
               </Button>
+              <Button fullWidth onClick={generateFeedNow} loading={generatingNow} className="bg-slate-900 hover:bg-slate-800">
+                {t('explore.generateNow')}
+              </Button>
+              {feedSettings && feedSettings.poiEnabled === false && (
+                <div className="rounded-2xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs font-bold text-amber-700 leading-relaxed">
+                  {t('explore.poiKeyMissing')}
+                </div>
+              )}
             </div>
 
             {/* 探索二期：关注源列表（增删） */}

@@ -5330,14 +5330,17 @@ app.get('/api/child/explore/places', protect, requireChild, async (req: any, res
 });
 
 // 探索地图一期：地图标记数据（无坐标的地点也返回，供列表模式兜底展示）
+// 探索三期：LEFT JOIN 来源发现卡，带出配图与推荐语供地图抽屉展示
 app.get('/api/child/explore/map-places', protect, requireChild, async (req: any, res) => {
   const request = req as AuthRequest;
   const rows = await getDb().all(`
     SELECT p.id, p.title, p.category, p.status, p.latitude, p.longitude,
-      p.summary, p.whyGo, p.observeTips, p.questionPrompts,
+      COALESCE(NULLIF(p.summary, ''), f.summary) as summary, p.whyGo, p.observeTips, p.questionPrompts,
+      f.imageUrl as imageUrl,
       (SELECT COUNT(*) FROM explore_checkins ec WHERE ec.placeId = p.id) as checkinCount,
       (SELECT checkedInAt FROM explore_checkins ec WHERE ec.placeId = p.id ORDER BY checkedInAt DESC LIMIT 1) as lastCheckedInAt
     FROM explore_places p
+    LEFT JOIN explore_feed_items f ON p.sourceFeedId = f.id
     WHERE p.familyId = ? AND p.status != 'archived' AND p.deletedAt IS NULL
     ORDER BY p.createdAt DESC
   `, request.user!.familyId);

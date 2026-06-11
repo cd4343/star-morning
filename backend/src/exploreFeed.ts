@@ -134,9 +134,9 @@ const mapFeedCategoryToPlaceCategory = (category: unknown): string => {
 // ==================== A. 每日生成器 ====================
 
 // 高德 POI 推荐卡：评分高的优先；已推荐过的 amapPoiId、与地图同名地点排除
-const generatePoiCards = async (db: any, family: any, today: string, dayOfWeek: number) => {
+const generatePoiCards = async (db: any, family: any, today: string, dayOfWeek: number): Promise<number> => {
   const key = process.env.AMAP_WEB_SERVICE_KEY;
-  if (!key || !trimText(family.exploreCity, 40)) return;
+  if (!key || !trimText(family.exploreCity, 40)) return 0;
   const rotation = pickRotationCategory(family, dayOfWeek);
   const result = await axios.get('https://restapi.amap.com/v3/place/text', {
     params: {
@@ -153,7 +153,7 @@ const generatePoiCards = async (db: any, family: any, today: string, dayOfWeek: 
   });
   if (String(result.data?.status) !== '1') {
     logger.warn('[ExploreFeed] 高德搜索返回异常（跳过 POI 卡）:', result.data?.info || 'unknown');
-    return;
+    return 0;
   }
   const pois: any[] = Array.isArray(result.data?.pois) ? result.data.pois : [];
   const rated = pois
@@ -165,9 +165,16 @@ const generatePoiCards = async (db: any, family: any, today: string, dayOfWeek: 
     .sort((a, b) => b.rating - a.rating);
 
   const limit = clampDailyLimit(family.exploreFeedDailyLimit ?? 3);
+  // “立即生成”可重复触发：当天已有 POI 卡时只补足缺口，不超过每日上限
+  const todayCountRow = await db.get(
+    "SELECT COUNT(*) as c FROM explore_feed_items WHERE familyId = ? AND type = 'poi' AND recommendDate = ?",
+    family.id, today
+  );
+  const remaining = limit - (todayCountRow?.c || 0);
+  if (remaining <= 0) return 0;
   let inserted = 0;
   for (const { poi } of rated) {
-    if (inserted >= limit) break;
+    if (inserted >= remaining) break;
     const title = trimText(poi?.name, 80);
     if (!title) continue;
     const amapPoiId = trimText(poi?.id, 80);
@@ -206,6 +213,7 @@ const generatePoiCards = async (db: any, family: any, today: string, dayOfWeek: 
     inserted++;
   }
   if (inserted > 0) logger.info(`[ExploreFeed] 家庭 ${family.id} 生成 ${inserted} 张 POI 卡（${rotation.label}）`);
+  return inserted;
 };
 
 // 节日卡本地规则：固定节日 > 季节性周六 > 普通周六（每周末只插周六一张），首条命中生效
@@ -227,21 +235,28 @@ const FESTIVAL_RULES: FestivalRule[] = [
   { match: b => b.getDay() === 6, title: '周末出门走走', summary: '今天是周六！离开沙发一小时，去外面找一件有意思的小事。' },
 ];
 
-const generateFestivalCard = async (db: any, family: any, today: string, beijingNow: Date) => {
+const generateFestivalCard = async (db: any, family: any, today: string, beijingNow: Date): Promise<number> => {
   const rule = FESTIVAL_RULES.find(item => item.match(beijingNow));
-  if (!rule) return;
+  if (!rule) return 0;
+  // “立即生成”可重复触发：当天已有节日卡则不重复插
+  const dup = await db.get(
+    "SELECT id FROM explore_feed_items WHERE familyId = ? AND type = 'festival' AND recommendDate = ? LIMIT 1",
+    family.id, today
+  );
+  if (dup) return 0;
   await db.run(
     `INSERT INTO explore_feed_items (id, familyId, type, title, summary, category, status, recommendDate)
      VALUES (?, ?, 'festival', ?, ?, '节日', 'new', ?)`,
     randomUUID(), family.id, rule.title, rule.summary, today
   );
+  return 1;
 };
 
 // 关注源抓取：提取 <a> 链接，按活动关键词过滤，进家长待审核队列
 const SOURCE_KEYWORD_RE = /(展览|演出|活动|亲子|讲座|市集|节)/;
 const SOURCE_LINK_RE = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-const fetchSourceItems = async (db: any, family: any, source: any, today: string) => {
+const fetchSourceItems = async (db: any, family: any, source: any, today: string): Promise<number> => {
   try {
     const html = await fetchHtml(source.url);
     const candidates: { text: string; href: string }[] = [];
@@ -258,13 +273,13 @@ const fetchSourceItems = async (db: any, family: any, source: any, today: string
     }
     if (candidates.length === 0) {
       await db.run('UPDATE explore_feed_sources SET lastFetchedAt = CURRENT_TIMESTAMP WHERE id = ?', source.id);
-      return;
+      return 0;
     }
     const firstHash = hashText(candidates[0].text);
     if (source.lastItemHash && source.lastItemHash === firstHash) {
       // 页面头条没变化，视为无新内容
       await db.run('UPDATE explore_feed_sources SET lastFetchedAt = CURRENT_TIMESTAMP WHERE id = ?', source.id);
-      return;
+      return 0;
     }
     let inserted = 0;
     for (const item of candidates) {
@@ -299,10 +314,37 @@ const fetchSourceItems = async (db: any, family: any, source: any, today: string
       firstHash, source.id
     );
     if (inserted > 0) logger.info(`[ExploreFeed] 家庭 ${family.id} 关注源新增 ${inserted} 条待审核`);
+    return inserted;
   } catch (err: any) {
     // 抓取失败静默记日志，绝不影响主服务（Rule 12 例外：第三方站点不可控）
     logger.warn('[ExploreFeed] 关注源抓取失败（跳过）:', source.url, err?.message || err);
+    return 0;
   }
+};
+
+// 单家庭生成流程：POI 卡 + 节日卡 + 关注源抓取，返回新增条数（每日定时与“立即生成”共用）
+const generateFeedForFamily = async (db: any, family: any, today: string, beijingNow: Date, dayOfWeek: number): Promise<number> => {
+  let insertedCount = 0;
+  if (family.exploreCity) {
+    try {
+      insertedCount += await generatePoiCards(db, family, today, dayOfWeek);
+    } catch (err: any) {
+      logger.warn('[ExploreFeed] POI 卡生成失败（跳过）:', family.id, err?.message || err);
+    }
+  }
+  try {
+    insertedCount += await generateFestivalCard(db, family, today, beijingNow);
+  } catch (err: any) {
+    logger.warn('[ExploreFeed] 节日卡生成失败（跳过）:', family.id, err?.message || err);
+  }
+  const sources = await db.all(
+    'SELECT * FROM explore_feed_sources WHERE familyId = ? AND isActive = 1 ORDER BY createdAt ASC',
+    family.id
+  );
+  for (const source of sources) {
+    insertedCount += await fetchSourceItems(db, family, source, today);
+  }
+  return insertedCount;
 };
 
 let generating = false;
@@ -325,25 +367,7 @@ export const generateDailyFeed = async (): Promise<void> => {
           family.id, today
         );
         if (existing) continue;
-        if (family.exploreCity) {
-          try {
-            await generatePoiCards(db, family, today, dayOfWeek);
-          } catch (err: any) {
-            logger.warn('[ExploreFeed] POI 卡生成失败（跳过）:', family.id, err?.message || err);
-          }
-        }
-        try {
-          await generateFestivalCard(db, family, today, beijingNow);
-        } catch (err: any) {
-          logger.warn('[ExploreFeed] 节日卡生成失败（跳过）:', family.id, err?.message || err);
-        }
-        const sources = await db.all(
-          'SELECT * FROM explore_feed_sources WHERE familyId = ? AND isActive = 1 ORDER BY createdAt ASC',
-          family.id
-        );
-        for (const source of sources) {
-          await fetchSourceItems(db, family, source, today);
-        }
+        await generateFeedForFamily(db, family, today, beijingNow, dayOfWeek);
       } catch (err: any) {
         logger.error('[ExploreFeed] 单家庭资讯生成失败（不影响其他家庭）:', family.id, err?.message || err);
       }
@@ -397,7 +421,7 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     res.json(rows);
   });
 
-  // 孩子端：想去 → 有坐标时自动落地图（explore_places wishlist）
+  // 孩子端：想去 → 一律创建 wishlist 地点（有坐标直接上图，无坐标等家长在探索管理里补定位）
   app.post('/api/child/explore/feed/:id/want', ...childGuards, async (req: any, res: any) => {
     const request = req as AuthRequest;
     const db = getDb();
@@ -413,32 +437,31 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     let placeId: string | null = null;
     const latitude = Number(item.latitude);
     const longitude = Number(item.longitude);
-    if (item.latitude !== null && item.longitude !== null && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-      const existingPlace = await db.get(
-        'SELECT id FROM explore_places WHERE familyId = ? AND sourceFeedId = ? AND deletedAt IS NULL LIMIT 1',
-        request.user!.familyId, item.id
+    const located = item.latitude !== null && item.longitude !== null && Number.isFinite(latitude) && Number.isFinite(longitude);
+    const existingPlace = await db.get(
+      'SELECT id FROM explore_places WHERE familyId = ? AND sourceFeedId = ? AND deletedAt IS NULL LIMIT 1',
+      request.user!.familyId, item.id
+    );
+    if (existingPlace) {
+      placeId = existingPlace.id;
+    } else {
+      placeId = randomUUID();
+      await db.run(
+        `INSERT INTO explore_places (id, familyId, title, category, latitude, longitude, summary, source, status, createdBy, sourceFeedId, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'feed', 'wishlist', ?, ?, ?)`,
+        placeId,
+        request.user!.familyId,
+        trimText(item.title, 80),
+        mapFeedCategoryToPlaceCategory(item.category),
+        located ? latitude : null,
+        located ? longitude : null,
+        trimText(item.summary, 300),
+        request.user!.id,
+        item.id,
+        new Date().toISOString()
       );
-      if (existingPlace) {
-        placeId = existingPlace.id;
-      } else {
-        placeId = randomUUID();
-        await db.run(
-          `INSERT INTO explore_places (id, familyId, title, category, latitude, longitude, summary, source, status, createdBy, sourceFeedId, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'feed', 'wishlist', ?, ?, ?)`,
-          placeId,
-          request.user!.familyId,
-          trimText(item.title, 80),
-          mapFeedCategoryToPlaceCategory(item.category),
-          latitude,
-          longitude,
-          trimText(item.summary, 300),
-          request.user!.id,
-          item.id,
-          new Date().toISOString()
-        );
-      }
     }
-    res.json({ message: '已经放进你的地图啦', placeId });
+    res.json({ message: located ? '已经放进你的地图啦' : '已加进想去清单啦', placeId, located });
   });
 
   // 孩子端：下次再说
@@ -485,6 +508,7 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
       exploreCity: family?.exploreCity || '',
       exploreFeedDailyLimit: clampDailyLimit(family?.exploreFeedDailyLimit ?? 3),
       exploreFeedCategories: categories,
+      poiEnabled: !!process.env.AMAP_WEB_SERVICE_KEY,
       sources,
       pendingReview,
     });
@@ -622,6 +646,21 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
       getBeijingDateString()
     );
     res.json({ message: '已经推荐给孩子啦', id });
+  });
+
+  // 家长端：立即生成今日推荐——跳过“当天已生成”短路，去重与每日上限内只补足缺口，幂等可重复点
+  app.post('/api/parent/explore/feed/generate-now', ...parentGuards, async (req: any, res: any) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const family = await db.get(
+      'SELECT id, exploreCity, exploreFeedDailyLimit, exploreFeedCategories FROM families WHERE id = ?',
+      request.user!.familyId
+    );
+    if (!family) return res.status(404).json({ message: '家庭不存在' });
+    const now = new Date();
+    const beijingNow = getBeijingDate(now);
+    const insertedCount = await generateFeedForFamily(db, family, getBeijingDateString(now), beijingNow, beijingNow.getDay());
+    res.json({ message: '今日推荐已生成', insertedCount });
   });
 
   // 家长端：观察统计（月打卡数 / 点亮地点数 / 分类分布 / 本月新增想去）
