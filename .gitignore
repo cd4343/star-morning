@@ -41,6 +41,9 @@ desktop.ini
 logs/
 *.log
 
+# Local archives (private docs backup, deprecated code)
+_archive/
+
 # Temporary files
 .tmp/
 临时/
