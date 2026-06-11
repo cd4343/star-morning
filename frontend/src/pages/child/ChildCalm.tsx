@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { ArrowLeft, Check, Gamepad2, HeartPulse, Play, RotateCcw, ShieldCheck, Sparkles, Timer } from 'lucide-react';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
+import Mascot from '../../components/Mascot';
 import { useToast } from '../../components/Toast';
 import api, { isAuthError } from '../../services/api';
 
@@ -352,6 +353,12 @@ export default function ChildCalm() {
               <Button onClick={() => { setCalmSeconds(30); setCalmRunning(false); }} variant="secondary">
                 <RotateCcw size={18} /> 重来
               </Button>
+            </div>
+
+            <div className="mt-3 flex items-center justify-center gap-3 rounded-2xl bg-white/70 border border-sky-100 px-3 py-2">
+              <Mascot variant="calm" size={72} className="flex-shrink-0" />
+              {/* TODO i18n: 文案后续迁移到 t('key')，本文件现为中文字面量 */}
+              <div className="text-sm font-black text-sky-600">小晨星陪你一起深呼吸</div>
             </div>
           </div>
 

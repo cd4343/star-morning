@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card } from '../../components/Card';
-import { Trophy, Lock, ChevronDown, TrendingUp, Archive, ShieldCheck } from 'lucide-react';
+import { Trophy, Lock, ChevronDown, TrendingUp, Archive, ShieldCheck, Timer } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import api, { isAuthError } from '../../services/api';
-import { getDateLocale } from '../../i18n';
+import { getDateLocale, t } from '../../i18n';
 import { useOutletContext } from 'react-router-dom';
 import { useToast } from '../../components/Toast';
 import {
@@ -55,6 +55,13 @@ interface PunishmentStats {
   byLevel: Array<{ level: string; count: number; totalDeducted: number }>;
   lastPunishmentDate: string | null;
   daysSinceLastPunishment: number | null;
+}
+
+interface FocusStats {
+  thisWeekMinutes: number;
+  lastWeekMinutes: number;
+  longestSessionMinutes: number;
+  sessionsCount: number;
 }
 
 interface ChestRecord {
@@ -116,6 +123,7 @@ export default function ChildMe() {
   const [punishmentRecords, setPunishmentRecords] = useState<PunishmentRecord[]>([]);
   const [chestRecords, setChestRecords] = useState<ChestRecord[]>([]);
   const [punishmentStats, setPunishmentStats] = useState<PunishmentStats | null>(null);
+  const [focusStats, setFocusStats] = useState<FocusStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedRecords, setExpandedRecords] = useState(false);
   // M19b: 时间筛选只留「最近30天 / 全部」，列表固定按时间倒序
@@ -177,6 +185,14 @@ export default function ChildMe() {
           setPunishmentStats(statsRes.data);
         } catch (statsErr) {
           console.error('获取惩罚统计失败:', statsErr);
+        }
+
+        // 专注可视化卡数据，拿不到就静默隐藏卡片
+        try {
+          const focusRes = await api.get('/child/focus-stats');
+          setFocusStats(focusRes.data);
+        } catch (focusErr) {
+          console.error('获取专注统计失败:', focusErr);
         }
       } catch (e) {
         console.error(e);
@@ -412,6 +428,42 @@ export default function ChildMe() {
           </div>
         )}
       </div>
+
+      {/* 专注可视化卡：看见自己的专注力在长大（ADHD 特化 #1） */}
+      {focusStats && (
+        <div className="rounded-[1.75rem] bg-white border border-sky-100 p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-sky-50 flex items-center justify-center flex-shrink-0">
+              <Timer size={22} className="text-sky-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold text-gray-400">
+                {t('focus.cardTitle')} · {t('focus.thisWeekLabel')}
+              </div>
+              <div className="text-2xl font-black text-sky-700 leading-tight">
+                {t('focus.minutes', { minutes: focusStats.thisWeekMinutes })}
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-sky-50 border border-sky-100 px-3 py-2 text-[11px] font-black text-sky-700">
+              {t('focus.longestSession', { minutes: focusStats.longestSessionMinutes })}
+            </div>
+            <div className="rounded-2xl bg-sky-50 border border-sky-100 px-3 py-2 text-[11px] font-black text-sky-700">
+              {t('focus.sessionsCount', { count: focusStats.sessionsCount })}
+            </div>
+          </div>
+          <div className="mt-2 text-xs font-bold text-gray-500">
+            {focusStats.thisWeekMinutes === 0 && focusStats.lastWeekMinutes === 0
+              ? t('focus.emptyHint')
+              : focusStats.thisWeekMinutes > focusStats.lastWeekMinutes
+                ? t('focus.moreThanLastWeek', { minutes: focusStats.thisWeekMinutes - focusStats.lastWeekMinutes })
+                : focusStats.thisWeekMinutes < focusStats.lastWeekMinutes
+                  ? t('focus.lessThanLastWeek')
+                  : t('focus.sameAsLastWeek')}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2 rounded-[1.5rem] bg-white border border-gray-100 p-2 shadow-sm">
         {panelTabs.map(tab => (

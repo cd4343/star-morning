@@ -53,3 +53,16 @@
     50% { transform: translateY(-10px); }
   }
 }
+
+/* ── Star Coin 设计令牌（design tokens）──────────────────────────
+   用途：统一品牌色、圆角与文字层级，避免新代码散落硬编码色值。
+   约定：新组件优先使用 var(--sc-*)；既有样式不回改，按需渐进迁移。 */
+:root {
+  --sc-brand-primary: #6366F1; /* 品牌主色（靛蓝：按钮/链接/强调） */
+  --sc-brand-warm: #F59E0B;    /* 暖色强调（琥珀：奖励/提醒） */
+  --sc-star: #FBBF24;          /* 星星黄（吉祥物「小晨星」主体色） */
+  --sc-radius-card: 1rem;      /* 卡片圆角 */
+  --sc-radius-modal: 1.5rem;   /* 弹窗圆角 */
+  --sc-text-strong: #1E293B;   /* 强调文字色 */
+  --sc-text-soft: #64748B;     /* 次要文字色 */
+}

@@ -135,6 +135,30 @@ const zhCN: Record<string, string> = {
   'weekly.childBannerTitle': '小晨星的本周故事',
   'weekly.expand': '点开看看 ✨',
   'weekly.gotIt': '知道啦',
+  // 通用补充
+  'common.minutes': '分钟',
+  // 专注可视化卡（ADHD 特化 #1）
+  'focus.cardTitle': '我的专注力',
+  'focus.thisWeekLabel': '本周专注',
+  'focus.minutes': '{minutes} 分钟',
+  'focus.longestSession': '最长一次 {minutes} 分钟',
+  'focus.sessionsCount': '专注了 {count} 次',
+  'focus.moreThanLastWeek': '比上周多了 {minutes} 分钟，专注力在长大 🌱',
+  'focus.lessThanLastWeek': '这周节奏慢一点，也没关系',
+  'focus.sameAsLastWeek': '和上周保持一样的节奏',
+  'focus.emptyHint': '开始任务的计时，会变成这里的专注记录',
+  // 低电量模式（ADHD 特化 #2）
+  'lowEnergy.entryButton': '🔋 今天不太行',
+  'lowEnergy.confirmTitle': '开启低电量模式',
+  'lowEnergy.confirmMessage': '开启后今天只显示一个最小任务，其他都先收起来，明天自动恢复。不扣任何东西。',
+  'lowEnergy.confirmAction': '开启',
+  'lowEnergy.bannerText': '低电量模式开着呢，今天做一点点就很棒 🔋',
+  'lowEnergy.restore': '恢复正常',
+  'lowEnergy.onlyTaskLabel': '今天只做这一个就好',
+  'lowEnergy.noTask': '今天没有必须做的事，好好休息吧 🌿',
+  'lowEnergy.calmEntry': '去冷静站坐一会儿',
+  'lowEnergy.toggleFailed': '操作没成功，再试一次',
+  'inbox.lowEnergy': '🔋 {name} 今天开启了低电量模式',
 };
 
 export default zhCN;

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Play, Send, Sparkles, Star, Users, X, Zap } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { t } from '../../i18n';
@@ -348,6 +348,7 @@ const scrollTaskElementIntoChildViewport = (taskId: string) => {
 
 export default function ChildChallenge() {
   const location = useLocation();
+  const navigate = useNavigate();
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState<TabKey>(() => getInitialTab(location.search));
@@ -492,6 +493,28 @@ export default function ChildChallenge() {
   const dismissWeeklyReport = () => {
     if (weeklyReport) localStorage.setItem(`starcoin:weeklySeen:${weeklyReport.weekStart}`, '1');
     setWeeklyReport(null);
+  };
+
+  // 低电量模式（ADHD 特化 #2）：今天只留一件最小的事，不扣任何东西，明天自动恢复
+  const lowEnergyToday = Boolean(dashboard?.lowEnergyToday);
+
+  const toggleLowEnergy = async (enable: boolean) => {
+    if (enable) {
+      const ok = await confirm({
+        title: t('lowEnergy.confirmTitle'),
+        message: t('lowEnergy.confirmMessage'),
+        type: 'info',
+        confirmText: t('lowEnergy.confirmAction'),
+      });
+      if (!ok) return;
+    }
+    try {
+      const res = await api.post('/child/low-energy/toggle');
+      setDashboard((prev: any) => (prev ? { ...prev, lowEnergyToday: Boolean(res.data?.active) } : prev));
+      fetchData();
+    } catch {
+      toast.error(t('lowEnergy.toggleFailed'));
+    }
   };
 
   useEffect(() => {
@@ -1302,9 +1325,74 @@ export default function ChildChallenge() {
     );
   };
 
+  // 低电量日视图：一条温和横幅 + 唯一推荐任务卡 + 冷静站入口，其余区块全部收起
+  const renderLowEnergyDay = () => {
+    const onlyTask = recommended.action === 'task' ? recommended.task : undefined;
+    const onlyTaskStatus = onlyTask ? (isTaskRunning(onlyTask) ? 'running' : onlyTask.status) : undefined;
+    return (
+      <div className="space-y-3">
+        <div className="rounded-[1.5rem] bg-sky-50 border border-sky-100 p-4">
+          <div className="text-sm font-black text-sky-700 leading-relaxed">{t('lowEnergy.bannerText')}</div>
+          <button
+            type="button"
+            onClick={() => toggleLowEnergy(false)}
+            className="mt-1 min-h-[44px] px-2 -ml-2 text-xs font-black text-sky-500 flex items-center active:scale-95"
+          >
+            {t('lowEnergy.restore')}
+          </button>
+        </div>
+
+        {onlyTask ? (
+          <div className="rounded-[1.75rem] bg-white border border-slate-100 p-4 shadow-sm">
+            <div className="text-[11px] font-black text-slate-400 mb-2">{t('lowEnergy.onlyTaskLabel')}</div>
+            <button
+              type="button"
+              onClick={() => setSelectedTask(onlyTask)}
+              data-challenge-task-id={onlyTask.id}
+              className="w-full text-left active:scale-[0.99] transition-all"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-2xl">
+                  {onlyTask.icon || '✅'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-black text-slate-800 truncate">{onlyTask.title}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+                    <span className="inline-flex items-center gap-1">
+                      <Clock size={13} />{onlyTask.durationMinutes || 0} {t('common.minutes')}
+                    </span>
+                    <span>+{onlyTask.coinReward || 0} {t('common.coins')}</span>
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[11px] font-black ${
+                  onlyTaskStatus === 'running' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                }`}>
+                  {statusText(onlyTaskStatus)}
+                </span>
+              </div>
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-[1.75rem] bg-white border border-dashed border-slate-200 p-6 text-center text-slate-400 font-bold">
+            {t('lowEnergy.noTask')}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => navigate('/child/calm')}
+          className="w-full min-h-[44px] rounded-2xl bg-white border border-indigo-100 py-3 text-sm font-black text-indigo-600 shadow-sm active:scale-[0.99]"
+        >
+          🧘 {t('lowEnergy.calmEntry')}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-full pb-24 bg-gradient-to-b from-violet-50 via-white to-cyan-50">
       <div className="p-4">
+        {lowEnergyToday ? renderLowEnergyDay() : (<>
         {weeklyReport && (
           <div className="mb-3 rounded-[1.35rem] bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 p-3.5 shadow-sm">
             <div className="flex items-center gap-2 text-xs font-black text-amber-700">
@@ -1347,6 +1435,13 @@ export default function ChildChallenge() {
             <div className="rounded-xl bg-white/14 px-2 py-1.5 text-center">赚到 {screenSummary?.earnedMinutes ?? 0}</div>
             <div className="rounded-xl bg-white/14 px-2 py-1.5 text-center">已用 {screenSummary?.todayUsed ?? 0}</div>
           </div>
+          <button
+            type="button"
+            onClick={() => toggleLowEnergy(true)}
+            className="mt-1 ml-auto flex items-center min-h-[44px] px-2 -mr-2 -mb-2 text-[11px] font-black text-white/75 active:scale-95"
+          >
+            {t('lowEnergy.entryButton')}
+          </button>
           <button
             type="button"
             onClick={handleRecommendedClick}
@@ -1408,6 +1503,7 @@ export default function ChildChallenge() {
             renderTaskList(familyTasks, '今天没有全家任务。')
           )}
         </div>
+        </>)}
 
       </div>
 

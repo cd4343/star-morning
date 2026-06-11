@@ -422,6 +422,8 @@ const createTables = async () => {
   `);
   // 添加累计奖励经验字段（如果不存在）
   try { await db.run('ALTER TABLE users ADD COLUMN rewardXpTotal INTEGER DEFAULT 0'); } catch (e) {}
+  // 低电量模式：存当天北京日期，非当天即视为未开启，次日自动恢复
+  try { await db.run('ALTER TABLE users ADD COLUMN lowEnergyDate TEXT'); } catch (e) {}
   await db.exec(`
     CREATE TABLE IF NOT EXISTS auth_sms_codes (
       id TEXT PRIMARY KEY,

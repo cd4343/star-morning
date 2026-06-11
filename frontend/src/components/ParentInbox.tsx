@@ -7,9 +7,11 @@ interface ParentInboxProps {
   pendingCount: number;
   loading?: boolean;
   onGoReview: () => void;
+  // 今天开启低电量模式的孩子，由 ParentDashboard 从 /parent/dashboard 响应透传
+  lowEnergyChildren?: Array<{ childId: string; name: string }>;
 }
 
-export function ParentInbox({ pendingCount, loading = false, onGoReview }: ParentInboxProps) {
+export function ParentInbox({ pendingCount, loading = false, onGoReview, lowEnergyChildren = [] }: ParentInboxProps) {
   const navigate = useNavigate();
   const [exploreCount, setExploreCount] = useState(0);
   const [feedCount, setFeedCount] = useState(0);
@@ -86,6 +88,18 @@ export function ParentInbox({ pendingCount, loading = false, onGoReview }: Paren
           </button>
         ))}
       </div>
+      {lowEnergyChildren.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {lowEnergyChildren.map(child => (
+            <div
+              key={child.childId}
+              className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600"
+            >
+              {t('inbox.lowEnergy', { name: child.name })}
+            </div>
+          ))}
+        </div>
+      )}
       {allDone && (
         <div className="text-center text-xs text-gray-400 font-bold mt-2">{t('inbox.allDone')}</div>
       )}

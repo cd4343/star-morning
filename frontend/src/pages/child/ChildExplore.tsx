@@ -5,6 +5,7 @@ import api from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import BottomSheet from '../../components/BottomSheet';
+import Mascot from '../../components/Mascot';
 import ExploreMap, { hasAmapKey } from '../../components/ExploreMap';
 import { ExplorePlace, ExploreCheckin, ExploreMapPlace, ExploreMedium, ExploreFeedItem, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
@@ -337,6 +338,7 @@ export default function ChildExplore() {
         </div>
         {feedItems.length === 0 ? (
           <div className="rounded-3xl bg-white border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-500 leading-relaxed">
+            <Mascot variant="sleep" size={80} className="mx-auto mb-3" />
             {t('explore.feedEmpty')}
           </div>
         ) : feedItems.map(item => (

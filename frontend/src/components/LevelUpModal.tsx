@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Confetti } from './Confetti';
+import Mascot from './Mascot';
 import { getLevelTitle, PERK_MILESTONES } from '../utils/levelPerks';
 
 // R3: 升级庆祝全屏弹窗（纯展示，关闭后不影响任何功能）
@@ -44,6 +45,7 @@ export default function LevelUpModal({ level, onClose }: LevelUpModalProps) {
       ))}
 
       <div className="levelup-pop text-center">
+        <Mascot variant="celebrate" size={96} className="mx-auto mb-3" />
         <div className="text-sm font-black tracking-[0.3em] text-yellow-200/80">升级啦！</div>
         <div className="mt-2 text-[88px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 via-amber-300 to-orange-400 drop-shadow-[0_4px_12px_rgba(251,191,36,0.45)]">
           Lv.{level}

@@ -1969,7 +1969,7 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   }
 
   // R1 性能：以下三个互不依赖的只读查询并行执行（上方写操作保持串行）
-  const [pendingReviews, weekEntries, recentReviewed] = await Promise.all([
+  const [pendingReviews, weekEntries, recentReviewed, lowEnergyChildren] = await Promise.all([
     // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
     db.all(`
     SELECT te.id, t.title, t.coinReward, t.xpReward, t.durationMinutes as expectedDuration,
@@ -2003,6 +2003,8 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
     ORDER BY te.submittedAt DESC
     LIMIT 20`, familyId),
+    // 低电量模式：今天（北京时间）开启的孩子，家长知情但无需操作
+    db.all(`SELECT id as childId, name FROM users WHERE familyId = ? AND role = 'child' AND lowEnergyDate = ?`, familyId, getLocalDateString()),
   ]);
 
   console.log(`📋 家长端查询待审核任务，找到 ${pendingReviews.length} 条记录`);
@@ -2055,6 +2057,7 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   res.json({
     pendingReviews,
     recentReviewed,
+    lowEnergyChildren,
     stats: {
       weekTasks: total,
       weekCompleted: completed,
@@ -6091,8 +6094,70 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         weeklyStats: last7Days,
         viewingDate: getLocalDateString(targetDate),
         isToday,
-        recentReviews
+        recentReviews,
+        // 低电量模式：始终按真实“今天”（北京时间）判断，与历史回看的 viewingDate 无关
+        lowEnergyToday: Boolean(childInfoRaw?.lowEnergyDate && childInfoRaw.lowEnergyDate === getLocalDateString())
     });
+});
+
+// 专注可视化卡：本周（周一起，北京时间）与上周专注分钟对比。
+// 数据源只取 task_sessions：完成流程会同步生成 task_entries（taskEntryId 回链），两表完全重叠，叠加会重复计数。
+// completed 取真实起止差值；auto_completed 是系统按任务常规时长代提交、endedAt 被写成当天结束，差值失真，按常规时长计。
+app.get('/api/child/focus-stats', protect, requireChild, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const childId = request.user!.id;
+
+    const now = new Date();
+    const daysSinceMonday = (getBeijingDate(now).getDay() + 6) % 7;
+    const thisWeekStart = getLocalDateString(new Date(now.getTime() - daysSinceMonday * 86400000));
+    const lastWeekStart = getLocalDateString(new Date(now.getTime() - (daysSinceMonday + 7) * 86400000));
+
+    const rows = await db.all(
+        `SELECT ts.status, ts.startedAt, ts.endedAt, COALESCE(t.durationMinutes, 1) as plannedMinutes,
+                date(ts.startedAt, '+8 hours') as beijingDay
+         FROM task_sessions ts
+         LEFT JOIN tasks t ON ts.taskId = t.id
+         WHERE ts.childId = ? AND ts.status IN ('completed', 'auto_completed') AND ts.endedAt IS NOT NULL
+           AND date(ts.startedAt, '+8 hours') >= ?`,
+        childId, lastWeekStart
+    );
+
+    let thisWeekMinutes = 0;
+    let lastWeekMinutes = 0;
+    let longestSessionMinutes = 0;
+    let sessionsCount = 0;
+    for (const row of rows) {
+        let minutes: number;
+        if (row.status === 'completed') {
+            const elapsedMs = new Date(row.endedAt).getTime() - new Date(row.startedAt).getTime();
+            minutes = Number.isFinite(elapsedMs) ? Math.max(1, Math.round(elapsedMs / 60000)) : 1;
+        } else {
+            minutes = Math.max(1, Math.round(Number(row.plannedMinutes) || 1));
+        }
+        if (row.beijingDay >= thisWeekStart) {
+            thisWeekMinutes += minutes;
+            sessionsCount += 1;
+            if (minutes > longestSessionMinutes) longestSessionMinutes = minutes;
+        } else {
+            lastWeekMinutes += minutes;
+        }
+    }
+
+    res.json({ thisWeekMinutes, lastWeekMinutes, longestSessionMinutes, sessionsCount });
+});
+
+// 低电量模式：当天一键开关，写入/清空 users.lowEnergyDate；不扣任何东西，次日自动恢复
+app.post('/api/child/low-energy/toggle', protect, requireChild, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const childId = request.user!.id;
+    const today = getLocalDateString();
+    const user = await db.get('SELECT lowEnergyDate FROM users WHERE id = ?', childId);
+    if (!user) return res.status(404).json({ message: '用户不存在' });
+    const active = user.lowEnergyDate !== today;
+    await db.run('UPDATE users SET lowEnergyDate = ? WHERE id = ?', active ? today : null, childId);
+    res.json({ active });
 });
 app.post('/api/child/tasks/:taskId/start', protect, requireChild, async (req: any, res) => {
     const request = req as AuthRequest;

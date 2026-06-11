@@ -144,6 +144,7 @@ export default function ParentDashboard() {
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [lowEnergyChildren, setLowEnergyChildren] = useState<Array<{ childId: string; name: string }>>([]);
   const [taskSessionReminders, setTaskSessionReminders] = useState<any[]>([]);
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
   const [weekTasks, setWeekTasks] = useState(0);
@@ -362,6 +363,7 @@ export default function ParentDashboard() {
       const res = dashboardRes.status === 'fulfilled' ? dashboardRes.value : null;
       if (res?.data) {
           setReviews(res.data.pendingReviews || []);
+          setLowEnergyChildren(res.data.lowEnergyChildren || []);
           if (res.data.stats) {
               setWeekTasks(res.data.weekTasks || 0);
           }
@@ -728,7 +730,7 @@ export default function ParentDashboard() {
 
       <div className="p-4 space-y-6 overflow-y-auto flex-1 pb-10">
         {/* 今日收件箱：聚合待处理事项 */}
-        <ParentInbox pendingCount={reviews.length} loading={loading} onGoReview={scrollToReviewSection} />
+        <ParentInbox pendingCount={reviews.length} loading={loading} onGoReview={scrollToReviewSection} lowEnergyChildren={lowEnergyChildren} />
 
         {/* R4 本周报告：每周日 20:00 生成，无报告时不渲染 */}
         {weeklyReports.length > 0 && (
