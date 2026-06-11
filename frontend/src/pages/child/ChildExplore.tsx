@@ -71,11 +71,16 @@ export default function ChildExplore() {
   const [loadingCheckinMedia, setLoadingCheckinMedia] = useState<Record<string, boolean>>({});
   // 探索地图一期：地图/列表切换（有 key 默认地图；偏好存 localStorage）
   // 探索二期：新增「发现」资讯流段（无 key 时地图段隐藏，发现/列表仍可用）
+  // 探索三期：有 key 时列表不再是独立段，只作地图加载失败的自动兜底；
+  // 旧偏好值 'list' 兼容保留——有 key 时视为「地图不可用时的展示」，按地图处理，不报错
   const [viewMode, setViewMode] = useState<'map' | 'feed' | 'list'>(() => {
     const saved = localStorage.getItem('explore.viewMode');
-    if (saved === 'feed' || saved === 'list') return saved;
+    if (saved === 'feed') return 'feed';
+    if (saved === 'list' && !hasAmapKey()) return 'list';
     return hasAmapKey() ? 'map' : 'list';
   });
+  // 探索三期：地图运行时加载失败（SDK reject / 初始化异常）→ 自动降级回原列表视图
+  const [mapFailed, setMapFailed] = useState(false);
   // 探索二期：今日发现卡片流
   const [feedItems, setFeedItems] = useState<ExploreFeedItem[]>([]);
   const [feedLeaving, setFeedLeaving] = useState<Set<string>>(new Set());
@@ -187,6 +192,7 @@ export default function ChildExplore() {
 
   // 探索地图一期：切换地图/发现/列表并记住偏好
   const switchViewMode = (mode: 'map' | 'feed' | 'list') => {
+    if (mode === 'map') setMapFailed(false); // 再点「地图」段时重试加载，再失败会继续自动回列表
     setViewMode(mode);
     try { localStorage.setItem('explore.viewMode', mode); } catch { /* 隐私模式下存不了就算了 */ }
   };
@@ -287,7 +293,7 @@ export default function ChildExplore() {
   };
 
   return (
-    <div className={viewMode === 'map' ? 'h-full flex flex-col gap-3 p-4 pb-2' : 'p-4 space-y-4 pb-8'}>
+    <div className={viewMode === 'map' && !mapFailed ? 'h-full flex flex-col gap-3 p-4 pb-2' : 'p-4 space-y-4 pb-8'}>
       <div className="flex rounded-2xl bg-white border border-slate-200 p-1 shadow-sm">
         {hasAmapKey() && (
           <button
@@ -310,22 +316,25 @@ export default function ChildExplore() {
             </span>
           )}
         </button>
-        <button
-          type="button"
-          onClick={() => switchViewMode('list')}
-          className={`flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
-        >
-          {t('explore.viewList')}
-        </button>
+        {!hasAmapKey() && (
+          <button
+            type="button"
+            onClick={() => switchViewMode('list')}
+            className={`flex-1 min-h-[44px] rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white shadow' : 'text-slate-500'}`}
+          >
+            {t('explore.viewList')}
+          </button>
+        )}
       </div>
 
-      {viewMode === 'map' ? (
+      {viewMode === 'map' && !mapFailed ? (
         <ExploreMap
           places={mapPlaces}
           onPlaceClick={place => {
             setShowObserveTips(false);
             setMapSheetPlace(place);
           }}
+          onLoadError={() => setMapFailed(true)}
           className="flex-1 min-h-0"
         />
       ) : viewMode === 'feed' ? (
@@ -399,6 +408,9 @@ export default function ChildExplore() {
       </section>
       ) : (
       <>
+      {viewMode === 'map' && mapFailed && (
+        <p className="text-center text-xs font-bold text-slate-400">{t('explore.mapFallbackHint')}</p>
+      )}
       <section className="rounded-[1.75rem] bg-gradient-to-br from-emerald-400 via-sky-400 to-indigo-500 text-white p-5 shadow-lg shadow-sky-100">
         <div className="flex items-center gap-2 text-sm font-black opacity-95">
           <Compass size={18} />

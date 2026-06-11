@@ -6089,6 +6089,51 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
     });
 
     const isToday = getLocalDateString(targetDate) === getLocalDateString(today);
+
+    // 游戏票预告（gameTicketPreviewMinutes，仅展示、不发放）：口径与审核发放 grantMorningStartupGameTickets 一致——
+    // 早晨启动类任务审核通过后每天首次固定 +1 分钟（基础档，不含连续3天达成的额外奖励），
+    // 同样经 getScreenTimeGrantResult 按当日上限收口；当天已发过则预告为 0。
+    // 学习类「节省时间换票」取决于实际用时（节省分钟 × 系数），最低保证档为 0，故不做数字预告，
+    // 仅按发放口径（grantStudySavedGameTickets：规则开启 + studySavedTimeEnabled + 有预计时长）用 gameTicketEarnBySpeed 标记资格。
+    let morningTicketPreviewMinutes = 0;
+    if (isToday && tasks.some((task: any) => normalizeRewardCategory(task.category) === MORNING_STARTUP_CATEGORY)) {
+        try {
+            const screenRules = await getOrCreateScreenTimeRules(db, request.user!.familyId);
+            if (Boolean(screenRules?.isEnabled)) {
+                const morningGrantedToday = await db.get(
+                    `SELECT id
+                       FROM screen_time_ledger
+                      WHERE familyId = ? AND childId = ? AND source = ?
+                        AND date(createdAt, '+8 hours') = date('now', '+8 hours')
+                      LIMIT 1`,
+                    request.user!.familyId,
+                    childId,
+                    SCREEN_TIME_SOURCES.MORNING_STARTUP
+                );
+                if (!morningGrantedToday) {
+                    const previewGrant = await getScreenTimeGrantResult(db, request.user!.familyId, childId, 1, SCREEN_TIME_SOURCES.MORNING_STARTUP, 'morning_startup_list_preview');
+                    morningTicketPreviewMinutes = previewGrant.grantedMinutes;
+                }
+            }
+        } catch (err) {
+            console.error('游戏票预告计算失败:', err);
+        }
+    }
+    let studySavedTicketEnabled = false;
+    if (tasks.some((task: any) => normalizeRewardCategory(task.category) === '学习')) {
+        try {
+            const screenRules = await getOrCreateScreenTimeRules(db, request.user!.familyId);
+            studySavedTicketEnabled = Boolean(screenRules?.isEnabled) && Number(screenRules?.studySavedTimeEnabled ?? 1) === 1;
+        } catch (err) {
+            console.error('学习省时游戏票资格计算失败:', err);
+        }
+    }
+    const tasksWithTicketPreview = tasks.map((task: any) => ({
+        ...task,
+        gameTicketPreviewMinutes: normalizeRewardCategory(task.category) === MORNING_STARTUP_CATEGORY ? morningTicketPreviewMinutes : 0,
+        gameTicketEarnBySpeed: studySavedTicketEnabled && normalizeRewardCategory(task.category) === '学习' && Math.round(Number(task.durationMinutes || 0)) > 0,
+    }));
+
     const childInfo = childInfoRaw ? serializeAuthMember(childInfoRaw) : childInfoRaw;
     if (childInfo) {
         // 等级根据XP实时计算：每100XP升一级
@@ -6099,7 +6144,7 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
 
     res.json({
         child: childInfo,
-        tasks,
+        tasks: tasksWithTicketPreview,
         weeklyStats: last7Days,
         viewingDate: getLocalDateString(targetDate),
         isToday,

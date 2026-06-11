@@ -54,16 +54,20 @@ const markerContent = (place: ExploreMapPlace) => {
 type ExploreMapProps = {
   places: ExploreMapPlace[];
   onPlaceClick: (place: ExploreMapPlace) => void;
+  /** 探索三期：SDK 加载 reject 或初始化异常时通知父组件做列表兜底 */
+  onLoadError?: () => void;
   className?: string;
 };
 
-export default function ExploreMap({ places, onPlaceClick, className = '' }: ExploreMapProps) {
+export default function ExploreMap({ places, onPlaceClick, onLoadError, className = '' }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const centeredRef = useRef(false);
   const onPlaceClickRef = useRef(onPlaceClick);
   onPlaceClickRef.current = onPlaceClick;
+  const onLoadErrorRef = useRef(onLoadError);
+  onLoadErrorRef.current = onLoadError;
   const [mapReady, setMapReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -83,7 +87,10 @@ export default function ExploreMap({ places, onPlaceClick, className = '' }: Exp
         setMapReady(true);
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setFailed(true);
+          onLoadErrorRef.current?.();
+        }
       });
     return () => {
       cancelled = true;

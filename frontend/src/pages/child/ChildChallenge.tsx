@@ -34,6 +34,10 @@ type Task = {
   targetValue?: number | string | null;
   targetUnit?: string | null;
   reviewFocus?: string | null;
+  // 后端预告：审核通过后约可得的游戏票分钟数（基础档，0=不发）
+  gameTicketPreviewMinutes?: number;
+  // 后端标记：学习类省时换游戏票资格（提前完成可得，不预告具体分钟）
+  gameTicketEarnBySpeed?: boolean;
 };
 
 type Quest = {
@@ -1115,6 +1119,12 @@ export default function ChildChallenge() {
                 <span className="inline-flex items-center gap-1"><Clock size={13} />{task.durationMinutes || 0} 分钟</span>
                 <span>+{task.coinReward || 0} 金币</span>
                 <span>+{task.xpReward || 0} 经验</span>
+                {Number(task.gameTicketPreviewMinutes || 0) > 0 && (
+                  <span>{t('challenge.gameTicketBadge', { minutes: Number(task.gameTicketPreviewMinutes) })}</span>
+                )}
+                {Boolean(task.gameTicketEarnBySpeed) && (
+                  <span>{t('challenge.gameTicketSpeedBadge')}</span>
+                )}
               </div>
               <div className="mt-1 text-[10px] font-black text-emerald-600">
                 {completionSummary.label}：{completionSummary.targetText}
@@ -1588,6 +1598,16 @@ export default function ChildChallenge() {
                   <div className="text-[10px] font-bold text-violet-500">经验</div>
                 </div>
               </div>
+              {Number(selectedTask.gameTicketPreviewMinutes || 0) > 0 && (
+                <div className="rounded-2xl bg-sky-50 border border-sky-100 p-3 text-xs text-sky-700 font-bold leading-relaxed">
+                  {t('challenge.gameTicketDetail', { minutes: Number(selectedTask.gameTicketPreviewMinutes) })}
+                </div>
+              )}
+              {Boolean(selectedTask.gameTicketEarnBySpeed) && (
+                <div className="rounded-2xl bg-sky-50 border border-sky-100 p-3 text-xs text-sky-700 font-bold leading-relaxed">
+                  {t('challenge.gameTicketSpeedDetail')}
+                </div>
+              )}
               <div className="rounded-2xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700 font-bold leading-relaxed">
                 {completionSummary.childHint} 完成后会提交给家长确认；任务完成时会立刻打开宝箱。
               </div>

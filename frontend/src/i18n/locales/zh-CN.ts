@@ -56,6 +56,7 @@ const zhCN: Record<string, string> = {
   'explore.mapNotConfigured': '地图还没配置好，先用列表逛逛吧',
   'explore.mapLoading': '地图加载中...',
   'explore.mapNoMarkers': '地点还没有坐标，先到列表里逛逛吧',
+  'explore.mapFallbackHint': '地图暂时打不开，先用列表看 🗺️',
   'explore.checkinCta': '我到啦，打卡！',
   'explore.whyGoTitle': '为什么值得去',
   'explore.observeTipsOpen': '🔍 看看可以观察什么',
@@ -159,6 +160,11 @@ const zhCN: Record<string, string> = {
   'lowEnergy.calmEntry': '去冷静站坐一会儿',
   'lowEnergy.toggleFailed': '操作没成功，再试一次',
   'inbox.lowEnergy': '🔋 {name} 今天开启了低电量模式',
+  // 任务卡游戏票预告（审核通过后才发放，这里只预告基础档分钟数）
+  'challenge.gameTicketBadge': '🎟️ +{minutes}分钟',
+  'challenge.gameTicketDetail': '游戏票：完成后约 +{minutes} 分钟',
+  'challenge.gameTicketSpeedBadge': '🎟️ 提前完成可得',
+  'challenge.gameTicketSpeedDetail': '游戏票：比预计时间提前完成，省下的时间可以换游戏分钟 🎟️',
 };
 
 export default zhCN;
