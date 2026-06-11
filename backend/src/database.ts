@@ -372,6 +372,26 @@ export const initializeDatabase = async () => {
     console.error('⚠️ 游戏加场特权预置失败:', e);
   }
 
+  // R4: 周报表（每周日 20:00 北京时间由 weeklyReport.ts 调度生成，确定性规则拼装文案）
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      id TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      childId TEXT NOT NULL,
+      weekStart TEXT NOT NULL,
+      childStory TEXT,
+      parentNarrative TEXT,
+      statsJson TEXT,
+      suggestion TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE,
+      FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_reports_childId_weekStart ON weekly_reports(childId, weekStart)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_weekly_reports_familyId_weekStart ON weekly_reports(familyId, weekStart)');
+  await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', ['011', '周报表 weekly_reports']);
+
   return db;
 };
 

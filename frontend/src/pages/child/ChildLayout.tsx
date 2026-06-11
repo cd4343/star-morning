@@ -7,6 +7,8 @@ import { InputModal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import PullToRefresh from '../../components/PullToRefresh';
 import { GlobalTimerBar } from '../../components/GlobalTimerBar';
+import LevelUpModal from '../../components/LevelUpModal';
+import { getLevelTitle } from '../../utils/levelPerks';
 
 export default function ChildLayout() {
   const navigate = useNavigate();
@@ -18,6 +20,8 @@ export default function ChildLayout() {
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
   const [taskReminders, setTaskReminders] = useState<any[]>([]);
+  // R3: 升级庆祝弹窗要展示的新等级（null = 不显示）
+  const [levelUpCelebration, setLevelUpCelebration] = useState<number | null>(null);
   // M18: 顶栏进度详情默认收起，展开偏好记在本地
   const [headerExpanded, setHeaderExpanded] = useState(() => {
     try { return localStorage.getItem('starcoin:headerExpanded') === '1'; } catch { return false; }
@@ -44,6 +48,22 @@ export default function ChildLayout() {
       }
       retryCount.current = 0;
       setChildData(res.data.child);
+
+      // R3: 升级检测——本地基线 starcoin:lastLevel:<userId>，先更新记录再弹窗，30 秒轮询不会重复触发
+      if (res.data.child) {
+        const currentLevel = Number(res.data.child.level) || (Math.floor((Number(res.data.child.xp) || 0) / 100) + 1);
+        const levelStorageKey = `starcoin:lastLevel:${user.id}`;
+        try {
+          const storedLevel = localStorage.getItem(levelStorageKey);
+          if (storedLevel === null) {
+            // 首次没有本地记录：只写入基线，不弹窗
+            localStorage.setItem(levelStorageKey, String(currentLevel));
+          } else if (currentLevel > Number(storedLevel)) {
+            localStorage.setItem(levelStorageKey, String(currentLevel));
+            setLevelUpCelebration(currentLevel); // 一次跨多级也只弹最新等级
+          }
+        } catch { /* 忽略：本地存储不可用 */ }
+      }
 
       // B3-5: 检测新的审核结果（通过+打回），显示即时通知；基线持久化，应用重开也不漏
       if (res.data.recentReviews?.length > 0) {
@@ -193,6 +213,9 @@ export default function ChildLayout() {
                     <span className="text-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-1.5 py-0.5 rounded-full font-bold">
                       Lv.{childData?.level || 1}
                     </span>
+                    <span className="text-[10px] text-indigo-400 font-bold whitespace-nowrap">
+                      {getLevelTitle(childData?.level || 1)}
+                    </span>
                   </div>
                   <div className="text-xs text-gray-500 flex gap-3 font-mono">
                      <span className="flex items-center gap-0.5"><span className="text-yellow-500">🪙</span><span className="text-yellow-600 font-bold">{childData?.coins || 0}</span><span className="text-[10px] text-gray-400 ml-0.5">金币</span></span>
@@ -317,6 +340,11 @@ export default function ChildLayout() {
             <NavLink onClick={() => navigate('/child/me')} icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
           </div>
       </div>
+
+      {/* R3: 升级庆祝弹窗（纯展示，不影响任何功能） */}
+      {levelUpCelebration !== null && (
+        <LevelUpModal level={levelUpCelebration} onClose={() => setLevelUpCelebration(null)} />
+      )}
 
       {/* 家长 PIN 提示弹窗 - 支持安全区域 */}
       {showDefaultPinHint && (

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Play, Send, Sparkles, Star, Users, X, Zap } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
+import { t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
@@ -383,6 +384,8 @@ export default function ChildChallenge() {
   const [selectedTaskCategory, setSelectedTaskCategory] = useState('全部');
   const [taskListExpanded, setTaskListExpanded] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [weeklyReport, setWeeklyReport] = useState<{ weekStart: string; childStory: string } | null>(null);
+  const [weeklyExpanded, setWeeklyExpanded] = useState(false);
   const timerDragRef = useRef({ dragging: false, moved: false, offsetX: 0, offsetY: 0, startX: 0, startY: 0, lastPos: null as { x: number; y: number } | null });
   const focusRequestNonceRef = useRef(0);
   const wakeLockRef = useRef<any>(null);
@@ -472,6 +475,24 @@ export default function ChildChallenge() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // R4 周报横幅：仅周一/周二（北京时间）展示，本周点过「知道啦」后不再出现
+  useEffect(() => {
+    const beijingNow = new Date(Date.now() + (new Date().getTimezoneOffset() + 8 * 60) * 60000);
+    const day = beijingNow.getDay();
+    if (day !== 1 && day !== 2) return;
+    api.get('/child/weekly-report/latest').then(res => {
+      const report = res.data;
+      if (!report?.weekStart || !report?.childStory) return;
+      if (localStorage.getItem(`starcoin:weeklySeen:${report.weekStart}`)) return;
+      setWeeklyReport(report);
+    }).catch(() => { /* 周报拿不到就不展示，不打扰孩子 */ });
+  }, []);
+
+  const dismissWeeklyReport = () => {
+    if (weeklyReport) localStorage.setItem(`starcoin:weeklySeen:${weeklyReport.weekStart}`, '1');
+    setWeeklyReport(null);
+  };
 
   useEffect(() => {
     const storedTasks = refreshActiveTimerTasks();
@@ -1284,6 +1305,33 @@ export default function ChildChallenge() {
   return (
     <div className="min-h-full pb-24 bg-gradient-to-b from-violet-50 via-white to-cyan-50">
       <div className="p-4">
+        {weeklyReport && (
+          <div className="mb-3 rounded-[1.35rem] bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 p-3.5 shadow-sm">
+            <div className="flex items-center gap-2 text-xs font-black text-amber-700">
+              <Star size={14} className="fill-amber-400 text-amber-400" /> {t('weekly.childBannerTitle')}
+            </div>
+            <p className={`mt-1.5 text-sm font-bold text-slate-700 leading-relaxed ${weeklyExpanded ? '' : 'line-clamp-2'}`}>
+              {weeklyReport.childStory}
+            </p>
+            {weeklyExpanded ? (
+              <button
+                type="button"
+                onClick={dismissWeeklyReport}
+                className="mt-2.5 w-full min-h-[44px] rounded-2xl bg-amber-400 text-white py-2.5 font-black active:scale-[0.99]"
+              >
+                {t('weekly.gotIt')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setWeeklyExpanded(true)}
+                className="mt-1 min-h-[44px] px-2 -ml-2 text-xs font-black text-amber-600 flex items-center"
+              >
+                {t('weekly.expand')}
+              </button>
+            )}
+          </div>
+        )}
         <div className="rounded-[1.5rem] bg-gradient-to-br from-violet-500 via-indigo-500 to-cyan-500 text-white p-3.5 shadow-lg shadow-indigo-100">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-black text-white/80">

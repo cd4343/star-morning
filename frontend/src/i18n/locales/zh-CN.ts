@@ -126,6 +126,15 @@ const zhCN: Record<string, string> = {
   'wishes.priceSuggestFill': '按最近收入约 {coins} 币，点击填入',
   'wishes.priceSuggestEstimate': '约 {coins} 币（估算），点击填入',
   'privileges.costHint': '💡 参考：30分钟游戏加场=2点；按“攒N天换一次”定价，N天≈N点',
+  // 周报（R4）
+  'weekly.parentCardTitle': '本周报告',
+  'weekly.weekOf': '{date} 起的一周',
+  'weekly.statTasks': '完成任务',
+  'weekly.statStarts': '主动启动',
+  'weekly.statCoins': '获得金币',
+  'weekly.childBannerTitle': '小晨星的本周故事',
+  'weekly.expand': '点开看看 ✨',
+  'weekly.gotIt': '知道啦',
 };
 
 export default zhCN;

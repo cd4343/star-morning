@@ -9,6 +9,7 @@ import { useToast } from '../../components/Toast';
 import {
   getAchievementDisplay as getSharedAchievementDisplay,
 } from '../../utils/achievementDisplay';
+import { getLevelTitle, PERK_MILESTONES } from '../../utils/levelPerks';
 
 interface Achievement {
   id: string;
@@ -124,6 +125,9 @@ export default function ChildMe() {
   const [selectedRecord, setSelectedRecord] = useState<PunishmentRecord | null>(null);
   const [activePanel, setActivePanel] = useState<'achievements' | 'review' | 'chest'>('achievements');
   const [achievementsExpanded, setAchievementsExpanded] = useState(false);
+  const [levelPathExpanded, setLevelPathExpanded] = useState(false); // R3: 等级之路折叠卡
+  // 原先声明在 loading 提前 return 之后，会破坏 hooks 调用顺序，移到这里
+  const [achievementCategory, setAchievementCategory] = useState('全部');
   const chestDefaultDateRef = useRef(formatLocalDate(new Date()));
 
   const fetchAchievements = useCallback(async () => {
@@ -304,7 +308,6 @@ export default function ChildMe() {
       className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
     },
   ];
-  const [achievementCategory, setAchievementCategory] = useState('全部');
   const getAchCategory = (a: Achievement) => a.category || (a.conditionType?.startsWith('explore_') ? '探索' : '成长');
   const achievementCategories = ['全部', ...Array.from(new Set(allAchievements.map(getAchCategory)))];
   const categoryFiltered = achievementCategory === '全部' ? allAchievements : allAchievements.filter(a => getAchCategory(a) === achievementCategory);
@@ -353,6 +356,61 @@ export default function ChildMe() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* R3: 我的等级之路——称号 + 权益里程碑（纯展示，不锁功能） TODO i18n */}
+      <div className="rounded-[1.75rem] bg-white border border-indigo-100 p-4 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setLevelPathExpanded(prev => !prev)}
+          aria-expanded={levelPathExpanded}
+          className="w-full min-h-[44px] flex items-center justify-between gap-3 text-left"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-2xl flex-shrink-0 shadow-sm">🌟</div>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-gray-400">我的等级之路</div>
+              <div className="text-lg font-black text-indigo-700 truncate">
+                {getLevelTitle(Number(childData?.level || 1))}
+                <span className="ml-1.5 text-xs font-bold text-gray-400">Lv.{childData?.level || 1}</span>
+              </div>
+            </div>
+          </div>
+          <ChevronDown size={18} className={`text-gray-300 flex-shrink-0 transition-transform duration-200 ${levelPathExpanded ? 'rotate-180' : ''}`} />
+        </button>
+
+        {levelPathExpanded && (
+          <div className="mt-3 space-y-2">
+            {PERK_MILESTONES.map(milestone => {
+              const reached = Number(childData?.level || 1) >= milestone.level;
+              return (
+                <div
+                  key={milestone.level}
+                  className={`flex items-center gap-3 rounded-2xl border p-3 ${reached ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-100'}`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${reached ? 'bg-white shadow-sm' : 'bg-gray-100 grayscale opacity-60'}`}>
+                    {milestone.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-black truncate ${reached ? 'text-indigo-900' : 'text-gray-400'}`}>{milestone.title}</div>
+                    <div className={`text-[11px] truncate ${reached ? 'text-indigo-500' : 'text-gray-400'}`}>{milestone.desc}</div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    {milestone.status === 'coming' ? (
+                      <span className="text-[10px] font-black px-2 py-1 rounded-full bg-amber-100 text-amber-600 whitespace-nowrap">
+                        {reached ? '即将到来' : `Lv.${milestone.level} · 即将到来`}
+                      </span>
+                    ) : reached ? (
+                      <span className="text-[10px] font-black px-2 py-1 rounded-full bg-emerald-100 text-emerald-600 whitespace-nowrap">✓ 已解锁</span>
+                    ) : (
+                      <span className="text-[10px] font-black text-gray-400 whitespace-nowrap">Lv.{milestone.level} 解锁</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-2 rounded-[1.5rem] bg-white border border-gray-100 p-2 shadow-sm">

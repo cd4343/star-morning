@@ -6,7 +6,7 @@ import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2, TrendingUp, TrendingDown, Minus, AlertTriangle, BookOpen, HeartPulse, Utensils, Brain, CheckCircle2, Compass } from 'lucide-react';
 import api from '../../services/api';
-import { getDateLocale } from '../../i18n';
+import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { StatsPanel } from '../../components/StatsPanel';
@@ -147,6 +147,7 @@ export default function ParentDashboard() {
   const [taskSessionReminders, setTaskSessionReminders] = useState<any[]>([]);
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
   const [weekTasks, setWeekTasks] = useState(0);
+  const [weeklyReports, setWeeklyReports] = useState<any[]>([]);
 
   // 审核历史日期选择
   const [historyDate, setHistoryDate] = useState<string>(''); // 空字符串表示最近7天
@@ -213,7 +214,21 @@ export default function ParentDashboard() {
     fetchDashboard();
     fetchPunishmentSettings();
     fetchPunishmentTips();
+    fetchWeeklyReports();
   }, []);
+
+  // R4 周报：取最近一个周期的报告（多孩子时同一 weekStart 各一条），拿不到则不渲染卡片
+  const fetchWeeklyReports = async () => {
+    try {
+      const res = await api.get('/parent/weekly-reports', { params: { limit: 8 } });
+      const rows = Array.isArray(res.data) ? res.data : [];
+      if (rows.length === 0) return;
+      const latestWeek = rows[0].weekStart;
+      setWeeklyReports(rows.filter((row: any) => row.weekStart === latestWeek));
+    } catch (err) {
+      console.error('获取周报失败:', err);
+    }
+  };
 
   const fetchPunishmentTips = async () => {
     try {
@@ -714,6 +729,43 @@ export default function ParentDashboard() {
       <div className="p-4 space-y-6 overflow-y-auto flex-1 pb-10">
         {/* 今日收件箱：聚合待处理事项 */}
         <ParentInbox pendingCount={reviews.length} loading={loading} onGoReview={scrollToReviewSection} />
+
+        {/* R4 本周报告：每周日 20:00 生成，无报告时不渲染 */}
+        {weeklyReports.length > 0 && (
+          <div className="rounded-2xl bg-white border border-indigo-100 p-4 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-black text-indigo-700">📋 {t('weekly.parentCardTitle')}</div>
+              <div className="text-[11px] font-bold text-slate-400">{t('weekly.weekOf', { date: weeklyReports[0].weekStart })}</div>
+            </div>
+            {weeklyReports.map(report => (
+              <div key={report.id} className="space-y-2">
+                {weeklyReports.length > 1 && (
+                  <div className="text-xs font-black text-slate-700">{report.childName}</div>
+                )}
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">{report.parentNarrative}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-indigo-50 p-2 text-center">
+                    <div className="text-base font-black text-indigo-700">{report.stats?.tasksCompleted ?? 0}</div>
+                    <div className="text-[10px] font-bold text-slate-500">{t('weekly.statTasks')}</div>
+                  </div>
+                  <div className="rounded-xl bg-emerald-50 p-2 text-center">
+                    <div className="text-base font-black text-emerald-700">{report.stats?.activeStarts ?? 0}</div>
+                    <div className="text-[10px] font-bold text-slate-500">{t('weekly.statStarts')}</div>
+                  </div>
+                  <div className="rounded-xl bg-amber-50 p-2 text-center">
+                    <div className="text-base font-black text-amber-700">{report.stats?.coinsEarned ?? 0}</div>
+                    <div className="text-[10px] font-bold text-slate-500">{t('weekly.statCoins')}</div>
+                  </div>
+                </div>
+                {report.suggestion ? (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-bold text-amber-700">
+                    💡 {report.suggestion}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* 成长数据统计面板 */}
         <StatsPanel />
