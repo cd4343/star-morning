@@ -335,7 +335,7 @@ export default function ChildExplore() {
             setMapSheetPlace(place);
           }}
           onLoadError={() => setMapFailed(true)}
-          className="flex-1 min-h-0"
+          className="h-[62dvh] min-h-[340px]"
         />
       ) : viewMode === 'feed' ? (
       <section className="space-y-3">

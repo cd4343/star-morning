@@ -139,7 +139,7 @@ export default function ExploreMap({ places, onPlaceClick, onLoadError, classNam
   }
 
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-slate-100 bg-sky-50 ${className}`}>
+    <div className={`relative min-h-[340px] overflow-hidden rounded-3xl border border-slate-100 bg-sky-50 ${className}`}>
       <div ref={containerRef} className="absolute inset-0" />
       {mapReady && locatedPlaces.length === 0 && (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-10 rounded-2xl bg-white/95 px-4 py-3 text-center text-xs font-black text-slate-500 shadow">
