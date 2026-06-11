@@ -6,6 +6,7 @@ import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import { Trash2, Sparkles, Check, Pen } from 'lucide-react';
 import api from '../../services/api';
+import { t } from '../../i18n';
 import { useTemplateSelector } from '../../hooks/useTemplateSelector';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
@@ -247,6 +248,7 @@ export default function ParentPrivileges() {
           <div>
             <label className="text-xs text-gray-500 font-bold block mb-1">💎 兑换消耗 (特权点)</label>
             <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" placeholder="1" value={cost} onChange={e => setCost(e.target.value)} />
+            <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{t('privileges.costHint')}</p>
           </div>
           <div className="p-3 rounded-xl border border-purple-100 bg-purple-50 text-xs text-purple-800">
             <div className="font-bold mb-2">特权点规则助手</div>

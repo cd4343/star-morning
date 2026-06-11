@@ -249,6 +249,12 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE screen_time_ledger ADD COLUMN taskEntryId TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE screen_time_ledger ADD COLUMN learningSessionId TEXT'); } catch (e) {}
 
+  // R1: 经济锚点设置（每天任务数 / 金币兑人民币 / 中等奖品攒几天 / 游戏加场特权点价）
+  try { await db.run('ALTER TABLE families ADD COLUMN ecoTasksPerDay INTEGER DEFAULT 10'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN ecoCoinPerRmb INTEGER DEFAULT 10'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN ecoMidPrizeDays INTEGER DEFAULT 10'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN ecoGamePrivilegePoints INTEGER DEFAULT 2'); } catch (e) {}
+
   // F5: 成就奖励改为解锁即自动发放。存量未领取（rewardClaimedAt IS NULL）的成就一次性补发。
   // 用 schema_versions 当幂等标记，INSERT OR IGNORE，仅当 changes===1（首次写入）才执行回填。
   try {
@@ -338,6 +344,32 @@ export const initializeDatabase = async () => {
     }
   } catch (e) {
     console.error('⚠️ 上海默认关注源预置失败:', e);
+  }
+
+  // R1: 游戏加场特权一次性预置——对没有「游戏加场」特权的存量家庭补一条（特权以特权点计价）。
+  try {
+    const gameAddonMark = await db.run(
+      'INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)',
+      ['game-addon-privilege-2026-06', '游戏加场30分钟特权预置']
+    );
+    if ((gameAddonMark.changes || 0) === 1) {
+      const famsWithoutAddon = await db.all(
+        `SELECT f.id FROM families f
+         WHERE f.id != 'TEMP'
+           AND NOT EXISTS (SELECT 1 FROM privileges p WHERE p.familyId = f.id AND p.title LIKE '%游戏加场%')`
+      );
+      for (const fam of famsWithoutAddon) {
+        await db.run(
+          `INSERT INTO privileges (id, familyId, title, description, cost, icon, level, timeWindow, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          randomUUID(), fam.id, '游戏加场 30 分钟',
+          '今天的游戏票用完了还想玩？用攒下的信任换 30 分钟加场',
+          2, '🎮', 'bronze', null, '娱乐'
+        );
+      }
+      if (famsWithoutAddon.length > 0) console.log(`✅ 已为 ${famsWithoutAddon.length} 个家庭预置「游戏加场 30 分钟」特权`);
+    }
+  } catch (e) {
+    console.error('⚠️ 游戏加场特权预置失败:', e);
   }
 
   return db;

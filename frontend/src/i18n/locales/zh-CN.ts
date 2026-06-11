@@ -111,6 +111,21 @@ const zhCN: Record<string, string> = {
   'explore.statsMonthWanted': '本月新想去',
   'explore.statsTopCategory': '最常去',
   'explore.statsNone': '—',
+  // 家长收件箱 + 定价建议（R2）
+  'inbox.title': '今天要处理的',
+  'inbox.taskReview': '任务审核',
+  'inbox.exploreConfirm': '探索确认',
+  'inbox.feedReview': '资讯筛选',
+  'inbox.allDone': '都处理完啦 ☕',
+  'wishes.priceCycleTitle': '孩子多久能换到',
+  'wishes.cycle3d': '3天',
+  'wishes.cycle1w': '1周',
+  'wishes.cycle2w': '2周',
+  'wishes.cycle1m': '1个月',
+  'wishes.priceLoading': '正在按最近收入计算…',
+  'wishes.priceSuggestFill': '按最近收入约 {coins} 币，点击填入',
+  'wishes.priceSuggestEstimate': '约 {coins} 币（估算），点击填入',
+  'privileges.costHint': '💡 参考：30分钟游戏加场=2点；按“攒N天换一次”定价，N天≈N点',
 };
 
 export default zhCN;

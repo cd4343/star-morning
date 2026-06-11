@@ -6,6 +6,7 @@ type RewardInput = {
   category?: string | null;
   completionMode?: string | null;
   targetValue?: number | string | null;
+  resistance?: string | null;
 };
 
 export type TaskRewardSuggestion = {
@@ -28,7 +29,6 @@ const CATEGORY_ALIASES: Record<TaskRewardCategory, string[]> = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const roundToFive = (value: number) => Math.max(0, Math.round(value / 5) * 5);
 
 export const normalizeRewardCategory = (value?: string | null): TaskRewardCategory => {
   const raw = String(value || '').trim();
@@ -48,99 +48,94 @@ export const normalizeRewardCompletionMode = (mode?: string | null, category?: s
 
 const getMinutes = (value: RewardInput['minutes']) => clamp(Math.round(Number(value || 15) || 15), 1, 180);
 
+// R1 经济锚点：任务建议价 = 基准(10分钟=10金币) × 时长系数(√(分钟/10)) × 抗拒系数(轻松0.8/普通1.0/勇气1.3)
+export type TaskResistanceLevel = '轻松' | '普通' | '勇气';
+
+const RESISTANCE_FACTORS: Record<TaskResistanceLevel, number> = { 轻松: 0.8, 普通: 1, 勇气: 1.3 };
+
+// 未显式指定抗拒程度时按类别推断：学习对孩子是「勇气工作」，生活/早晨启动/情绪调节保持轻量
+const CATEGORY_DEFAULT_RESISTANCE: Record<TaskRewardCategory, TaskResistanceLevel> = {
+  生活: '轻松',
+  学习: '勇气',
+  早晨启动: '轻松',
+  运动: '普通',
+  活动: '普通',
+  情绪调节: '轻松',
+  其他: '普通',
+};
+
+export const normalizeRewardResistance = (value?: string | null, category?: string | null): TaskResistanceLevel => {
+  const raw = String(value || '').trim();
+  if (raw === '轻松' || raw === '普通' || raw === '勇气') return raw;
+  if (raw === 'easy' || raw === 'light') return '轻松';
+  if (raw === 'normal' || raw === 'medium') return '普通';
+  if (raw === 'courage' || raw === 'hard' || raw === 'brave') return '勇气';
+  return CATEGORY_DEFAULT_RESISTANCE[normalizeRewardCategory(category)];
+};
+
+// 金币统一走锚点公式；各类别保留自己的经验倍率、特权点门槛与结算口径说明
+const CATEGORY_PROFILES: Record<TaskRewardCategory, { xpFactor: number; privilegeMinutes: number | null; title: string; settlement: string }> = {
+  学习: {
+    xpFactor: 1.5,
+    privilegeMinutes: 45,
+    title: '学习奖励建议',
+    settlement: '结算时不奖励“做得越快”，主要看是否按小步完成、是否认真、是否需要过多提醒。',
+  },
+  早晨启动: {
+    xpFactor: 1.8,
+    privilegeMinutes: null,
+    title: '早晨启动建议',
+    settlement: '结算时看是否愿意启动、情绪是否平稳、是否完成3到6分钟的小动作；不要按速度或完美度评价。',
+  },
+  生活: {
+    xpFactor: 1.15,
+    privilegeMinutes: 60,
+    title: '生活奖励建议',
+    settlement: '结算时看结果是否可用、是否少提醒、是否逐步独立；速度只作拖延提醒，不做加分项。',
+  },
+  运动: {
+    xpFactor: 1.35,
+    privilegeMinutes: null,
+    title: '运动奖励建议',
+    settlement: '结算时看参与完整度、动作安全、强度是否适合；时间只是参与量参考。',
+  },
+  活动: {
+    xpFactor: 1.35,
+    privilegeMinutes: 45,
+    title: '活动奖励建议',
+    settlement: '结算时看投入过程、约定成果和合作表达；不按完成快慢评价。',
+  },
+  情绪调节: {
+    xpFactor: 2,
+    privilegeMinutes: null,
+    title: '情绪调节建议',
+    settlement: '结算时看是否说出感受、是否用了冷静办法、恢复后能否表达需要。速度不作为评分依据。',
+  },
+  其他: {
+    xpFactor: 1.15,
+    privilegeMinutes: 60,
+    title: '通用奖励建议',
+    settlement: '结算时按约定目标、完成质量和提醒次数判断。',
+  },
+};
+
 export const getTaskRewardSuggestion = (input: RewardInput): TaskRewardSuggestion => {
   const category = normalizeRewardCategory(input.category);
-  const mode = normalizeRewardCompletionMode(input.completionMode, category);
   const minutes = getMinutes(input.minutes);
-  const targetValue = Math.max(0, Number(input.targetValue || 0) || 0);
-  const targetSize = targetValue > 0 ? targetValue : minutes;
+  const resistance = normalizeRewardResistance(input.resistance, category);
+  const factor = RESISTANCE_FACTORS[resistance];
+  const profile = CATEGORY_PROFILES[category];
 
-  if (category === '学习') {
-    const coins = clamp(roundToFive(8 + Math.sqrt(minutes / 10) * 18), 10, 60);
-    const xp = clamp(roundToFive(coins * 1.5), 15, 90);
-    return {
-      coins,
-      xp,
-      privilegePoints: minutes >= 45 ? 1 : 0,
-      title: '学习奖励建议',
-      basis: '金币适中，经验更高；重点奖励开始、坚持、求助和质量。',
-      settlement: '结算时不奖励“做得越快”，主要看是否按小步完成、是否认真、是否需要过多提醒。',
-    };
-  }
+  // 整数金币：时长开方防止“刷时长”，抗拒系数奖励勇气工作，四舍五入且至少 1
+  const coins = Math.max(1, Math.round(10 * Math.sqrt(minutes / 10) * factor));
+  const xp = Math.max(1, Math.round(coins * profile.xpFactor));
 
-  if (category === '早晨启动') {
-    const coins = clamp(Math.round(2 + minutes * 0.45), 2, 5);
-    const xp = clamp(Math.round(5 + minutes * 0.8), 5, 10);
-    return {
-      coins,
-      xp,
-      privilegePoints: 0,
-      title: '早晨启动建议',
-      basis: '只奖励开始和完成一小步，保持轻量，避免早晨变成拉扯。',
-      settlement: '结算时看是否愿意启动、情绪是否平稳、是否完成3到6分钟的小动作；不要按速度或完美度评价。',
-    };
-  }
-
-  if (category === '生活') {
-    const coins = clamp(roundToFive(4 + minutes * 0.55), 5, 25);
-    const xp = clamp(roundToFive(coins * 1.15), 5, 35);
-    return {
-      coins,
-      xp,
-      privilegePoints: minutes >= 60 ? 1 : 0,
-      title: '生活奖励建议',
-      basis: '单次金币要小，连续稳定和独立完成比一次给很多更重要。',
-      settlement: '结算时看结果是否可用、是否少提醒、是否逐步独立；速度只作拖延提醒，不做加分项。',
-    };
-  }
-
-  if (category === '运动') {
-    const sizeFactor = mode === 'count' ? Math.sqrt(Math.max(1, targetSize) / 30) : Math.sqrt(minutes / 10);
-    const coins = clamp(roundToFive(7 + sizeFactor * 8), 10, 30);
-    const xp = clamp(roundToFive(coins * 1.35), 15, 45);
-    return {
-      coins,
-      xp,
-      privilegePoints: 0,
-      title: '运动奖励建议',
-      basis: '不按效率快慢奖励，先奖励愿意动起来，再奖励参与完整和连续性。',
-      settlement: '结算时看参与完整度、动作安全、强度是否适合；时间只是参与量参考。',
-    };
-  }
-
-  if (category === '活动') {
-    const coins = clamp(roundToFive(8 + Math.sqrt(minutes / 10) * 12), 10, 40);
-    const xp = clamp(roundToFive(coins * 1.35), 15, 60);
-    return {
-      coins,
-      xp,
-      privilegePoints: minutes >= 45 ? 1 : 0,
-      title: '活动奖励建议',
-      basis: '活动更像探索和兴趣练习，经验可以高一点，金币保持中等。',
-      settlement: '结算时看投入过程、约定成果和合作表达；不按完成快慢评价。',
-    };
-  }
-
-  if (category === '情绪调节') {
-    const coins = clamp(roundToFive(3 + Math.sqrt(minutes / 10) * 4), 0, 15);
-    const xp = clamp(roundToFive(Math.max(5, coins * 2)), 10, 40);
-    return {
-      coins,
-      xp,
-      privilegePoints: 0,
-      title: '情绪调节建议',
-      basis: '情绪类更适合给经验、认可和复盘记录，金币保持很小，避免把情绪变成刷奖励。',
-      settlement: '结算时看是否说出感受、是否用了冷静办法、恢复后能否表达需要。速度不作为评分依据。',
-    };
-  }
-
-  const coins = clamp(roundToFive(6 + Math.sqrt(minutes / 10) * 10), 5, 35);
   return {
     coins,
-    xp: clamp(roundToFive(coins * 1.15), 5, 45),
-    privilegePoints: minutes >= 60 ? 1 : 0,
-    title: '通用奖励建议',
-    basis: '先明确这个任务训练什么，再决定金币和经验。',
-    settlement: '结算时按约定目标、完成质量和提醒次数判断。',
+    xp,
+    privilegePoints: profile.privilegeMinutes !== null && minutes >= profile.privilegeMinutes ? 1 : 0,
+    title: profile.title,
+    basis: `基准10分钟=10金币 × 时长系数√(${minutes}/10) × ${resistance}系数${factor} ≈ ${coins}金币`,
+    settlement: profile.settlement,
   };
 };

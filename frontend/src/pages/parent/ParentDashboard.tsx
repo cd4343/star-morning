@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
@@ -13,6 +13,7 @@ import { StatsPanel } from '../../components/StatsPanel';
 import { ReviewCardSkeleton } from '../../components/Skeleton';
 import { BottomSheet } from '../../components/BottomSheet';
 import { InputModal } from '../../components/Modal';
+import { ParentInbox } from '../../components/ParentInbox';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
 
 interface ReviewItem {
@@ -198,6 +199,15 @@ export default function ParentDashboard() {
   const [adjustPunishmentDeduction, setAdjustPunishmentDeduction] = useState(0);
   const [adjustPunishmentReason, setAdjustPunishmentReason] = useState('');
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
+
+  // 收件箱「任务审核」胶囊：切到待审核 Tab 并滚动到审核区
+  const reviewSectionRef = useRef<HTMLDivElement>(null);
+  const scrollToReviewSection = () => {
+    setReviewTab('pending');
+    requestAnimationFrame(() => {
+      reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   useEffect(() => {
     fetchDashboard();
@@ -702,6 +712,9 @@ export default function ParentDashboard() {
       />
 
       <div className="p-4 space-y-6 overflow-y-auto flex-1 pb-10">
+        {/* 今日收件箱：聚合待处理事项 */}
+        <ParentInbox pendingCount={reviews.length} loading={loading} onGoReview={scrollToReviewSection} />
+
         {/* 成长数据统计面板 */}
         <StatsPanel />
 
@@ -736,7 +749,7 @@ export default function ParentDashboard() {
         )}
 
         {/* 任务审核区域 */}
-        <div>
+        <div ref={reviewSectionRef}>
           {/* Tab 切换 */}
           <div className="flex gap-2 mb-3">
             <button

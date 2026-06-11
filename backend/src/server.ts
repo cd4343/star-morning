@@ -1966,8 +1966,10 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     await autoApproveExpiredTasks(db, familyId);
   }
 
-  // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
-  const pendingReviews = await db.all(`
+  // R1 性能：以下三个互不依赖的只读查询并行执行（上方写操作保持串行）
+  const [pendingReviews, weekEntries, recentReviewed] = await Promise.all([
+    // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
+    db.all(`
     SELECT te.id, t.title, t.coinReward, t.xpReward, t.durationMinutes as expectedDuration,
            t.category, t.taskType, t.completionMode, t.targetValue, t.targetUnit, t.reviewFocus,
            u.name as childName, te.submittedAt, te.proof, te.actualDurationMinutes as actualDuration,
@@ -1977,7 +1979,29 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     JOIN tasks t ON te.taskId = t.id
     JOIN users u ON te.childId = u.id
     WHERE t.familyId = ? AND te.status = 'pending' AND t.isEnabled = 1
-    ORDER BY te.submittedAt DESC`, familyId);
+    ORDER BY te.submittedAt DESC`, familyId),
+    // 本周统计 - 使用 LEFT JOIN 确保包含已删除任务的完成记录
+    // 这样即使任务被删除（isEnabled = 0），历史统计数据也会保留
+    db.all(`
+    SELECT te.submittedAt, te.status, te.earnedCoins, te.actualDurationMinutes,
+           COALESCE(t.durationMinutes, 30) as expectedDuration
+    FROM task_entries te
+    LEFT JOIN tasks t ON te.taskId = t.id
+    WHERE (t.familyId = ? OR t.familyId IS NULL) AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
+    AND EXISTS (SELECT 1 FROM users u WHERE u.id = te.childId AND u.familyId = ?)`, familyId, familyId),
+    // 获取最近已审核的任务（最近7天，最多20条）
+    db.all(`
+    SELECT te.id, t.title, t.category,
+           te.earnedCoins, te.earnedXp, te.status,
+           u.name as childName, te.submittedAt, te.reviewedAt, te.actualDurationMinutes as actualDuration
+    FROM task_entries te
+    JOIN tasks t ON te.taskId = t.id
+    JOIN users u ON te.childId = u.id
+    WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
+    AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
+    ORDER BY te.submittedAt DESC
+    LIMIT 20`, familyId),
+  ]);
 
   console.log(`📋 家长端查询待审核任务，找到 ${pendingReviews.length} 条记录`);
   if (pendingReviews.length > 0) {
@@ -2005,16 +2029,6 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
     }
   }
 
-  // 本周统计 - 使用 LEFT JOIN 确保包含已删除任务的完成记录
-  // 这样即使任务被删除（isEnabled = 0），历史统计数据也会保留
-  const weekEntries = await db.all(`
-    SELECT te.submittedAt, te.status, te.earnedCoins, te.actualDurationMinutes,
-           COALESCE(t.durationMinutes, 30) as expectedDuration
-    FROM task_entries te
-    LEFT JOIN tasks t ON te.taskId = t.id
-    WHERE (t.familyId = ? OR t.familyId IS NULL) AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
-    AND EXISTS (SELECT 1 FROM users u WHERE u.id = te.childId AND u.familyId = ?)`, familyId, familyId);
-
   const total = weekEntries.length; // 本周提交总数
   const completed = weekEntries.filter(e => e.status === 'approved').length; // 已通过数
   const rate = total === 0 ? 0 : Math.round((completed / total) * 100);
@@ -2035,19 +2049,6 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   const totalCoinsEarned = weekEntries
     .filter(e => e.status === 'approved')
     .reduce((sum, e) => sum + (e.earnedCoins || 0), 0);
-
-  // 获取最近已审核的任务（最近7天，最多20条）
-  const recentReviewed = await db.all(`
-    SELECT te.id, t.title, t.category,
-           te.earnedCoins, te.earnedXp, te.status,
-           u.name as childName, te.submittedAt, te.reviewedAt, te.actualDurationMinutes as actualDuration
-    FROM task_entries te
-    JOIN tasks t ON te.taskId = t.id
-    JOIN users u ON te.childId = u.id
-    WHERE t.familyId = ? AND te.status IN ('approved', 'rejected')
-    AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
-    ORDER BY te.submittedAt DESC
-    LIMIT 20`, familyId);
 
   res.json({
     pendingReviews,
@@ -5385,26 +5386,32 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
   const familyId = request.user!.familyId;
   await ensureExploreAchievementDefs(db, familyId);
 
-  const exploreDefs = await db.all(
-    `SELECT * FROM achievement_defs WHERE familyId = ? AND conditionType LIKE 'explore_%'`,
-    familyId
-  );
-
-  const unlocked = await db.all(
-    'SELECT achievementId FROM user_achievements WHERE childId = ?',
-    childId
-  );
+  // R1 性能：7 个互不依赖的只读查询并行执行
+  const [exploreDefs, unlocked, checkinCountRow, mediaCountRow, voiceCountRow, confirmedCountRow, exploreCategoryStats] = await Promise.all([
+    db.all(
+      `SELECT * FROM achievement_defs WHERE familyId = ? AND conditionType LIKE 'explore_%'`,
+      familyId
+    ),
+    db.all(
+      'SELECT achievementId FROM user_achievements WHERE childId = ?',
+      childId
+    ),
+    db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId),
+    db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId),
+    db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio' AND senderRole = 'child'", childId),
+    db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId),
+    db.all(
+      `SELECT p.category, COUNT(*) as count FROM explore_checkins ec JOIN explore_places p ON ec.placeId = p.id WHERE ec.childId = ? GROUP BY p.category`,
+      childId
+    ),
+  ]);
   const unlockedSet = new Set(unlocked.map((u: any) => u.achievementId));
 
   // 基础统计（与 checkAchievements 一致）
-  const exploreCheckinCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId))?.count || 0;
-  const exploreMediaCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId))?.count || 0;
-  const exploreVoiceCount = (await db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio' AND senderRole = 'child'", childId))?.count || 0;
-  const exploreConfirmedCount = (await db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId))?.count || 0;
-  const exploreCategoryStats = await db.all(
-    `SELECT p.category, COUNT(*) as count FROM explore_checkins ec JOIN explore_places p ON ec.placeId = p.id WHERE ec.childId = ? GROUP BY p.category`,
-    childId
-  );
+  const exploreCheckinCount = checkinCountRow?.count || 0;
+  const exploreMediaCount = mediaCountRow?.count || 0;
+  const exploreVoiceCount = voiceCountRow?.count || 0;
+  const exploreConfirmedCount = confirmedCountRow?.count || 0;
   const exploreCategoryCountMap: Record<string, number> = {};
   exploreCategoryStats.forEach((s: any) => { exploreCategoryCountMap[s.category] = s.count; });
 
@@ -5849,6 +5856,98 @@ app.put('/api/parent/privileges/:id', protect, async (req: any, res) => {
     res.json({ message: '更新成功' });
 });
 app.delete('/api/parent/privileges/:id', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run('DELETE FROM privileges WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId); res.json({message:'ok'}); });
+
+// ==================== R1: 经济锚点与建议定价 ====================
+// 锚点制：家长只回答几个问题，系统用确定性公式推导建议价；系统只建议，永不自动改价。
+const ECONOMY_SETTING_LIMITS = {
+  ecoTasksPerDay: { min: 1, max: 50, fallback: 10 },
+  ecoCoinPerRmb: { min: 1, max: 100, fallback: 10 },
+  ecoMidPrizeDays: { min: 1, max: 60, fallback: 10 },
+  ecoGamePrivilegePoints: { min: 1, max: 10, fallback: 2 },
+} as const;
+type EconomySettingKey = keyof typeof ECONOMY_SETTING_LIMITS;
+
+const getEconomySettings = async (db: any, familyId: string): Promise<Record<EconomySettingKey, number>> => {
+  const family = await db.get(
+    'SELECT ecoTasksPerDay, ecoCoinPerRmb, ecoMidPrizeDays, ecoGamePrivilegePoints FROM families WHERE id = ?',
+    familyId
+  );
+  const result = {} as Record<EconomySettingKey, number>;
+  for (const key of Object.keys(ECONOMY_SETTING_LIMITS) as EconomySettingKey[]) {
+    const limit = ECONOMY_SETTING_LIMITS[key];
+    const raw = Math.round(Number(family?.[key]));
+    result[key] = Number.isFinite(raw) ? Math.max(limit.min, Math.min(limit.max, raw)) : limit.fallback;
+  }
+  return result;
+};
+
+app.get('/api/parent/economy-settings', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  res.json(await getEconomySettings(getDb(), request.user!.familyId));
+});
+
+app.put('/api/parent/economy-settings', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const familyId = request.user!.familyId;
+  // 只更新请求中携带的锚点；先全部校验再写入，避免半套更新
+  const updates: Array<{ key: EconomySettingKey; value: number }> = [];
+  for (const key of Object.keys(ECONOMY_SETTING_LIMITS) as EconomySettingKey[]) {
+    if (req.body?.[key] === undefined) continue;
+    const limit = ECONOMY_SETTING_LIMITS[key];
+    const raw = Math.round(Number(req.body[key]));
+    if (!Number.isFinite(raw)) return res.status(400).json({ message: `${key} 必须是数字` });
+    updates.push({ key, value: Math.max(limit.min, Math.min(limit.max, raw)) });
+  }
+  for (const u of updates) {
+    // 列名来自固定白名单（ECONOMY_SETTING_LIMITS 的 key），无注入风险
+    await db.run(`UPDATE families SET ${u.key} = ? WHERE id = ?`, u.value, familyId);
+  }
+  res.json({ message: '经济锚点已更新', ...(await getEconomySettings(db, familyId)) });
+});
+
+// 建议定价：?type=shop 按近14天实测日均收入；?type=privilege 按「日产约1特权点」折算
+app.get('/api/parent/price-suggestion', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const familyId = request.user!.familyId;
+  const type = String(req.query.type || 'shop');
+  if (type !== 'shop' && type !== 'privilege') {
+    return res.status(400).json({ message: 'type 只支持 shop 或 privilege' });
+  }
+  const eco = await getEconomySettings(db, familyId);
+  const rawDays = Math.round(Number(req.query.days));
+  const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(365, rawDays) : eco.ecoMidPrizeDays;
+
+  if (type === 'privilege') {
+    return res.json({
+      suggestedPoints: Math.max(1, Math.round(days)),
+      gameAddonPoints: eco.ecoGamePrivilegePoints,
+      days,
+    });
+  }
+
+  // 商品：近14天该家庭所有孩子日均收入（实测）；无数据时用锚点估算（每天任务数 × 10金币基准）
+  const incomeRow = await db.get(
+    `SELECT COALESCE(SUM(te.earnedCoins), 0) as total
+     FROM task_entries te
+     JOIN users u ON te.childId = u.id
+     WHERE u.familyId = ? AND te.status = 'approved'
+       AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-14 days')`,
+    familyId
+  );
+  const totalEarned = Math.max(0, Math.round(Number(incomeRow?.total || 0)));
+  const estimated = totalEarned <= 0;
+  const dailyIncomeRaw = estimated ? eco.ecoTasksPerDay * 10 : totalEarned / 14;
+  const suggestedPrice = Math.max(1, Math.round(dailyIncomeRaw * days));
+  res.json({
+    dailyIncome: Math.round(dailyIncomeRaw),
+    suggestedPrice,
+    suggestedCoins: suggestedPrice, // 兼容已上线的家长端读取字段
+    days,
+    estimated,
+  });
+});
 app.get('/api/parent/achievements', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const rows = await getDb().all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId);
@@ -5936,28 +6035,46 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
     const dateParam = req.query.date as string;
     const targetDate = dateParam ? new Date(dateParam + 'T00:00:00') : new Date();
 
-    // 获取指定日期的任务（使用新函数）
-    const tasks = await getTasksForDate(db, request.user!.familyId, childId, targetDate);
-
-    // 统计过去7天数据
-    const today = new Date(); const last7Days = [];
+    // R1 性能：先构造 7 天日期，再把全部只读查询合并为一批并行执行（原 7天×3 查询串行）
+    const today = new Date(); const last7Dates: string[] = [];
     for (let i = 6; i >= 0; i--) {
         const d = new Date(today); d.setDate(d.getDate() - i);
-        const dateStr = getLocalDateString(d);
-        // 统计当日收入（任务奖励）
-        const dayEarned = (await db.get(`SELECT COALESCE(sum(earnedCoins), 0) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt, '+8 hours') = ?`, childId, dateStr)).s || 0;
-        // 统计当日消耗（商店购买，只统计金币购买的）
-        const dayShopSpent = (await db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt, '+8 hours') = ?`, childId, dateStr)).s || 0;
-        // 统计当日惩罚扣款
-        const dayPunishment = (await db.get(`SELECT COALESCE(sum(deductedCoins), 0) as s FROM punishment_records WHERE childId = ? AND date(createdAt, '+8 hours') = ?`, childId, dateStr)).s || 0;
-        const daySpent = dayShopSpent + dayPunishment;
-        last7Days.push({ date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent });
+        last7Dates.push(getLocalDateString(d));
     }
 
-    const isToday = getLocalDateString(targetDate) === getLocalDateString(today);
+    const [tasks, childInfoRaw, recentReviews, dayStatRows] = await Promise.all([
+        // 获取指定日期的任务（使用新函数）
+        getTasksForDate(db, request.user!.familyId, childId, targetDate),
+        // 获取孩子数据（字段白名单：剥离 password/pin 哈希）
+        db.get('SELECT * FROM users WHERE id = ?', childId),
+        // B3-5: 最近24小时审核结果（用于即时通知）
+        db.all(
+          `SELECT te.id, te.status, te.earnedCoins, te.earnedXp, te.reviewedAt, te.reviewNote, t.title as taskTitle, t.category
+           FROM task_entries te JOIN tasks t ON te.taskId = t.id
+           WHERE te.childId = ? AND te.status IN ('approved', 'rejected') AND te.reviewedAt IS NOT NULL
+             AND te.reviewedAt > datetime('now', '-24 hours')
+           ORDER BY te.reviewedAt DESC LIMIT 10`,
+          childId
+        ),
+        // 每天 3 个统计（当日收入 / 商店消耗（只统计金币购买） / 惩罚扣款）× 7 天，21 个查询一次并行
+        Promise.all(last7Dates.map((dateStr) => Promise.all([
+            db.get(`SELECT COALESCE(sum(earnedCoins), 0) as s FROM task_entries WHERE childId = ? AND status = 'approved' AND date(submittedAt, '+8 hours') = ?`, childId, dateStr),
+            db.get(`SELECT COALESCE(sum(cost), 0) as s FROM user_inventory WHERE childId = ? AND costType = 'coins' AND status != 'cancelled' AND date(acquiredAt, '+8 hours') = ?`, childId, dateStr),
+            db.get(`SELECT COALESCE(sum(deductedCoins), 0) as s FROM punishment_records WHERE childId = ? AND date(createdAt, '+8 hours') = ?`, childId, dateStr),
+        ]))),
+    ]);
 
-    // 获取孩子数据并计算真实等级（字段白名单：剥离 password/pin 哈希）
-    const childInfoRaw = await db.get('SELECT * FROM users WHERE id = ?', childId);
+    // 统计过去7天数据（组装并行查询结果，结构与原串行版本完全一致）
+    const last7Days = last7Dates.map((dateStr, i) => {
+        const [dayEarnedRow, dayShopSpentRow, dayPunishmentRow] = dayStatRows[i];
+        const dayEarned = dayEarnedRow?.s || 0;
+        const dayShopSpent = dayShopSpentRow?.s || 0;
+        const dayPunishment = dayPunishmentRow?.s || 0;
+        const daySpent = dayShopSpent + dayPunishment;
+        return { date: dateStr, earned: dayEarned, spent: daySpent, coins: dayEarned - daySpent };
+    });
+
+    const isToday = getLocalDateString(targetDate) === getLocalDateString(today);
     const childInfo = childInfoRaw ? serializeAuthMember(childInfoRaw) : childInfoRaw;
     if (childInfo) {
         // 等级根据XP实时计算：每100XP升一级
@@ -5965,16 +6082,6 @@ app.get('/api/child/dashboard', protect, async (req: any, res) => {
         // maxXp为下一级所需经验 (当前级别 * 100)
         childInfo.maxXp = childInfo.level * 100;
     }
-
-    // B3-5: 最近24小时审核结果（用于即时通知）
-    const recentReviews = await db.all(
-      `SELECT te.id, te.status, te.earnedCoins, te.earnedXp, te.reviewedAt, te.reviewNote, t.title as taskTitle, t.category
-       FROM task_entries te JOIN tasks t ON te.taskId = t.id
-       WHERE te.childId = ? AND te.status IN ('approved', 'rejected') AND te.reviewedAt IS NOT NULL
-         AND te.reviewedAt > datetime('now', '-24 hours')
-       ORDER BY te.reviewedAt DESC LIMIT 10`,
-      childId
-    );
 
     res.json({
         child: childInfo,

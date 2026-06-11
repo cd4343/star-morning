@@ -6,6 +6,7 @@ import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
 import { Trash2, Check, CheckCircle2, Circle, Settings2, Edit2, X, Sparkles } from 'lucide-react';
 import api from '../../services/api';
+import { t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
@@ -43,6 +44,14 @@ const SHOP_PRICING_PRESETS = [
   { label: '屏幕额外', category: '屏幕', cost: 150, stock: 2, hint: '只建议偶尔使用，日常屏幕时间优先走游戏票。' },
   { label: '外出活动', category: '外出', cost: 300, stock: 1, hint: '公园、电影、亲子活动，适合作为阶段性奖励。' },
   { label: '大额目标', category: '玩乐', cost: 800, stock: 1, hint: '高价值物品建议改为储蓄目标，更能训练延迟满足。' },
+];
+
+// 定价建议：按「孩子多久能换到」反推商品价格
+const PRICE_CYCLE_OPTIONS = [
+  { labelKey: 'wishes.cycle3d', days: 3 },
+  { labelKey: 'wishes.cycle1w', days: 7 },
+  { labelKey: 'wishes.cycle2w', days: 14 },
+  { labelKey: 'wishes.cycle1m', days: 30 },
 ];
 
 const inferShopCategory = (wish: any) => {
@@ -180,6 +189,11 @@ export default function ParentWishes() {
   const [shopCategory, setShopCategory] = useState('其他');
   const [rewardType, setRewardType] = useState<'coins' | 'xp' | 'privilegePoints' | 'lotteryTicket' | 'shopDiscount'>('coins');
 
+  // 定价建议状态（仅商品创建表单使用）
+  const [priceDays, setPriceDays] = useState<number | null>(null);
+  const [priceSuggestion, setPriceSuggestion] = useState<{ coins: number; isEstimate: boolean } | null>(null);
+  const [priceSuggestionLoading, setPriceSuggestionLoading] = useState(false);
+
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
   const [selectedLotteryIds, setSelectedLotteryIds] = useState<Set<string>>(new Set());
@@ -242,6 +256,28 @@ export default function ParentWishes() {
       setEffectType('normal');
       setShopCategory('其他');
       setRewardType('coins');
+      setPriceDays(null);
+      setPriceSuggestion(null);
+  };
+
+  // 按周期请求定价建议；接口未上线（404）或失败时静默降级为本地估算并标注
+  const fetchPriceSuggestion = async (days: number) => {
+    setPriceDays(days);
+    setPriceSuggestionLoading(true);
+    try {
+      const res = await api.get('/parent/price-suggestion', { params: { type: 'shop', days } });
+      const raw = res.data?.suggestedCoins ?? res.data?.coins ?? res.data?.suggested ?? res.data?.value;
+      const coins = Math.round(Number(raw));
+      if (Number.isFinite(coins) && coins > 0) {
+        setPriceSuggestion({ coins, isEstimate: false });
+      } else {
+        setPriceSuggestion({ coins: days * 100, isEstimate: true });
+      }
+    } catch {
+      setPriceSuggestion({ coins: days * 100, isEstimate: true });
+    } finally {
+      setPriceSuggestionLoading(false);
+    }
   };
 
   // 计算当前各稀有度的数量
@@ -731,6 +767,37 @@ export default function ParentWishes() {
               <div>
                 <label className="text-xs text-gray-500 font-bold block mb-1">💰 兑换价格 (金币)</label>
                 <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="30" value={cost} onChange={e => setCost(e.target.value)} />
+                <div className="mt-2 p-2.5 rounded-xl border border-pink-100 bg-white">
+                  <div className="text-[11px] text-gray-500 font-bold mb-1.5">⏳ {t('wishes.priceCycleTitle')}</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {PRICE_CYCLE_OPTIONS.map(opt => (
+                      <button
+                        key={opt.days}
+                        type="button"
+                        onClick={() => fetchPriceSuggestion(opt.days)}
+                        className={`min-h-[44px] rounded-lg text-xs font-bold border transition-all ${
+                          priceDays === opt.days
+                            ? 'bg-pink-500 text-white border-pink-500'
+                            : 'bg-gray-50 text-gray-600 border-gray-100'
+                        }`}
+                      >
+                        {t(opt.labelKey)}
+                      </button>
+                    ))}
+                  </div>
+                  {priceSuggestionLoading && (
+                    <div className="mt-2 text-[11px] text-gray-400 font-bold">{t('wishes.priceLoading')}</div>
+                  )}
+                  {!priceSuggestionLoading && priceSuggestion && (
+                    <button
+                      type="button"
+                      onClick={() => setCost(String(priceSuggestion.coins))}
+                      className="mt-2 w-full min-h-[44px] rounded-lg bg-pink-50 border border-pink-200 text-pink-700 text-xs font-bold px-2 active:scale-[0.98] transition-transform"
+                    >
+                      {t(priceSuggestion.isEstimate ? 'wishes.priceSuggestEstimate' : 'wishes.priceSuggestFill', { coins: priceSuggestion.coins })}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="p-3 rounded-xl border border-pink-100 bg-pink-50 text-xs text-pink-800">
                 <div className="font-bold mb-2">商品积分规则助手</div>
