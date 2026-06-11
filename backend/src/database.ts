@@ -305,6 +305,41 @@ export const initializeDatabase = async () => {
     console.error('⚠️ 成就奖励补发迁移失败:', e);
   }
 
+  // 上海默认关注源一次性预置：对从未配置过发现推送（无城市、无关注源）的存量家庭，
+  // 写入实查可用的上海公共文化数据源并把城市设为上海。新家庭走家长端自行配置。
+  try {
+    const shMark = await db.run(
+      'INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)',
+      ['shanghai-default-sources-2026-06', '上海默认关注源与城市预置']
+    );
+    if ((shMark.changes || 0) === 1) {
+      const SHANGHAI_DEFAULT_SOURCES = [
+        { url: 'https://zjj.wenhuayun.cn/frontActivity/activityList.do', label: '文化云·上海公共文化活动' },
+        { url: 'https://www.library.sh.cn/activity', label: '上海图书馆·活动' },
+        { url: 'https://whlyj.sh.gov.cn/wbzx/', label: '市文旅局·文博资讯' },
+        { url: 'https://www.shanghaimuseum.net/', label: '上海博物馆·展讯' },
+        { url: 'https://www.expo-museum.cn/', label: '世博会博物馆·展讯' },
+      ];
+      const fams = await db.all(
+        `SELECT f.id FROM families f
+         WHERE f.id != 'TEMP' AND COALESCE(f.exploreCity, '') = ''
+           AND NOT EXISTS (SELECT 1 FROM explore_feed_sources s WHERE s.familyId = f.id)`
+      );
+      for (const fam of fams) {
+        await db.run("UPDATE families SET exploreCity = '上海' WHERE id = ?", fam.id);
+        for (const src of SHANGHAI_DEFAULT_SOURCES) {
+          await db.run(
+            'INSERT INTO explore_feed_sources (id, familyId, url, label, isActive) VALUES (?, ?, ?, ?, 1)',
+            randomUUID(), fam.id, src.url, src.label
+          );
+        }
+      }
+      if (fams.length > 0) console.log(`✅ 已为 ${fams.length} 个家庭预置上海默认关注源(5个)与城市`);
+    }
+  } catch (e) {
+    console.error('⚠️ 上海默认关注源预置失败:', e);
+  }
+
   return db;
 };
 
