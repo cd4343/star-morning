@@ -124,7 +124,6 @@ export default function ChildMe() {
   const [selectedRecord, setSelectedRecord] = useState<PunishmentRecord | null>(null);
   const [activePanel, setActivePanel] = useState<'achievements' | 'review' | 'chest'>('achievements');
   const [achievementsExpanded, setAchievementsExpanded] = useState(false);
-  const [claimingAchievementId, setClaimingAchievementId] = useState<string | null>(null);
   const chestDefaultDateRef = useRef(formatLocalDate(new Date()));
 
   const fetchAchievements = useCallback(async () => {
@@ -185,28 +184,6 @@ export default function ChildMe() {
     };
     fetchData();
   }, [toast, fetchAchievements]);
-
-  const claimAchievementReward = async (ach: Achievement) => {
-    if (!ach.unlocked || !ach.rewardClaimable || claimingAchievementId) return;
-    setClaimingAchievementId(ach.id);
-    try {
-      const res = await api.post(`/child/achievements/${ach.id}/claim`);
-      const parts = [
-        res.data?.rewardCoins ? `${res.data.rewardCoins} 金币` : '',
-        res.data?.rewardXp ? `${res.data.rewardXp} 经验` : '',
-        res.data?.rewardPrivilegePoints ? `${res.data.rewardPrivilegePoints} 特权点` : '',
-      ].filter(Boolean).join('、');
-      toast.success(res.data?.rewardDelivery === 'backpack'
-        ? '成就礼包已放入背包'
-        : `领取成功${parts ? `：${parts}` : ''}`);
-      await fetchAchievements();
-      context?.refresh?.();
-    } catch (e: any) {
-      toast.error(e.response?.data?.message || '领取失败');
-    } finally {
-      setClaimingAchievementId(null);
-    }
-  };
 
   useEffect(() => {
     fetchPunishmentRecords();
@@ -478,16 +455,6 @@ export default function ChildMe() {
                       )}
                     </div>
                   </div>
-                  {isUnlocked && ach.rewardClaimable && (
-                    <button
-                      type="button"
-                      disabled={claimingAchievementId === ach.id}
-                      onClick={() => claimAchievementReward(ach)}
-                      className="mt-2 w-full min-h-[40px] rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 py-1.5 text-[11px] font-black text-white shadow-sm disabled:opacity-60"
-                    >
-                      {claimingAchievementId === ach.id ? '领取中...' : '领取奖励'}
-                    </button>
-                  )}
                 </div>
               );
             })}

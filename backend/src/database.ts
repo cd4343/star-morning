@@ -249,6 +249,62 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE screen_time_ledger ADD COLUMN taskEntryId TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE screen_time_ledger ADD COLUMN learningSessionId TEXT'); } catch (e) {}
 
+  // F5: 成就奖励改为解锁即自动发放。存量未领取（rewardClaimedAt IS NULL）的成就一次性补发。
+  // 用 schema_versions 当幂等标记，INSERT OR IGNORE，仅当 changes===1（首次写入）才执行回填。
+  try {
+    const backfillMark = await db.run(
+      'INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)',
+      ['achv-autoclaim-backfill-2026-06', '成就奖励自动发放：存量未领取一次性补发']
+    );
+    if ((backfillMark.changes || 0) === 1) {
+      const pending = await db.all(
+        `SELECT ua.id as userAchievementId, ua.childId,
+                ad.title, ad.icon, ad.rewardCoins, ad.rewardXp, ad.rewardPrivilegePoints, ad.rewardDelivery
+         FROM user_achievements ua
+         JOIN achievement_defs ad ON ua.achievementId = ad.id
+         WHERE ua.rewardClaimedAt IS NULL`
+      );
+      let backfilledCount = 0;
+      for (const row of pending) {
+        const rewardCoins = Math.max(0, Math.trunc(Number(row.rewardCoins || 0)));
+        const rewardXp = Math.max(0, Math.trunc(Number(row.rewardXp || 0)));
+        const rewardPrivilegePoints = Math.max(0, Math.trunc(Number(row.rewardPrivilegePoints || 0)));
+        const rewardDelivery = row.rewardDelivery === 'backpack' ? 'backpack' : 'instant';
+        const hasReward = rewardCoins > 0 || rewardXp > 0 || rewardPrivilegePoints > 0;
+        const nowIso = new Date().toISOString();
+        try {
+          let inventoryId: string | null = null;
+          if (hasReward && rewardDelivery === 'backpack') {
+            inventoryId = randomUUID();
+            await db.run(
+              `INSERT INTO user_inventory (
+                 id, childId, title, icon, cost, costType, source, status,
+                 rewardCoins, rewardXp, rewardPrivilegePoints, acquiredAt
+               ) VALUES (?, ?, ?, ?, 0, 'coins', 'achievement_reward', 'pending', ?, ?, ?, ?)`,
+              inventoryId, row.childId, `${row.title}成就礼包`, row.icon || '🏆',
+              rewardCoins, rewardXp, rewardPrivilegePoints, nowIso
+            );
+          } else if (hasReward) {
+            await db.run(
+              'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+              rewardCoins, rewardXp, rewardPrivilegePoints, row.childId
+            );
+          }
+          await db.run(
+            'UPDATE user_achievements SET rewardClaimedAt = ?, rewardInventoryId = ? WHERE id = ? AND rewardClaimedAt IS NULL',
+            nowIso, inventoryId, row.userAchievementId
+          );
+          backfilledCount++;
+        } catch (rowErr) {
+          console.error('成就奖励补发单条失败:', row.userAchievementId, rowErr);
+        }
+      }
+      console.log(`✅ 成就奖励自动发放补发完成：共补发 ${backfilledCount} 条（待发放 ${pending.length} 条）`);
+    }
+  } catch (e) {
+    console.error('⚠️ 成就奖励补发迁移失败:', e);
+  }
+
   return db;
 };
 

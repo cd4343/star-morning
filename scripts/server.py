@@ -17,6 +17,9 @@ HOST = '0.0.0.0'  # 监听所有网络接口
 PORT = 80         # 端口号（HTTP默认端口）
 DOMAIN = 'starcoin.h5-online.com'
 BACKEND_PROXY_TIMEOUT_SECONDS = 25
+# P0(g): 对文本类静态资源做 gzip 压缩（客户端支持且文件 > 1KB 时）
+GZIP_EXTENSIONS = ('.js', '.css', '.html', '.json', '.svg')
+GZIP_MIN_BYTES = 1024
 
 class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
     """自定义HTTP请求处理器"""
@@ -171,15 +174,56 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
         # 标记为静态资源请求，以便在 end_headers 中添加缓存头
         self._is_static_resource = is_static_resource
         
-        # 如果是静态资源，尝试返回文件
+        # 如果是静态资源，尝试返回文件（文本类按需 gzip）
         if is_static_resource:
-            return super().do_GET()
+            return self._serve_static_maybe_gzip()
         
-        # 对于所有其他路径（SPA 路由），返回 index.html
+        # 对于所有其他路径（SPA 路由），返回 index.html（文本类按需 gzip）
         # 这样 React Router 可以在客户端处理路由
         self.path = '/index.html'
-        return super().do_GET()
+        return self._serve_static_maybe_gzip()
     
+    def _client_accepts_gzip(self):
+        """判断客户端是否接受 gzip 编码"""
+        ae = self.headers.get('Accept-Encoding', '') or ''
+        return 'gzip' in ae.lower()
+
+    def _serve_static_maybe_gzip(self):
+        """
+        P0(g): 服务文本类静态资源，满足条件时用 gzip 压缩后返回。
+        条件：扩展名在 GZIP_EXTENSIONS、客户端支持 gzip、文件 > GZIP_MIN_BYTES。
+        否则回退到默认 SimpleHTTPRequestHandler.do_GET（含 Range/304 等原生处理）。
+        缓存头由 end_headers 依据 self.path / self._is_static_resource 统一添加。
+        """
+        import gzip as _gzip
+        fs_path = self.translate_path(self.path)
+        path_lower = self.path.lower()
+        eligible = (
+            os.path.isfile(fs_path)
+            and any(path_lower.endswith(ext) for ext in GZIP_EXTENSIONS)
+            and self._client_accepts_gzip()
+        )
+        if not eligible:
+            return super().do_GET()
+        try:
+            with open(fs_path, 'rb') as f:
+                raw = f.read()
+        except OSError:
+            return super().do_GET()
+        if len(raw) <= GZIP_MIN_BYTES:
+            # 小文件压缩收益有限，直接走原生处理
+            return super().do_GET()
+        body = _gzip.compress(raw, 6)
+        ctype = self.guess_type(fs_path)
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Vary', 'Accept-Encoding')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
     def do_POST(self):
         """处理POST请求 - 转发到后端API"""
         import time

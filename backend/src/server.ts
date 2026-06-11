@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -52,6 +53,7 @@ app.use(cors(corsOrigin
     : { origin: true, credentials: true }
 ));
 app.use(helmet());
+app.use(compression()); // P0(f): gzip 压缩 JSON/文本响应，减小传输体积
 app.use(express.json({ limit: '20mb' }));
 
 const exploreUploadRoot = path.resolve(__dirname, '../../uploads/explore');
@@ -1174,11 +1176,56 @@ const checkAchievements = async (childId: string, db: any) => {
       if (unlocked) {
           const existing = await db.get('SELECT id FROM user_achievements WHERE childId = ? AND achievementId = ?', childId, def.id);
           if (!existing) {
-              await db.run('INSERT INTO user_achievements (id, childId, achievementId, unlockedAt) VALUES (?, ?, ?, ?)', randomUUID(), childId, def.id, new Date().toISOString());
+              const userAchievementId = randomUUID();
+              await db.run('INSERT INTO user_achievements (id, childId, achievementId, unlockedAt) VALUES (?, ?, ?, ?)', userAchievementId, childId, def.id, new Date().toISOString());
               const rewardCoins = Math.max(0, Number(def.rewardCoins || 0));
               const rewardXp = Math.max(0, Number(def.rewardXp || 0));
               const rewardPrivilegePoints = Math.max(0, Number(def.rewardPrivilegePoints || 0));
               const rewardDelivery = def.rewardDelivery === 'backpack' ? 'backpack' : 'instant';
+              // F5: 解锁即自动发放，孩子无需手动领取。
+              // checkAchievements 各调用点均在事务外，发放部分自包 withTransaction（含串行化）。
+              // 守卫式 UPDATE（rewardClaimedAt IS NULL 且 changes===1 才发放）防止重复入账。
+              const hasReward = rewardCoins > 0 || rewardXp > 0 || rewardPrivilegePoints > 0;
+              let autoInventoryId: string | null = null;
+              try {
+                await withTransaction(async () => {
+                  const claimGuard = await db.run(
+                    'UPDATE user_achievements SET rewardClaimedAt = ? WHERE id = ? AND rewardClaimedAt IS NULL',
+                    new Date().toISOString(),
+                    userAchievementId
+                  );
+                  if ((claimGuard.changes || 0) !== 1) return; // 已被其它路径领取，跳过发放
+                  if (!hasReward) return; // 无奖励：仅标记已领取
+                  if (rewardDelivery === 'backpack') {
+                    autoInventoryId = randomUUID();
+                    await db.run(
+                      `INSERT INTO user_inventory (
+                         id, childId, title, icon, cost, costType, source, status,
+                         rewardCoins, rewardXp, rewardPrivilegePoints, acquiredAt
+                       ) VALUES (?, ?, ?, ?, 0, 'coins', 'achievement_reward', 'pending', ?, ?, ?, ?)`,
+                      autoInventoryId,
+                      childId,
+                      `${def.title}成就礼包`,
+                      def.icon || '🏆',
+                      rewardCoins,
+                      rewardXp,
+                      rewardPrivilegePoints,
+                      new Date().toISOString()
+                    );
+                    await db.run('UPDATE user_achievements SET rewardInventoryId = ? WHERE id = ?', autoInventoryId, userAchievementId);
+                  } else {
+                    await db.run(
+                      'UPDATE users SET coins = coins + ?, xp = xp + ?, privilegePoints = privilegePoints + ? WHERE id = ?',
+                      rewardCoins,
+                      rewardXp,
+                      rewardPrivilegePoints,
+                      childId
+                    );
+                  }
+                });
+              } catch (autoClaimErr) {
+                console.error('成就奖励自动发放失败:', def.id, autoClaimErr);
+              }
               const display = buildAchievementDisplay(def);
               unlockedAchievements.push({
                   id: def.id,
@@ -1194,7 +1241,9 @@ const checkAchievements = async (childId: string, db: any) => {
                   rewardCoins,
                   rewardXp,
                   rewardPrivilegePoints,
-                  rewardDelivery
+                  rewardDelivery,
+                  rewardClaimed: true,
+                  rewardInventoryId: autoInventoryId
               });
           }
       }
@@ -1809,6 +1858,11 @@ app.put('/api/parent/family/members/:id', protect, async (req: any, res) => {
     res.json({ message: 'ok' });
 });
 
+// P0(h): dashboard 自动审批节流。家长多标签页/频繁刷新会反复触发全量扫描，
+// 进程级 Map 记录每个家庭上次运行时刻，5 分钟内已跑过则跳过（仅影响自动审批，dashboard 其余查询照常）。
+const AUTO_APPROVE_THROTTLE_MS = 5 * 60 * 1000;
+const autoApproveLastRunByFamily = new Map<string, number>();
+
 // --- 自动审批过期任务（当天00:00:00-23:59:59未审批的任务，按中间档自动审批）---
 // 注意：只自动审批昨天及之前提交的任务（按北京时间），今天的任务需要家长手动审批
 const autoApproveExpiredTasks = async (db: any, familyId: string) => {
@@ -1904,8 +1958,13 @@ app.get('/api/parent/dashboard', protect, async (req: any, res) => {
   const localDateStr = getLocalDateString();
   console.log(`🕐 服务器时间：${serverNow.toISOString()}，本地日期：${localDateStr}，familyId：${familyId}`);
 
-  // 自动审批过期任务（超过24小时未审批的任务）
-  await autoApproveExpiredTasks(db, familyId);
+  // 自动审批过期任务（超过24小时未审批的任务）。P0(h): 5 分钟内已跑过则跳过，避免频繁刷新重复扫描。
+  const autoApproveNow = Date.now();
+  const autoApproveLastRun = autoApproveLastRunByFamily.get(familyId) || 0;
+  if (autoApproveNow - autoApproveLastRun >= AUTO_APPROVE_THROTTLE_MS) {
+    autoApproveLastRunByFamily.set(familyId, autoApproveNow);
+    await autoApproveExpiredTasks(db, familyId);
+  }
 
   // 获取待审核任务，包含金币和经验信息（只显示启用任务的待审核记录）
   const pendingReviews = await db.all(`
@@ -6910,7 +6969,8 @@ app.post('/api/child/achievements/:achievementId/claim', protect, requireChild, 
     );
 
     if (!achievement) return res.status(404).json({ message: '成就尚未解锁' });
-    if (achievement.rewardClaimedAt) return res.status(400).json({ message: '该成就奖励已领取' });
+    // F5: 奖励已在解锁瞬间自动发放，端点保留并幂等（兼容旧前端/重复请求）。
+    if (achievement.rewardClaimedAt) return res.json({ message: '该成就奖励已领取', already: true });
 
     const rewardCoins = Math.max(0, Number(achievement.rewardCoins || 0));
     const rewardXp = Math.max(0, Number(achievement.rewardXp || 0));
