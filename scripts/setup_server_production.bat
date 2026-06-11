@@ -68,6 +68,14 @@ set "CORS_ORIGIN="
 set /p "CORS_ORIGIN=CORS origin [%DEFAULT_CORS%]: "
 if not defined CORS_ORIGIN set "CORS_ORIGIN=%DEFAULT_CORS%"
 
+REM Inherit existing config as defaults: press Enter at prompts to keep current values.
+if exist "scripts\production_env.local.bat" (
+    call "scripts\production_env.local.bat"
+    echo [OK] Existing production_env.local.bat loaded. Press Enter at prompts to keep current values.
+)
+set "OLD_JWT_SECRET=%JWT_SECRET%"
+set "OLD_AMAP_KEY=%AMAP_WEB_SERVICE_KEY%"
+
 set "STARCOIN_DB_PATH="
 set /p "STARCOIN_DB_PATH=Database path [%DEFAULT_DB_PATH%]: "
 if not defined STARCOIN_DB_PATH set "STARCOIN_DB_PATH=%DEFAULT_DB_PATH%"
@@ -77,7 +85,8 @@ set /p "STARCOIN_BACKUP_DIR=Backup directory [%DEFAULT_BACKUP_DIR%]: "
 if not defined STARCOIN_BACKUP_DIR set "STARCOIN_BACKUP_DIR=%DEFAULT_BACKUP_DIR%"
 
 set "JWT_SECRET="
-set /p "JWT_SECRET=JWT secret [auto-generate]: "
+set /p "JWT_SECRET=JWT secret [keep existing / auto-generate]: "
+if not defined JWT_SECRET if defined OLD_JWT_SECRET set "JWT_SECRET=%OLD_JWT_SECRET%"
 if not defined JWT_SECRET (
     for /f "usebackq delims=" %%s in (`node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`) do set "JWT_SECRET=%%s"
 )
@@ -90,7 +99,8 @@ if not defined JWT_SECRET (
 )
 
 set "AMAP_WEB_SERVICE_KEY="
-set /p "AMAP_WEB_SERVICE_KEY=AMap Web Service key [optional]: "
+set /p "AMAP_WEB_SERVICE_KEY=AMap Web Service key [keep existing / optional]: "
+if not defined AMAP_WEB_SERVICE_KEY if defined OLD_AMAP_KEY set "AMAP_WEB_SERVICE_KEY=%OLD_AMAP_KEY%"
 
 echo.
 echo SMS setup:
