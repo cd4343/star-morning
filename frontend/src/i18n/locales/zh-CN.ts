@@ -216,6 +216,7 @@ const zhCN: Record<string, string> = {
   'lottery.parentSafetyHint': '开启时每天最多付费抽 2 次；可以关闭，但不能提高上限。',
   'lottery.parentEnabled': '允许每天最多 2 次付费抽奖',
   'lottery.parentDisabled': '抽奖已关闭',
+  'parentDashboard.allTools': '全部工具',
   'inbox.taskReview': '任务审核',
   'inbox.exploreConfirm': '探索确认',
   'inbox.feedReview': '资讯筛选',

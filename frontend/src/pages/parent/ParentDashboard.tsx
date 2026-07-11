@@ -215,6 +215,7 @@ export default function ParentDashboard() {
   const [parentInbox, setParentInbox] = useState<{ items: ParentInboxItem[]; totalActionCount: number }>({ items: [], totalActionCount: 0 });
   const [taskSessionReminders, setTaskSessionReminders] = useState<any[]>([]);
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
+  const [showAllTools, setShowAllTools] = useState(false);
   const [weekTasks, setWeekTasks] = useState(0);
   const [weeklyReports, setWeeklyReports] = useState<any[]>([]);
 
@@ -1257,7 +1258,17 @@ export default function ParentDashboard() {
         )}
 
         {/* 管理入口 */}
-        <div className="grid grid-cols-2 gap-3 pt-4">
+        <button
+          type="button"
+          onClick={() => setShowAllTools(value => !value)}
+          aria-expanded={showAllTools}
+          className="flex min-h-[44px] w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
+        >
+          <span>{t('parentDashboard.allTools')}</span>
+          <span aria-hidden="true">{showAllTools ? '−' : '+'}</span>
+        </button>
+        {showAllTools && (
+        <div className="grid grid-cols-2 gap-3">
           <Button variant="secondary" size="lg" className="h-24 flex-col gap-2 relative" onClick={() => navigate('/parent/tasks')}>
             <ClipboardList size={28} className="text-blue-600"/>
             <span>任务管理</span>
@@ -1306,6 +1317,7 @@ export default function ParentDashboard() {
             <span>惩罚设置</span>
           </Button>
         </div>
+        )}
       </div>
 
       {/* 审批弹窗 - 支持安全区域 */}
