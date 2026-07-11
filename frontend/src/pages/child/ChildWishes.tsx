@@ -11,6 +11,7 @@ import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { Confetti } from '../../components/Confetti';
 import { BottomSheet } from '../../components/BottomSheet';
 import { playSuccessSound, playCoinSound, playErrorSound, playMagicSound } from '../../utils/sounds';
+import { t } from '../../i18n';
 
 // 前端时间窗口校验（与后端保持一致）
 const checkTimeWindow = (timeWindow: string | null): { ok: boolean; message?: string } => {
@@ -146,7 +147,7 @@ export default function ChildWishes() {
   // 抽奖费用与保底信息
   const [lotteryInfo, setLotteryInfo] = useState<{
     todayDrawCount: number, currentCost: number, nextCost: number,
-    dailyLimit?: number, remainingDraws?: number,
+    dailyLimit?: number, remainingDraws?: number, lotteryEnabled?: boolean,
     pity?: {
       totalDraws: number, rareStreak: number, epicStreak: number, legendaryStreak: number,
       rarePityProgress: number, epicPityProgress: number, legendaryPityProgress: number,
@@ -162,7 +163,7 @@ export default function ChildWishes() {
       }
     }
   }>({
-    todayDrawCount: 0, currentCost: 15, nextCost: 15, dailyLimit: 10, remainingDraws: 10
+    todayDrawCount: 0, currentCost: 15, nextCost: 15, dailyLimit: 2, remainingDraws: 2, lotteryEnabled: true
   });
 
   // 过滤背包物品
@@ -224,8 +225,9 @@ export default function ChildWishes() {
           todayDrawCount: lotteryRes.data.todayDrawCount || 0,
           currentCost: lotteryRes.data.currentCost || 15,
           nextCost: lotteryRes.data.nextCost || lotteryRes.data.currentCost || 15,
-          dailyLimit: lotteryRes.data.dailyLimit || 10,
-          remainingDraws: lotteryRes.data.remainingDraws ?? Math.max(0, 10 - Number(lotteryRes.data.todayDrawCount || 0)),
+          dailyLimit: Number(lotteryRes.data.dailyLimit ?? 2),
+          remainingDraws: lotteryRes.data.remainingDraws ?? Math.max(0, Number(lotteryRes.data.dailyLimit ?? 2) - Number(lotteryRes.data.todayDrawCount || 0)),
+          lotteryEnabled: lotteryRes.data.lotteryEnabled !== false,
           pity: lotteryRes.data.pity || {
             totalDraws: 0, rareStreak: 0, epicStreak: 0, legendaryStreak: 0,
             rarePityProgress: 0, epicPityProgress: 0, legendaryPityProgress: 0,
@@ -561,8 +563,9 @@ export default function ChildWishes() {
                 todayDrawCount: res.data.todayDrawCount ?? prev.todayDrawCount,
                 currentCost: res.data.nextCost || res.data.currentCost || prev.currentCost || 15,
                 nextCost: res.data.nextCost || res.data.currentCost || prev.nextCost || 15,
-                dailyLimit: res.data.dailyLimit ?? prev.dailyLimit ?? 10,
+                dailyLimit: res.data.dailyLimit ?? prev.dailyLimit ?? 2,
                 remainingDraws: res.data.remainingDraws ?? prev.remainingDraws,
+                lotteryEnabled: res.data.lotteryEnabled ?? prev.lotteryEnabled,
                 pity: res.data.pity
               }));
 
@@ -596,12 +599,17 @@ export default function ChildWishes() {
       if (loading) return;
 
       const cost = lotteryInfo.currentCost;
-      if (childData.coins < cost) {
+      if (lotteryInfo.lotteryEnabled === false) {
+        showTip(t('lottery.closedTitle'), t('lottery.closedChildMessage'), '🛡️');
+        return;
+      }
+      const hasFreeTicket = bagItems.some(item => item.status === 'pending' && (item.source === 'lottery_ticket' || item.effectType === 'free_spin'));
+      if (!hasFreeTicket && childData.coins < cost) {
         showTip('金币不足', `本次抽奖需要 ${cost} 金币，你目前只有 ${childData.coins} 金币。\n快去完成任务赚取更多金币吧！`, '💰');
         return;
       }
-      if ((lotteryInfo.remainingDraws ?? 10) <= 0) {
-        showTip('今日抽奖已用完', `今天最多抽 ${lotteryInfo.dailyLimit || 10} 次，明天 0 点后会重新开始。`, '⏰');
+      if (!hasFreeTicket && (lotteryInfo.remainingDraws ?? 2) <= 0) {
+        showTip('今日抽奖已用完', `今天最多付费抽 ${lotteryInfo.dailyLimit ?? 2} 次，明天 0 点后会重新开始。`, '⏰');
         return;
       }
       if (lotteryPrizes.length === 0) {
@@ -698,8 +706,12 @@ export default function ChildWishes() {
     lottery: {
       icon: <Gift size={22} />,
       title: '宝箱抽奖',
-      description: `固定 ${lotteryInfo.currentCost || 15} 金币一次，每天最多 ${lotteryInfo.dailyLimit || 10} 次；完成任务也会触发即时宝箱反馈。`,
-      stat: `剩余 ${lotteryInfo.remainingDraws ?? Math.max(0, (lotteryInfo.dailyLimit || 10) - lotteryInfo.todayDrawCount)} 次`,
+      description: lotteryInfo.lotteryEnabled === false
+        ? t('lottery.closedChildMessage')
+        : `固定 ${lotteryInfo.currentCost || 15} 金币一次，每天最多付费抽 ${lotteryInfo.dailyLimit ?? 2} 次；每次都会有奖品。`,
+      stat: lotteryInfo.lotteryEnabled === false
+        ? t('lottery.closedShort')
+        : `剩余 ${lotteryInfo.remainingDraws ?? Math.max(0, (lotteryInfo.dailyLimit ?? 2) - lotteryInfo.todayDrawCount)} 次`,
       className: 'bg-white/10 border-white/15 text-white',
     },
     privileges: {
@@ -1148,10 +1160,10 @@ export default function ChildWishes() {
                       {/* CENTER BUTTON */}
                       <button
                           onClick={handleLottery}
-                          disabled={loading || childData.coins < lotteryInfo.currentCost || (lotteryInfo.remainingDraws ?? 10) <= 0}
+                          disabled={loading || lotteryInfo.lotteryEnabled === false || (childData.coins < lotteryInfo.currentCost && !bagItems.some(item => item.status === 'pending' && (item.source === 'lottery_ticket' || item.effectType === 'free_spin'))) || ((lotteryInfo.remainingDraws ?? 2) <= 0 && !bagItems.some(item => item.status === 'pending' && (item.source === 'lottery_ticket' || item.effectType === 'free_spin')))}
                           className="bg-gradient-to-b from-purple-500 to-purple-700 hover:from-purple-400 hover:to-purple-600 active:scale-95 transition-all rounded-xl flex flex-col items-center justify-center shadow-[0_4px_0_#4c1d95] text-white disabled:opacity-80 disabled:grayscale z-20"
                       >
-                          <div className="font-black text-xl drop-shadow-md">{(lotteryInfo.remainingDraws ?? 10) <= 0 ? '明天再来' : '抽奖'}</div>
+                          <div className="font-black text-xl drop-shadow-md">{lotteryInfo.lotteryEnabled === false ? t('lottery.closedShort') : (lotteryInfo.remainingDraws ?? 2) <= 0 ? '明天再来' : '抽奖'}</div>
                           <div className="text-[10px] font-bold bg-black/20 px-2 rounded-full mt-1">{lotteryInfo.currentCost}💰</div>
                       </button>
 
@@ -1164,8 +1176,8 @@ export default function ChildWishes() {
 
               <div className="mt-4 text-center text-white/70 text-xs bg-black/20 px-4 py-2 rounded-full backdrop-blur-sm flex gap-3 divide-x divide-white/20">
                   <span>固定 {lotteryInfo.currentCost}💰/次</span>
-                  <span className="pl-3">今日 {lotteryInfo.todayDrawCount}/{lotteryInfo.dailyLimit || 10}</span>
-                  <span className="pl-3">剩余 {lotteryInfo.remainingDraws ?? Math.max(0, (lotteryInfo.dailyLimit || 10) - lotteryInfo.todayDrawCount)} 次</span>
+                  <span className="pl-3">今日付费 {lotteryInfo.todayDrawCount}/{lotteryInfo.dailyLimit ?? 2}</span>
+                  <span className="pl-3">剩余 {lotteryInfo.remainingDraws ?? Math.max(0, (lotteryInfo.dailyLimit ?? 2) - lotteryInfo.todayDrawCount)} 次</span>
               </div>
               <div className="mt-3 w-full max-w-[320px] rounded-2xl bg-white/10 border border-white/10 p-3 text-xs leading-relaxed text-white/75 font-bold">
                 只有抽中“再抽一次”才会免费补抽一次；其他奖品都是本次固定金币抽奖的结果。

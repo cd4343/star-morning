@@ -3,6 +3,7 @@ import { open, Database } from 'sqlite';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { ensureProductConfigTables } from './productConfig';
+import { ensureLotterySafetyTables } from './lotteryRules';
 
 let db: Database;
 
@@ -27,6 +28,7 @@ export const initializeDatabase = async () => {
   await db.run('PRAGMA temp_store = MEMORY');         // 临时表存储在内存中
   await createTables();
   await ensureProductConfigTables(db);
+  await ensureLotterySafetyTables(db);
 
   // B2-6: 迁移版本追踪
   await db.exec(`
@@ -48,6 +50,7 @@ export const initializeDatabase = async () => {
     { version: '009', description: '探索媒体 senderRole 与家庭照片要求开关' },
     { version: '010', description: '探索二期发现资讯流（feed 表/关注源/家庭城市配置）' },
     { version: '011', description: '家庭快速配置与推荐内容去重记录' },
+    { version: '012', description: '家庭抽奖开关与每日付费抽取安全上限' },
   ];
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);

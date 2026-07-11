@@ -16,7 +16,15 @@ import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
 import { registerProductConfigRoutes } from './productConfigRoutes';
 import { registerParentInboxRoutes } from './parentInboxRoutes';
-import { isLotteryInventoryVisible, normalizeLotteryPrize, normalizeLotteryPrizeInput, validateLotteryActivationIds } from './lotteryRules';
+import {
+  assertPaidLotteryDrawAllowed,
+  getLotterySafetySettings,
+  isLotteryInventoryVisible,
+  normalizeLotteryPrize,
+  normalizeLotteryPrizeInput,
+  setLotteryEnabled,
+  validateLotteryActivationIds,
+} from './lotteryRules';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
@@ -6912,8 +6920,29 @@ app.post('/api/child/savings/deposit', protect, async (req: any, res) => {
 // --- 抽奖规则 ---
 // 固定价格能降低孩子预期负担；每日次数限制避免屏幕/抽奖刺激过量。
 const LOTTERY_FIXED_COST = 15;
-const LOTTERY_DAILY_LIMIT = 10;
 const getLotteryCost = (): number => LOTTERY_FIXED_COST;
+
+const getTodayPaidLotteryDrawCount = async (db: any, childId: string, date: string): Promise<number> => {
+    const row = await db.get(
+        `SELECT COUNT(*) as count FROM user_inventory
+         WHERE childId = ? AND source = 'lottery' AND cost > 0 AND date(acquiredAt, '+8 hours') = ?`,
+        childId, date
+    );
+    return Number(row?.count || 0);
+};
+
+app.get('/api/parent/lottery-settings', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    res.json(await getLotterySafetySettings(getDb(), request.user!.familyId));
+});
+
+app.put('/api/parent/lottery-settings', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    if (typeof req.body?.enabled !== 'boolean') {
+        return res.status(400).json({ message: 'enabled 必须是布尔值' });
+    }
+    res.json(await setLotteryEnabled(getDb(), request.user!.familyId, req.body.enabled));
+});
 
 // 获取抽奖信息（当前费用、今日次数）
 app.get('/api/child/lottery/info', protect, async (req: any, res) => {
@@ -6922,17 +6951,12 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
     const today = getLocalDateString();
     await ensureSingleDrawAgainPrize(db, request.user!.familyId);
 
-    // 统计今日抽奖次数（通过背包中今日获得的抽奖物品数量）
-    // 使用本地时区进行日期比较
-    const todayCount = (await db.get(
-        `SELECT COUNT(*) as count FROM user_inventory
-         WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, '+8 hours') = ?`,
-        request.user!.id, today
-    ))?.count || 0;
+    const settings = await getLotterySafetySettings(db, request.user!.familyId);
+    const todayCount = await getTodayPaidLotteryDrawCount(db, request.user!.id, today);
 
     const currentCost = getLotteryCost();
     const nextCost = currentCost;
-    const remainingDraws = Math.max(0, LOTTERY_DAILY_LIMIT - todayCount);
+    const remainingDraws = settings.enabled ? Math.max(0, settings.dailyPaidLimit - todayCount) : 0;
 
     const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
@@ -6951,9 +6975,11 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
 
     res.json({
         todayDrawCount: todayCount,
+        todayPaidDrawCount: todayCount,
         currentCost,
         nextCost,
-        dailyLimit: LOTTERY_DAILY_LIMIT,
+        lotteryEnabled: settings.enabled,
+        dailyLimit: settings.dailyPaidLimit,
         remainingDraws,
         pity: pityInfo,
         prizes: displayPrizes
@@ -6995,31 +7021,14 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
     const today = getLocalDateString();
     await ensureSingleDrawAgainPrize(db, request.user!.familyId);
 
-    // 统计今日抽奖次数
-    const todayCount = (await db.get(
-        `SELECT COUNT(*) as count FROM user_inventory
-         WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, '+8 hours') = ?`,
-        request.user!.id, today
-    ))?.count || 0;
-
-    if (todayCount >= LOTTERY_DAILY_LIMIT) {
-        return res.status(400).json({ message: `今天最多抽 ${LOTTERY_DAILY_LIMIT} 次，明天再来吧` });
-    }
-
     const cost = getLotteryCost();
     // 余额校验移入事务内守卫式扣减；且持抽奖券时本次免费（券自动消费），不在此预检
 
     try {
         const result = await withTransaction(async () => {
-            // 事务内复查每日上限（事务已串行化，复查可靠），防止并发连点突破限制
-            const txCount = (await db.get(
-                `SELECT COUNT(*) as count FROM user_inventory
-                 WHERE childId = ? AND source = 'lottery' AND date(acquiredAt, '+8 hours') = ?`,
-                request.user!.id, today
-            ))?.count || 0;
-            if (txCount >= LOTTERY_DAILY_LIMIT) {
-                throw Object.assign(new Error(`今天最多抽 ${LOTTERY_DAILY_LIMIT} 次，明天再来吧`), { statusCode: 400 });
-            }
+            const settings = await getLotterySafetySettings(db, request.user!.familyId);
+            if (!settings.enabled) assertPaidLotteryDrawAllowed(0, settings);
+            const txPaidCount = await getTodayPaidLotteryDrawCount(db, request.user!.id, today);
             // 自动消费背包中的抽奖券/免费抽奖机会（M6：让宝箱抽奖券真正可用）
             const ticket = await db.get(`
                 SELECT ui.id, ui.cost, ui.source, w.effectType
@@ -7044,6 +7053,8 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
                 }
             }
             if (!usedTicket) {
+                // 每日付费上限必须在事务开始后、扣币前检查，防止并发连点突破限制。
+                assertPaidLotteryDrawAllowed(txPaidCount, settings);
                 // 守卫式扣减：余额不足时 changes=0，防止并发连点扣成负数
                 const deduct = await db.run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', cost, request.user!.id, cost);
                 if ((deduct.changes || 0) !== 1) {
@@ -7055,9 +7066,10 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             return { ...drawRes, usedTicket };
         });
 
-        const actualCount = todayCount + 1;
+        const settings = await getLotterySafetySettings(db, request.user!.familyId);
+        const actualCount = await getTodayPaidLotteryDrawCount(db, request.user!.id, today);
         const nextCost = getLotteryCost();
-        const remainingDraws = Math.max(0, LOTTERY_DAILY_LIMIT - actualCount);
+        const remainingDraws = settings.enabled ? Math.max(0, settings.dailyPaidLimit - actualCount) : 0;
         const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
         res.json({
@@ -7066,8 +7078,10 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             usedTicket: !!result.usedTicket,
             nextCost,
             todayDrawCount: actualCount,
+            todayPaidDrawCount: actualCount,
             currentCost: cost,
-            dailyLimit: LOTTERY_DAILY_LIMIT,
+            lotteryEnabled: settings.enabled,
+            dailyLimit: settings.dailyPaidLimit,
             remainingDraws,
             isDrawAgain: result.isDrawAgain,
             isBonusCoins: result.isBonusCoins,
@@ -7093,6 +7107,8 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
 app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
+    const settings = await getLotterySafetySettings(db, request.user!.familyId);
+    if (!settings.enabled) return res.status(400).json({ message: '家长已关闭抽奖' });
     await ensureSingleDrawAgainPrize(db, request.user!.familyId);
 
     // 验证用户最近一次抽奖确实是"再抽一次"奖品（status='used' 且 source='lottery' 或 'free_draw'）

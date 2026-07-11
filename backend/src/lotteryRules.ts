@@ -1,4 +1,56 @@
+import type { Database } from 'sqlite';
+
 export type LotteryAmountEffect = 'bonus_coins' | 'bonus_xp' | 'bonus_privilege';
+
+export const LOTTERY_DAILY_PAID_LIMIT = 2;
+export const LOTTERY_EMPTY_REWARD_COINS = 5;
+
+export interface LotterySafetySettings {
+  enabled: boolean;
+  dailyPaidLimit: number;
+}
+
+export const ensureLotterySafetyTables = async (db: Database): Promise<void> => {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS family_lottery_settings (
+      family_id TEXT PRIMARY KEY,
+      is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0, 1)),
+      daily_paid_limit INTEGER NOT NULL DEFAULT 2 CHECK(daily_paid_limit BETWEEN 0 AND 2),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
+    );
+  `);
+};
+
+export const getLotterySafetySettings = async (db: Database, familyId: string): Promise<LotterySafetySettings> => {
+  await ensureLotterySafetyTables(db);
+  const row = await db.get(
+    'SELECT is_enabled, daily_paid_limit FROM family_lottery_settings WHERE family_id = ?',
+    familyId,
+  );
+  if (!row) return { enabled: true, dailyPaidLimit: LOTTERY_DAILY_PAID_LIMIT };
+  const enabled = row.is_enabled === 1;
+  return {
+    enabled,
+    dailyPaidLimit: enabled
+      ? Math.min(LOTTERY_DAILY_PAID_LIMIT, Math.max(0, Number(row.daily_paid_limit) || 0))
+      : 0,
+  };
+};
+
+export const setLotteryEnabled = async (db: Database, familyId: string, enabled: boolean): Promise<LotterySafetySettings> => {
+  await ensureLotterySafetyTables(db);
+  await db.run(
+    `INSERT INTO family_lottery_settings (family_id, is_enabled, daily_paid_limit, updated_at)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(family_id) DO UPDATE SET
+       is_enabled = excluded.is_enabled,
+       daily_paid_limit = ?,
+       updated_at = CURRENT_TIMESTAMP`,
+    familyId, enabled ? 1 : 0, LOTTERY_DAILY_PAID_LIMIT, LOTTERY_DAILY_PAID_LIMIT,
+  );
+  return { enabled, dailyPaidLimit: enabled ? LOTTERY_DAILY_PAID_LIMIT : 0 };
+};
 
 type LotteryPrizeLike = {
   title?: unknown;
@@ -29,6 +81,28 @@ export class LotteryConfigurationError extends Error {
     this.name = 'LotteryConfigurationError';
   }
 }
+
+export class LotteryLimitError extends Error {
+  statusCode = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'LotteryLimitError';
+  }
+}
+
+export const assertPaidLotteryDrawAllowed = (
+  todayPaidDrawCount: number,
+  settings: LotterySafetySettings,
+): void => {
+  if (!settings.enabled) throw new LotteryLimitError('家长已关闭抽奖');
+  if (!Number.isInteger(settings.dailyPaidLimit) || settings.dailyPaidLimit < 0 || settings.dailyPaidLimit > LOTTERY_DAILY_PAID_LIMIT) {
+    throw new LotteryConfigurationError('抽奖每日上限配置无效');
+  }
+  if (todayPaidDrawCount >= settings.dailyPaidLimit) {
+    throw new LotteryLimitError(`今天最多付费抽 ${settings.dailyPaidLimit} 次，明天再来吧`);
+  }
+};
 
 const isAmountEffect = (value: unknown): value is LotteryAmountEffect => (
   value === 'bonus_coins' || value === 'bonus_xp' || value === 'bonus_privilege'
@@ -69,6 +143,18 @@ export const normalizeLotteryPrize = <T extends LotteryPrizeLike>(prize: T): T =
     ...prize,
     title: `${amount}${LOTTERY_AMOUNT_UNITS[prize.effectType]}`,
     cost: amount,
+  };
+};
+
+export const normalizeLotteryOutcome = <T extends LotteryPrizeLike>(prize: T): T => {
+  const isEmpty = prize.effectType === 'none' || String(prize.title || '').includes('谢谢参与');
+  if (!isEmpty) return normalizeLotteryPrize(prize);
+  return {
+    ...prize,
+    title: `${LOTTERY_EMPTY_REWARD_COINS}金币`,
+    icon: '🪙',
+    cost: LOTTERY_EMPTY_REWARD_COINS,
+    effectType: 'bonus_coins',
   };
 };
 

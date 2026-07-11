@@ -1,11 +1,95 @@
 import { describe, expect, it } from 'vitest';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
+import { drawPrizeCoreV2 } from './rewardSystem';
 import {
+  assertPaidLotteryDrawAllowed,
+  ensureLotterySafetyTables,
+  getLotterySafetySettings,
   isLotteryInventoryVisible,
+  LOTTERY_DAILY_PAID_LIMIT,
+  LOTTERY_EMPTY_REWARD_COINS,
+  normalizeLotteryOutcome,
   normalizeLotteryPrize,
   normalizeLotteryPrizeInput,
   resolveLotteryRewardAmount,
+  setLotteryEnabled,
   validateLotteryActivationIds,
 } from './lotteryRules';
+
+describe('孩子抽奖安全上限', () => {
+  it('默认只允许每天两次付费抽取，第三次必须在扣币前失败', () => {
+    expect(LOTTERY_DAILY_PAID_LIMIT).toBe(2);
+    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: true, dailyPaidLimit: 2 })).not.toThrow();
+    expect(() => assertPaidLotteryDrawAllowed(1, { enabled: true, dailyPaidLimit: 2 })).not.toThrow();
+    expect(() => assertPaidLotteryDrawAllowed(2, { enabled: true, dailyPaidLimit: 2 })).toThrow(/最多付费抽 2 次/);
+  });
+
+  it('家长可以关闭抽奖，但配置不能把上限提高到两次以上', () => {
+    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: false, dailyPaidLimit: 0 })).toThrow(/家长已关闭/);
+    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: true, dailyPaidLimit: 3 })).toThrow(/配置无效/);
+  });
+
+  it('旧家庭默认启用两次上限，迁移可重复执行且家长只能关闭或恢复默认', async () => {
+    const db = await open({ filename: ':memory:', driver: sqlite3.Database });
+    await db.exec('PRAGMA foreign_keys = ON; CREATE TABLE families (id TEXT PRIMARY KEY); INSERT INTO families VALUES (\'family-1\');');
+    await ensureLotterySafetyTables(db);
+    await ensureLotterySafetyTables(db);
+
+    expect(await getLotterySafetySettings(db, 'family-1')).toEqual({ enabled: true, dailyPaidLimit: 2 });
+    expect(await setLotteryEnabled(db, 'family-1', false)).toEqual({ enabled: false, dailyPaidLimit: 0 });
+    expect(await getLotterySafetySettings(db, 'family-1')).toEqual({ enabled: false, dailyPaidLimit: 0 });
+    expect(await setLotteryEnabled(db, 'family-1', true)).toEqual({ enabled: true, dailyPaidLimit: 2 });
+    await db.close();
+  });
+});
+
+describe('抽奖没有空结果', () => {
+  it('谢谢参与和 none 效果都转换为显示值等于到账值的固定 5 金币', () => {
+    for (const prize of [
+      { id: 'none-1', title: '谢谢参与', cost: 0, effectType: null },
+      { id: 'none-2', title: '下次再来', cost: 0, effectType: 'none' },
+    ]) {
+      const normalized = normalizeLotteryOutcome(prize);
+      expect(normalized).toMatchObject({
+        id: prize.id,
+        title: `${LOTTERY_EMPTY_REWARD_COINS}金币`,
+        cost: LOTTERY_EMPTY_REWARD_COINS,
+        effectType: 'bonus_coins',
+      });
+      expect(resolveLotteryRewardAmount(normalized)).toBe(LOTTERY_EMPTY_REWARD_COINS);
+    }
+  });
+
+  it('空奖实际结算 5 金币并将显示标题同步为 5 金币', async () => {
+    const db = await open({ filename: ':memory:', driver: sqlite3.Database });
+    await db.exec(`
+      CREATE TABLE users (id TEXT PRIMARY KEY, coins INTEGER, xp INTEGER, privilegePoints INTEGER);
+      CREATE TABLE wishes (
+        id TEXT PRIMARY KEY, familyId TEXT, type TEXT, isActive INTEGER, stock INTEGER,
+        rarity TEXT, weight INTEGER, effectType TEXT, title TEXT, icon TEXT, cost INTEGER
+      );
+      CREATE TABLE lottery_stats (
+        childId TEXT PRIMARY KEY, totalDraws INTEGER DEFAULT 0, rareStreak INTEGER DEFAULT 0,
+        epicStreak INTEGER DEFAULT 0, legendaryStreak INTEGER DEFAULT 0, updatedAt TEXT
+      );
+      CREATE TABLE user_inventory (
+        id TEXT PRIMARY KEY, childId TEXT, wishId TEXT, title TEXT, icon TEXT, cost INTEGER,
+        costType TEXT, source TEXT, status TEXT, redeemedAt TEXT, acquiredAt TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO users VALUES ('child-1', 100, 0, 0);
+      INSERT INTO wishes VALUES ('none-1', 'family-1', 'lottery', 1, -1, 'common', 10, 'none', '谢谢参与', '😊', 0);
+    `);
+
+    const result = await drawPrizeCoreV2(db, 'family-1', 'child-1', 15, 'lottery');
+
+    expect(result).toMatchObject({ isBonusCoins: true, bonusCoins: 5 });
+    expect(result.isNothing).toBeUndefined();
+    expect(result.prize).toMatchObject({ title: '5金币', cost: 5, effectType: 'bonus_coins' });
+    expect((await db.get('SELECT coins FROM users WHERE id = ?', 'child-1')).coins).toBe(105);
+    await db.close();
+  });
+});
 
 describe('抽奖即时奖励金额：孩子看到多少就到账多少', () => {
   it('数值字段与旧标题冲突时，以实际结算字段生成唯一展示标题', () => {

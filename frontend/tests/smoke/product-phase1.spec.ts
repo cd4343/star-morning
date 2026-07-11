@@ -104,3 +104,33 @@ test('child today prioritizes a running task and shows four primary destinations
   await page.getByRole('button', { name: /继续完成/ }).click();
   await expect(page).toHaveURL(/\/child\/challenge$/);
 });
+
+test('child lottery shows the parent-closed state at 375px', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'phase-one-child-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-phase-one', name: '测试孩子', role: 'child', familyId: 'family-phase-one',
+      coins: 80, xp: 120, level: 2, privilegePoints: 1,
+    }));
+  });
+
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const path = `${url.pathname}${url.search}`;
+    if (path === '/api/child/dashboard') {
+      return route.fulfill({ json: { child: { id: 'child-phase-one', name: '测试孩子', coins: 80, xp: 120, level: 2, privilegePoints: 1 }, tasks: [], recentReviews: [] } });
+    }
+    if (path === '/api/child/lottery/info') {
+      return route.fulfill({ json: { lotteryEnabled: false, todayDrawCount: 0, dailyLimit: 0, remainingDraws: 0, currentCost: 15, nextCost: 15, prizes: [] } });
+    }
+    if (path === '/api/child/screen-time') return route.fulfill({ json: {} });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/child/wishes');
+  await page.getByRole('button', { name: '抽奖' }).click();
+
+  await expect(page.getByText('家长暂时关闭了抽奖，任务和其他奖励仍可正常使用。')).toBeVisible();
+  await expect(page.getByRole('button', { name: '已关闭' })).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

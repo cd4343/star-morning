@@ -1,7 +1,7 @@
 import { Express } from 'express';
 import { getDb } from './database';
 import { randomUUID } from 'crypto';
-import { normalizeLotteryPrize, resolveLotteryRewardAmount } from './lotteryRules';
+import { normalizeLotteryOutcome, normalizeLotteryPrize, resolveLotteryRewardAmount } from './lotteryRules';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const logger = {
@@ -1383,8 +1383,9 @@ export const drawPrizeCoreV2 = async (
   }
 
   const newInventoryId = randomUUID();
+  prize = normalizeLotteryOutcome(prize);
   const effectType = prize.effectType;
-  const normalizedPrize = normalizeLotteryPrize(prize);
+  const normalizedPrize = prize;
 
   // 处理特殊效果
   // draw_again: 再抽一次

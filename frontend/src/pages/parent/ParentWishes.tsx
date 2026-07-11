@@ -246,6 +246,8 @@ export default function ParentWishes() {
 
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
+  const [lotterySettings, setLotterySettings] = useState({ enabled: true, dailyPaidLimit: 2 });
+  const [savingLotterySettings, setSavingLotterySettings] = useState(false);
   const [selectedLotteryIds, setSelectedLotteryIds] = useState<Set<string>>(new Set());
   // 实时权重调整（在管理上架时使用）
   const [tempWeights, setTempWeights] = useState<Record<string, number>>({});
@@ -277,9 +279,10 @@ export default function ParentWishes() {
         api.get('/parent/wishes'),
         api.get('/parent/reward-pools'),
         api.get('/parent/chest-settings'),
-        api.get('/parent/economy-settings')
+        api.get('/parent/economy-settings'),
+        api.get('/parent/lottery-settings')
       ]);
-      const [resWishes, resPools, resSettings, resEco] = results.map(r =>
+      const [resWishes, resPools, resSettings, resEco, resLotterySettings] = results.map(r =>
         r.status === 'fulfilled' ? r.value : null
       );
       if (resEco) {
@@ -297,9 +300,31 @@ export default function ParentWishes() {
       }
       if (resPools) setRewardPools(resPools.data);
       if (resSettings) setChestSettings(normalizeChestSettings(resSettings.data));
+      if (resLotterySettings) {
+        setLotterySettings({
+          enabled: resLotterySettings.data?.enabled !== false,
+          dailyPaidLimit: Number(resLotterySettings.data?.dailyPaidLimit ?? 2),
+        });
+      }
     } catch (e) {
       console.error(e);
       toast.error('数据加载失败');
+    }
+  };
+
+  const toggleLotteryEnabled = async () => {
+    try {
+      setSavingLotterySettings(true);
+      const res = await api.put('/parent/lottery-settings', { enabled: !lotterySettings.enabled });
+      setLotterySettings({
+        enabled: res.data?.enabled !== false,
+        dailyPaidLimit: Number(res.data?.dailyPaidLimit ?? 2),
+      });
+      toast.success(res.data?.enabled ? t('lottery.parentEnabled') : t('lottery.parentDisabled'));
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || '保存抽奖设置失败');
+    } finally {
+      setSavingLotterySettings(false);
     }
   };
 
@@ -1298,6 +1323,24 @@ export default function ParentWishes() {
 
         {/* 抽奖奖池特殊操作栏 */}
         {viewType === 'lottery' && !showTemplates && (
+          <div className="space-y-3">
+          <div className="rounded-xl border border-purple-100 bg-white p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-black text-slate-900">{t('lottery.parentSafetyTitle')}</div>
+                <div className="mt-1 text-xs font-medium text-slate-500">{t('lottery.parentSafetyHint')}</div>
+              </div>
+              <button
+                type="button"
+                onClick={toggleLotteryEnabled}
+                disabled={savingLotterySettings}
+                aria-pressed={lotterySettings.enabled}
+                className={`min-h-[44px] shrink-0 rounded-xl px-3 text-xs font-black ${lotterySettings.enabled ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'}`}
+              >
+                {lotterySettings.enabled ? t('lottery.parentEnabled') : t('lottery.parentDisabled')}
+              </button>
+            </div>
+          </div>
           <div className={`p-3 rounded-xl ${lotteryEditMode ? 'bg-purple-100 border-2 border-purple-400' : 'bg-purple-50'}`}>
             <div className="flex items-center justify-between">
               <div className="text-sm">
@@ -1485,6 +1528,7 @@ export default function ParentWishes() {
                 )}
               </div>
             )}
+          </div>
           </div>
         )}
 
