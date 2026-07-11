@@ -27,6 +27,7 @@ const ChildMorning = lazy(() => import('./pages/child/ChildMorning'));
 const ChildWishes = lazy(() => import('./pages/child/ChildWishes'));
 const ChildMe = lazy(() => import('./pages/child/ChildMe'));
 const ChildExplore = lazy(() => import('./pages/child/ChildExplore'));
+const ChildToday = lazy(() => import('./pages/child/ChildToday'));
 
 // 页面加载占位符
 const PageLoader = () => (
@@ -67,7 +68,7 @@ const RoleRoute = ({ role, children }: { role: 'parent' | 'child'; children: Rea
   if (isLoading) return <PageLoader />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!user) return <Navigate to="/select-user" replace />;
-  if (user?.role !== role) return <Navigate to={user?.role === 'parent' ? '/parent/dashboard' : '/child/challenge'} replace />;
+  if (user?.role !== role) return <Navigate to={user?.role === 'parent' ? '/parent/dashboard' : '/child/today'} replace />;
   return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
 };
 
@@ -123,7 +124,8 @@ function App() {
 
         {/* Child Routes */}
         <Route path="/child" element={<RoleRoute role="child"><ChildLayout /></RoleRoute>}>
-          <Route path="map" element={<Navigate to="challenge" replace />} />
+          <Route path="map" element={<Navigate to="today" replace />} />
+          <Route path="today" element={<Suspense fallback={<PageLoader />}><ChildToday /></Suspense>} />
           <Route path="challenge" element={<Suspense fallback={<PageLoader />}><ChildChallenge /></Suspense>} />
           <Route path="tasks" element={<Navigate to="/child/challenge" replace />} />
           <Route path="learning" element={<Navigate to="/child/challenge" replace />} />
@@ -132,7 +134,7 @@ function App() {
           <Route path="explore" element={<Suspense fallback={<PageLoader />}><ChildExplore /></Suspense>} />
           <Route path="wishes" element={<Suspense fallback={<PageLoader />}><ChildWishes /></Suspense>} />
           <Route path="me" element={<Suspense fallback={<PageLoader />}><ChildMe /></Suspense>} />
-          <Route index element={<Navigate to="challenge" replace />} />
+          <Route index element={<Navigate to="today" replace />} />
         </Route>
         
         {/* 404 页面 */}

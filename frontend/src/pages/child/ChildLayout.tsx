@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { CheckSquare, ChevronDown, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Utensils } from 'lucide-react';
+import { CheckSquare, ChevronDown, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
@@ -9,6 +9,7 @@ import PullToRefresh from '../../components/PullToRefresh';
 import { GlobalTimerBar } from '../../components/GlobalTimerBar';
 import LevelUpModal from '../../components/LevelUpModal';
 import { getLevelTitle } from '../../utils/levelPerks';
+import { t } from '../../i18n';
 
 export default function ChildLayout() {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export default function ChildLayout() {
   const { user, token, login } = useAuth();
   const toast = useToast();
   const [childData, setChildData] = useState<any>(null);
+  const [todayTasks, setTodayTasks] = useState<any[]>([]);
   const [showPinModal, setShowPinModal] = useState(false);
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
@@ -48,6 +50,7 @@ export default function ChildLayout() {
       }
       retryCount.current = 0;
       setChildData(res.data.child);
+      setTodayTasks(res.data.tasks || []);
 
       // R3: 升级检测——本地基线 starcoin:lastLevel:<userId>，先更新记录再弹窗，30 秒轮询不会重复触发
       if (res.data.child) {
@@ -143,6 +146,7 @@ export default function ChildLayout() {
     if (previousUserId.current !== userId) {
       previousUserId.current = userId;
       setChildData(null);
+      setTodayTasks([]);
     }
     retryCount.current = 0;
     fetchData();
@@ -303,7 +307,7 @@ export default function ChildLayout() {
             onRefresh={refreshChildPage}
             className="flex-1 min-h-0 pb-20 scrollbar-hide"
           >
-            <Outlet context={{ childData, refresh: fetchData }} />
+            <Outlet context={{ childData, tasks: todayTasks, refresh: fetchData }} />
           </PullToRefresh>
 
           <div
@@ -353,12 +357,11 @@ export default function ChildLayout() {
             </button>
           )}
 
-          <div className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full grid grid-cols-5 px-2 py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
-            <NavLink onClick={() => navigate('/child/challenge')} icon={<CheckSquare size={22}/>} label="挑战" active={['challenge', 'tasks', 'learning'].some(path => location.pathname.includes(path)) || location.pathname === '/child'} />
-            <NavLink onClick={() => navigate('/child/morning')} icon={<Utensils size={22}/>} label="早餐" active={location.pathname.includes('morning')} />
-            <NavLink onClick={() => navigate('/child/explore')} icon={<Compass size={22}/>} label="探索" active={location.pathname.includes('explore')} />
-            <NavLink onClick={() => navigate('/child/wishes')} icon={<Gift size={22}/>} label="奖励" active={location.pathname.includes('wishes')} />
-            <NavLink onClick={() => navigate('/child/me')} icon={<User size={22}/>} label="我的" active={location.pathname.includes('me')} />
+          <div data-testid="child-bottom-nav" className="bg-white/90 backdrop-blur-md border-t absolute bottom-0 w-full grid grid-cols-4 px-2 py-3 text-xs text-gray-400 font-medium z-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-3">
+            <NavLink onClick={() => navigate('/child/today')} icon={<CheckSquare size={22}/>} label={t('childNav.today')} active={['today', 'challenge', 'tasks', 'learning', 'morning'].some(path => location.pathname.includes(path)) || location.pathname === '/child'} />
+            <NavLink onClick={() => navigate('/child/explore')} icon={<Compass size={22}/>} label={t('childNav.explore')} active={location.pathname.includes('explore')} />
+            <NavLink onClick={() => navigate('/child/wishes')} icon={<Gift size={22}/>} label={t('childNav.rewards')} active={location.pathname.includes('wishes')} />
+            <NavLink onClick={() => navigate('/child/me')} icon={<User size={22}/>} label={t('childNav.growth')} active={location.pathname.includes('me')} />
           </div>
       </div>
 
@@ -428,8 +431,8 @@ export default function ChildLayout() {
 }
 
 const NavLink = ({ icon, label, active, onClick }: any) => (
-  <div onClick={onClick} className={`flex flex-col items-center gap-1 cursor-pointer transition-all duration-200 ${active ? 'text-blue-600 scale-105 font-bold' : 'hover:text-gray-600'}`}>
+  <button type="button" onClick={onClick} className={`flex min-h-11 flex-col items-center justify-center gap-1 transition-all duration-200 ${active ? 'text-blue-600 scale-105 font-bold' : 'hover:text-gray-600'}`}>
     {icon}
     <span>{label}</span>
-  </div>
+  </button>
 );

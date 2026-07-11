@@ -83,7 +83,7 @@ export default function SelectUser() {
       if (res.data.user.role === 'parent') {
         navigate('/parent/dashboard');
       } else {
-        navigate('/child/challenge');
+        navigate('/child/today');
       }
     } catch (err: any) {
       alert(err.response?.data?.message || '切换失败');

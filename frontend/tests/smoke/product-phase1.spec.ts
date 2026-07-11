@@ -58,3 +58,49 @@ test('parent completes five-step quick setup at 375px', async ({ page }) => {
     screenTimeCapMinutes: 45,
   });
 });
+
+test('child today prioritizes a running task and shows four primary destinations', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'phase-one-child-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-phase-one',
+      name: '测试孩子',
+      role: 'child',
+      familyId: 'family-phase-one',
+      coins: 80,
+      xp: 120,
+      level: 2,
+      privilegePoints: 1,
+    }));
+  });
+
+  await page.route('**/api/auth/members', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/dashboard', route => route.fulfill({
+    json: {
+      child: { id: 'child-phase-one', name: '测试孩子', coins: 80, xp: 120, level: 2, privilegePoints: 1 },
+      tasks: [
+        { id: 'task-later', title: '整理书包', category: '生活', status: 'todo', icon: '🎒', coinReward: 8, durationMinutes: 8 },
+        { id: 'task-morning', title: '晨间小行动', category: '早晨启动', status: 'todo', icon: '🌤️', coinReward: 4, durationMinutes: 5 },
+        { id: 'task-running', title: '正在完成的作业', category: '学习', status: 'running', icon: '📚', coinReward: 15, durationMinutes: 20 },
+      ],
+      recentReviews: [],
+    },
+  }));
+  await page.route('**/api/child/all-achievements', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/task-session-reminders', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/morning**', route => route.fulfill({ json: { date: '2026-07-12', items: [], order: null } }));
+
+  await page.goto('/child/today');
+
+  await expect(page.getByTestId('today-primary-action')).toContainText('正在完成的作业');
+  const nav = page.getByTestId('child-bottom-nav');
+  await expect(nav).toContainText('今天');
+  await expect(nav).toContainText('探索');
+  await expect(nav).toContainText('奖励');
+  await expect(nav).toContainText('成长');
+  await expect(nav).not.toContainText('早餐');
+  expect(await nav.locator('button').count()).toBe(4);
+
+  await page.getByRole('button', { name: /继续完成/ }).click();
+  await expect(page).toHaveURL(/\/child\/challenge$/);
+});

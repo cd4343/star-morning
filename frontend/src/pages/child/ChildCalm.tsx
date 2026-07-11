@@ -239,7 +239,7 @@ export default function ChildCalm() {
   };
 
   const activeScene = selectedScene || SCENES[0];
-  const backTo = (location.state as any)?.backTo || '/child/challenge';
+  const backTo = (location.state as any)?.backTo || '/child/today';
   const backLabel = (location.state as any)?.backLabel || '返回上一页';
 
   return (

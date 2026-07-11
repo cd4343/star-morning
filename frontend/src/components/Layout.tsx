@@ -7,6 +7,7 @@ const ROOT_ROUTES = new Set([
   '/register',
   '/select-user',
   '/parent/dashboard',
+  '/child/today',
   '/child/challenge',
   '/child/wishes',
   '/child/me',
@@ -47,7 +48,7 @@ export const Layout = ({
       } else if (location.pathname.startsWith('/parent/')) {
         navigate('/parent/dashboard');
       } else if (location.pathname.startsWith('/child/')) {
-        navigate('/child/challenge');
+        navigate('/child/today');
       }
     }
   };
