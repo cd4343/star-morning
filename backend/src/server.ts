@@ -15,6 +15,7 @@ import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
 import { registerProductConfigRoutes } from './productConfigRoutes';
+import { registerParentInboxRoutes } from './parentInboxRoutes';
 import { isLotteryInventoryVisible, normalizeLotteryPrize, normalizeLotteryPrizeInput, validateLotteryActivationIds } from './lotteryRules';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
@@ -1869,6 +1870,7 @@ app.use('/api/parent', protect, requireParent);
 app.use('/api/child', protect, requireChild);
 registerRewardSystemRoutes(app, protect);
 registerProductConfigRoutes(app, protect);
+registerParentInboxRoutes(app, protect);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
 

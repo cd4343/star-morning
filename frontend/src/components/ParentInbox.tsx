@@ -1,108 +1,82 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
 import { t } from '../i18n';
 
-interface ParentInboxProps {
-  pendingCount: number;
-  loading?: boolean;
-  onGoReview: () => void;
-  // 今天开启低电量模式的孩子，由 ParentDashboard 从 /parent/dashboard 响应透传
-  lowEnergyChildren?: Array<{ childId: string; name: string }>;
+export type ParentInboxType = 'review' | 'overdue_session' | 'reward_debt' | 'setup_hint';
+
+export interface ParentInboxItem {
+  id: string;
+  type: ParentInboxType;
+  priority: 'must_handle' | 'suggested' | 'info';
+  actionPath: string;
+  count: number;
 }
 
-export function ParentInbox({ pendingCount, loading = false, onGoReview, lowEnergyChildren = [] }: ParentInboxProps) {
+interface ParentInboxProps {
+  items: ParentInboxItem[];
+  totalActionCount: number;
+  loading?: boolean;
+  onGoReview: () => void;
+}
+
+const ICONS: Record<ParentInboxType, string> = {
+  review: '📋',
+  overdue_session: '⏰',
+  reward_debt: '🎁',
+  setup_hint: '✨',
+};
+
+export function ParentInbox({ items, totalActionCount, loading = false, onGoReview }: ParentInboxProps) {
   const navigate = useNavigate();
-  const [exploreCount, setExploreCount] = useState(0);
-  const [feedCount, setFeedCount] = useState(0);
-  const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      // 探索端点缺失或报错时静默降级为 0，不打扰家长
-      const [checkinRes, feedRes] = await Promise.allSettled([
-        api.get('/parent/explore/checkins'),
-        api.get('/parent/explore/feed-settings'),
-      ]);
-      if (cancelled) return;
-      if (checkinRes.status === 'fulfilled' && Array.isArray(checkinRes.value.data)) {
-        setExploreCount(checkinRes.value.data.filter((item: any) => !item.parentConfirmed).length);
-      }
-      if (feedRes.status === 'fulfilled' && Array.isArray(feedRes.value.data?.pendingReview)) {
-        setFeedCount(feedRes.value.data.pendingReview.length);
-      }
-      setLoaded(true);
-    };
-    load();
-    return () => { cancelled = true; };
-  }, []);
-
-  const pills = [
-    {
-      key: 'review',
-      icon: '📋',
-      label: t('inbox.taskReview'),
-      count: pendingCount,
-      activeClass: 'bg-red-50 border-red-200 text-red-600',
-      onClick: onGoReview,
-    },
-    {
-      key: 'explore',
-      icon: '🧭',
-      label: t('inbox.exploreConfirm'),
-      count: exploreCount,
-      activeClass: 'bg-emerald-50 border-emerald-200 text-emerald-600',
-      onClick: () => navigate('/parent/explore'),
-    },
-    {
-      key: 'feed',
-      icon: '📰',
-      label: t('inbox.feedReview'),
-      count: feedCount,
-      activeClass: 'bg-blue-50 border-blue-200 text-blue-600',
-      onClick: () => navigate('/parent/explore'),
-    },
-  ];
-
-  const allDone = loaded && !loading && pills.every(pill => pill.count === 0);
+  const handleAction = (item: ParentInboxItem) => {
+    if (item.type === 'review' || item.type === 'overdue_session') {
+      onGoReview();
+      return;
+    }
+    navigate(item.actionPath);
+  };
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
-      <div className="text-sm font-black text-gray-800 mb-2">{t('inbox.title')}</div>
-      <div className="grid grid-cols-3 gap-2">
-        {pills.map(pill => (
+    <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm" aria-labelledby="parent-inbox-title">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 id="parent-inbox-title" className="text-sm font-black text-slate-800">{t('inbox.title')}</h2>
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
+            {loading ? t('common.loading') : t('inbox.actionCount', { count: totalActionCount })}
+          </p>
+        </div>
+        {totalActionCount > 0 && (
+          <span className="min-w-8 rounded-full bg-red-50 px-2 py-1 text-center text-sm font-black text-red-600">
+            {totalActionCount}
+          </span>
+        )}
+      </div>
+
+      {!loading && items.length === 0 && (
+        <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-3 text-center text-sm font-bold text-emerald-700">
+          {t('inbox.allDone')}
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {items.map(item => (
           <button
-            key={pill.key}
+            key={item.id}
             type="button"
-            disabled={pill.count === 0}
-            onClick={pill.onClick}
-            className={`min-h-[44px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 transition-all ${
-              pill.count > 0
-                ? `${pill.activeClass} active:scale-[0.97]`
-                : 'bg-gray-50 border-gray-100 text-gray-300'
-            }`}
+            onClick={() => handleAction(item)}
+            className="flex min-h-[52px] w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-left active:scale-[0.99]"
           >
-            <span className="text-[11px] font-bold leading-tight">{pill.icon} {pill.label}</span>
-            <span className="text-base font-black leading-none">{pill.count}</span>
+            <span className="text-xl" aria-hidden="true">{ICONS[item.type]}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-black text-slate-800">{t(`inbox.${item.type}.title`)}</span>
+              <span className="block text-xs font-medium text-slate-500">
+                {t(`inbox.${item.type}.summary`, { count: item.count })}
+              </span>
+            </span>
+            <span className="text-sm font-black text-blue-600">{t('inbox.handle')}</span>
           </button>
         ))}
       </div>
-      {lowEnergyChildren.length > 0 && (
-        <div className="mt-2 space-y-1.5">
-          {lowEnergyChildren.map(child => (
-            <div
-              key={child.childId}
-              className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600"
-            >
-              {t('inbox.lowEnergy', { name: child.name })}
-            </div>
-          ))}
-        </div>
-      )}
-      {allDone && (
-        <div className="text-center text-xs text-gray-400 font-bold mt-2">{t('inbox.allDone')}</div>
-      )}
-    </div>
+    </section>
   );
 }

@@ -14,7 +14,7 @@ import { StatsPanel } from '../../components/StatsPanel';
 import { ReviewCardSkeleton } from '../../components/Skeleton';
 import { BottomSheet } from '../../components/BottomSheet';
 import { InputModal } from '../../components/Modal';
-import { ParentInbox } from '../../components/ParentInbox';
+import { ParentInbox, type ParentInboxItem } from '../../components/ParentInbox';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
 
 interface ReviewItem {
@@ -212,6 +212,7 @@ export default function ParentDashboard() {
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [lowEnergyChildren, setLowEnergyChildren] = useState<Array<{ childId: string; name: string }>>([]);
+  const [parentInbox, setParentInbox] = useState<{ items: ParentInboxItem[]; totalActionCount: number }>({ items: [], totalActionCount: 0 });
   const [taskSessionReminders, setTaskSessionReminders] = useState<any[]>([]);
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
   const [weekTasks, setWeekTasks] = useState(0);
@@ -423,9 +424,10 @@ export default function ParentDashboard() {
   const fetchDashboard = async () => {
     try {
       setLoading(true);
-      const [dashboardRes, remindersRes] = await Promise.allSettled([
+      const [dashboardRes, remindersRes, inboxRes] = await Promise.allSettled([
         api.get('/parent/dashboard'),
         api.get('/parent/task-session-reminders'),
+        api.get('/parent/inbox'),
       ]);
       const res = dashboardRes.status === 'fulfilled' ? dashboardRes.value : null;
       if (res?.data) {
@@ -437,6 +439,12 @@ export default function ParentDashboard() {
       }
       if (remindersRes.status === 'fulfilled') {
         setTaskSessionReminders(remindersRes.value.data || []);
+      }
+      if (inboxRes.status === 'fulfilled') {
+        setParentInbox({
+          items: Array.isArray(inboxRes.value.data?.items) ? inboxRes.value.data.items : [],
+          totalActionCount: Number(inboxRes.value.data?.totalActionCount || 0),
+        });
       }
     } catch (err) {
       console.error("Dashboard fetch error:", err);
@@ -821,7 +829,21 @@ export default function ParentDashboard() {
 
       <div className="p-4 space-y-6 overflow-y-auto flex-1 pb-10">
         {/* 今日收件箱：聚合待处理事项 */}
-        <ParentInbox pendingCount={reviews.length} loading={loading} onGoReview={scrollToReviewSection} lowEnergyChildren={lowEnergyChildren} />
+        <ParentInbox
+          items={parentInbox.items}
+          totalActionCount={parentInbox.totalActionCount}
+          loading={loading}
+          onGoReview={scrollToReviewSection}
+        />
+        {lowEnergyChildren.length > 0 && (
+          <div className="space-y-2">
+            {lowEnergyChildren.map(child => (
+              <div key={child.childId} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
+                {t('inbox.lowEnergy', { name: child.name })}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* R4 本周报告：每周日 20:00 生成，无报告时不渲染 */}
         {weeklyReports.length > 0 && (
