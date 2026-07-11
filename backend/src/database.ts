@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { ensureProductConfigTables } from './productConfig';
 
 let db: Database;
 
@@ -25,6 +26,7 @@ export const initializeDatabase = async () => {
   await db.run('PRAGMA cache_size = -64000');         // 64MB 缓存
   await db.run('PRAGMA temp_store = MEMORY');         // 临时表存储在内存中
   await createTables();
+  await ensureProductConfigTables(db);
 
   // B2-6: 迁移版本追踪
   await db.exec(`
@@ -45,6 +47,7 @@ export const initializeDatabase = async () => {
     { version: '008', description: '探索地点软删除' },
     { version: '009', description: '探索媒体 senderRole 与家庭照片要求开关' },
     { version: '010', description: '探索二期发现资讯流（feed 表/关注源/家庭城市配置）' },
+    { version: '011', description: '家庭快速配置与推荐内容去重记录' },
   ];
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);

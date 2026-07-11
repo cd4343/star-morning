@@ -14,6 +14,7 @@ import axios from 'axios';
 import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
+import { registerProductConfigRoutes } from './productConfigRoutes';
 import { isLotteryInventoryVisible, normalizeLotteryPrize, normalizeLotteryPrizeInput, validateLotteryActivationIds } from './lotteryRules';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
@@ -1867,6 +1868,7 @@ app.post('/api/child/switch-to-parent', protect, async (req: any, res) => {
 app.use('/api/parent', protect, requireParent);
 app.use('/api/child', protect, requireChild);
 registerRewardSystemRoutes(app, protect);
+registerProductConfigRoutes(app, protect);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
 
