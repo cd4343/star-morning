@@ -19,6 +19,7 @@ const ParentFamily = lazy(() => import('./pages/parent/ParentFamily'));
 const ParentAchievements = lazy(() => import('./pages/parent/ParentAchievements'));
 const ParentPunishment = lazy(() => import('./pages/parent/ParentPunishment'));
 const ParentExplore = lazy(() => import('./pages/parent/ParentExplore'));
+const ParentQuickSetup = lazy(() => import('./pages/parent/ParentQuickSetup'));
 const ChildLayout = lazy(() => import('./pages/child/ChildLayout'));
 const ChildChallenge = lazy(() => import('./pages/child/ChildChallenge'));
 const ChildCalm = lazy(() => import('./pages/child/ChildCalm'));
@@ -107,6 +108,7 @@ function App() {
 
         {/* Parent Routes */}
         <Route path="/parent/dashboard" element={<RoleRoute role="parent"><ParentDashboard /></RoleRoute>} />
+        <Route path="/parent/quick-setup" element={<RoleRoute role="parent"><ParentQuickSetup /></RoleRoute>} />
         <Route path="/parent/tasks" element={<RoleRoute role="parent"><ParentTasks /></RoleRoute>} />
         <Route path="/parent/learning" element={<RoleRoute role="parent"><ParentLearning /></RoleRoute>} />
         <Route path="/parent/wellbeing" element={<RoleRoute role="parent"><ParentWellbeing /></RoleRoute>} />

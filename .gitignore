@@ -56,5 +56,6 @@ uploads/
 
 # Coverage
 coverage/
+frontend/test-results/
+frontend/playwright-report/
 .nyc_output/
-

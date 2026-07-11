@@ -51,8 +51,7 @@ export default function CreateFamily() {
         childBirthdate: childName.trim() ? childBirthdate : null,
       });
       login(res.data.token);
-      // 创建家庭后直接进入家长首页，那里有首次使用引导
-      navigate('/parent/dashboard');
+      navigate('/parent/quick-setup');
     } catch (err: any) {
       alert(err.response?.data?.message || '创建失败');
     } finally {

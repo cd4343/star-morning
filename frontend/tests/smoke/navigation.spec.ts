@@ -28,6 +28,7 @@ async function seedAuth(page: Page, role: 'child' | 'parent') {
       level: 4,
       privilegePoints: 2,
     }));
+    if (userRole === 'child') localStorage.setItem('explore.viewMode', 'list');
   }, role);
 }
 
@@ -48,6 +49,10 @@ async function mockApi(page: Page) {
   await page.route('**/api/child/task-session-reminders', route => route.fulfill({ json: [] }));
   await page.route('**/api/child/explore/places', route => route.fulfill({ json: [samplePlace] }));
   await page.route('**/api/child/explore/checkins', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/explore/map-places', route => route.fulfill({ json: [samplePlace] }));
+  await page.route('**/api/child/explore/feed', route => route.fulfill({ json: { items: [], dailyLimit: 3 } }));
+  await page.route('**/api/child/explore/settings', route => route.fulfill({ json: { requirePhoto: false, geoVerify: false } }));
+  await page.route('**/api/child/all-achievements', route => route.fulfill({ json: [] }));
   await page.route('**/api/parent/explore/places', route => route.fulfill({ json: [samplePlace] }));
   await page.route('**/api/parent/explore/checkins', route => route.fulfill({ json: [] }));
   await page.route('**/api/parent/explore/search**', route => route.fulfill({
@@ -61,9 +66,18 @@ test('child explore page renders and opens check-in panel', async ({ page }) => 
 
   await page.goto('/child/explore');
 
-  await expect(page.getByText('家庭探索站')).toBeVisible();
-  await expect(page.getByText('上海自然博物馆')).toBeVisible();
-  await page.getByText('上海自然博物馆').click();
+  const mapListButton = page.getByRole('button', { name: '想去哪？按分类看' });
+  const listTitle = page.getByText('家庭探索站');
+  await expect(mapListButton.or(listTitle)).toBeVisible();
+  if (await mapListButton.isVisible()) {
+    await mapListButton.click();
+    await expect(page.getByText('上海自然博物馆')).toBeVisible();
+    await page.getByText('上海自然博物馆').click();
+    await page.getByRole('button', { name: /我到啦，打卡/ }).click();
+  } else {
+    await expect(listTitle).toBeVisible();
+    await page.getByText('上海自然博物馆').click();
+  }
   await expect(page.getByText('记录这次探索')).toBeVisible();
 });
 
