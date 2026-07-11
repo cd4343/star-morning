@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Trash2, X, Info } from 'lucide-react';
 
 interface ConfirmDialogProps {
@@ -31,14 +32,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useRef(`confirm-title-${Math.random().toString(36).substr(2, 9)}`).current;
   const descId = useRef(`confirm-desc-${Math.random().toString(36).substr(2, 9)}`).current;
-  
+
   // ESC 键关闭
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       onCancel();
     }
   }, [onCancel]);
-  
+
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
@@ -50,8 +51,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       };
     }
   }, [isOpen, handleKeyDown]);
-  
+
   if (!isOpen) return null;
+
+  // 挂到设备框（父子两端通用），避免在滚动容器内被 absolute 定位错位
+  const portalTarget = typeof document !== 'undefined'
+    ? document.querySelector<HTMLElement>('[data-child-app-frame="true"], [data-app-frame="true"]') || document.body
+    : null;
 
   const typeStyles = {
     danger: {
@@ -73,21 +79,21 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   const styles = typeStyles[type];
 
-  return (
-    <div 
+  const overlay = (
+    <div
       className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
       onClick={onCancel}
       role="presentation"
     >
-      <div 
+      <div
         ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descId}
         tabIndex={-1}
-        className="bg-white rounded-2xl max-w-sm w-full shadow-xl animate-in zoom-in-95 duration-200 outline-none" 
-        style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}
+        className="bg-white rounded-2xl max-w-sm w-full shadow-xl animate-in zoom-in-95 duration-200 outline-none overflow-y-auto"
+        style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -99,15 +105,15 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             <h3 id={titleId} className="font-bold text-gray-800">{title}</h3>
             <p id={descId} className="text-sm text-gray-600 mt-1">{message}</p>
           </div>
-          <button 
-            onClick={onCancel} 
+          <button
+            onClick={onCancel}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors"
             aria-label="关闭"
           >
             <X size={20} className="text-gray-400" aria-hidden="true" />
           </button>
         </div>
-        
+
         {/* Actions */}
         <div className="p-4 pt-0 flex gap-2">
           {showCancel && (
@@ -128,6 +134,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       </div>
     </div>
   );
+
+  return portalTarget ? createPortal(overlay, portalTarget) : overlay;
 };
 
 /**
@@ -151,7 +159,7 @@ export function useConfirmDialog() {
   }): Promise<boolean> => {
     setConfig(options);
     setIsOpen(true);
-    
+
     return new Promise((resolve) => {
       resolveRef.current = resolve;
     });
@@ -184,4 +192,3 @@ export function useConfirmDialog() {
 }
 
 export default ConfirmDialog;
-

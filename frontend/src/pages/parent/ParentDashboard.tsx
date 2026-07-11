@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
@@ -1286,7 +1287,7 @@ export default function ParentDashboard() {
       </div>
 
       {/* 审批弹窗 - 支持安全区域 */}
-      {showReviewModal && currentReview && (
+      {showReviewModal && currentReview && createPortal(
         <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-white rounded-t-[2rem] shadow-2xl w-full max-w-md flex flex-col min-h-0" style={{ maxHeight: 'calc(100% - 24px)' }}>
             {/* Header */}
@@ -1569,7 +1570,8 @@ export default function ParentDashboard() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        (typeof document !== 'undefined' ? (document.querySelector('[data-app-frame="true"], [data-child-app-frame="true"]') as HTMLElement | null) : null) || document.body
       )}
 
       <BottomSheet

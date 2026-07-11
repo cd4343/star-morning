@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
@@ -16,34 +17,56 @@ import { CreateActionCard } from '../../components/CreateActionCard';
 // 商品模板（带分类）
 const SHOP_TEMPLATES = [
   // 零食类
-  { title: '小零食', icon: '🍬', cost: 5, stock: 10, category: '零食' },
-  { title: '冰淇淋', icon: '🍦', cost: 15, stock: 20, category: '零食' },
-  { title: '棒棒糖', icon: '🍭', cost: 3, stock: 30, category: '零食' },
-  { title: '饼干', icon: '🍪', cost: 8, stock: 20, category: '零食' },
-  { title: '蛋糕', icon: '🎂', cost: 40, stock: 5, category: '零食' },
+  { title: '小零食', icon: '🍭', cost: 30, stock: 20, category: '零食' },
+  { title: '一杯奶茶', icon: '🧋', cost: 50, stock: 10, category: '零食' },
+  { title: '冰淇淋', icon: '🍦', cost: 30, stock: 10, category: '零食' },
+  { title: '生日蛋糕', icon: '🎂', cost: 80, stock: 5, category: '零食' },
   // 玩乐类
-  { title: '去公园玩', icon: '🏞️', cost: 30, stock: 10, category: '玩乐' },
-  { title: '买小玩具', icon: '🧸', cost: 50, stock: 5, category: '玩乐' },
-  { title: '新书一本', icon: '📚', cost: 80, stock: 10, category: '玩乐' },
-  { title: '画画工具', icon: '🎨', cost: 40, stock: 5, category: '玩乐' },
-  { title: '贴纸一套', icon: '🏷️', cost: 10, stock: 20, category: '玩乐' },
-  // 特权类
+  { title: '贴纸一套', icon: '🏷️', cost: 30, stock: 20, category: '玩乐' },
+  { title: '画画工具', icon: '🎨', cost: 80, stock: 5, category: '玩乐' },
+  { title: '小玩具', icon: '🧸', cost: 120, stock: 5, category: '玩乐' },
+  { title: '乐高小套装', icon: '🧱', cost: 300, stock: 3, category: '玩乐' },
+  // 图书文具/学习
+  { title: '一支好笔', icon: '🖊️', cost: 50, stock: 10, category: '学习' },
+  { title: '笔记本', icon: '📒', cost: 60, stock: 10, category: '学习' },
+  { title: '新书一本', icon: '📚', cost: 150, stock: 10, category: '学习' },
+  { title: '文具套装', icon: '✏️', cost: 200, stock: 5, category: '学习' },
+  // 屏幕类（家长把关，按次兑换）
   { title: '看电视30分钟', icon: '📺', cost: 30, stock: 99, category: '屏幕' },
-  { title: '看电视1小时', icon: '📺', cost: 50, stock: 99, category: '屏幕' },
-  { title: '玩手机30分钟', icon: '📱', cost: 25, stock: 99, category: '屏幕' },
-  { title: '玩游戏1小时', icon: '🎮', cost: 60, stock: 99, category: '屏幕' },
-  { title: '选择晚餐', icon: '🍕', cost: 20, stock: 99, category: '餐饮' },
+  { title: '玩手机30分钟', icon: '📱', cost: 30, stock: 99, category: '屏幕' },
+  { title: '玩游戏30分钟', icon: '🎮', cost: 40, stock: 99, category: '屏幕' },
+  // 餐饮类
+  { title: '选择今天晚餐', icon: '🍕', cost: 50, stock: 99, category: '餐饮' },
+  { title: '在外吃一顿', icon: '🍜', cost: 150, stock: 10, category: '餐饮' },
+  { title: '自选早餐', icon: '🥐', cost: 40, stock: 99, category: '餐饮' },
+  // 外出类
+  { title: '去公园玩', icon: '🏞️', cost: 100, stock: 10, category: '外出' },
+  { title: '看一场电影', icon: '🎬', cost: 300, stock: 5, category: '外出' },
+  { title: '周末游乐场', icon: '🎡', cost: 500, stock: 2, category: '外出' },
+  // 体验类
+  { title: '一次手工课', icon: '🧷', cost: 300, stock: 3, category: '体验' },
+  { title: '科技馆/博物馆', icon: '🔬', cost: 200, stock: 5, category: '体验' },
+  { title: '亲子烘焙', icon: '🧁', cost: 250, stock: 3, category: '体验' },
+  // 社交类
+  { title: '邀请朋友来玩', icon: '👯', cost: 150, stock: 5, category: '社交' },
+  { title: '一次朋友聚会', icon: '🎈', cost: 300, stock: 3, category: '社交' },
+  // 特权类
+  { title: '晚睡30分钟', icon: '🌙', cost: 80, stock: 99, category: '特权' },
+  { title: '免做一次家务', icon: '🧹', cost: 100, stock: 99, category: '特权' },
 ];
 
-const SHOP_CATEGORY_OPTIONS = ['零食', '玩乐', '屏幕', '餐饮', '学习', '外出', '特权', '其他'];
+const SHOP_CATEGORY_OPTIONS = ['零食', '玩乐', '学习', '屏幕', '餐饮', '外出', '体验', '社交', '特权', '其他'];
 
+// P4：预设按"现实物价(rmb)"锚定；金币 = rmb × 家长可调比例 coinPerRmb；"≈攒X天"按日均估算动态算（随比例缩放）
 const SHOP_PRICING_PRESETS = [
-  { label: '小零食', category: '零食', cost: 20, stock: 10, hint: '低价值、可频繁兑换，适合糖果、饼干、小饮料。' },
-  { label: '学习用品', category: '学习', cost: 50, stock: 5, hint: '文具、书签、小本子，和成长目标关联更强。' },
-  { label: '普通玩具', category: '玩乐', cost: 120, stock: 3, hint: '小玩具、贴纸套装、画材，建议需要几天积累。' },
-  { label: '屏幕额外', category: '屏幕', cost: 150, stock: 2, hint: '只建议偶尔使用，日常屏幕时间优先走游戏票。' },
-  { label: '外出活动', category: '外出', cost: 300, stock: 1, hint: '公园、电影、亲子活动，适合作为阶段性奖励。' },
-  { label: '大额目标', category: '玩乐', cost: 800, stock: 1, hint: '高价值物品建议改为储蓄目标，更能训练延迟满足。' },
+  { label: '小零食', category: '零食', rmb: 5, stock: 10, hint: '糖果/饼干/小饮料，可频繁兑换。' },
+  { label: '学习用品', category: '学习', rmb: 10, stock: 5, hint: '文具/书签/小本子。' },
+  { label: '一本课外书', category: '学习', rmb: 25, stock: 3, hint: '绘本/桥梁书。' },
+  { label: '普通玩具', category: '玩乐', rmb: 30, stock: 3, hint: '小玩具/贴纸套装/画材。' },
+  { label: '一次外出活动', category: '外出', rmb: 50, stock: 1, hint: '公园/电影/亲子活动。' },
+  { label: '中号玩具', category: '玩乐', rmb: 80, stock: 1, hint: '乐高小套/桌游。' },
+  { label: '大件玩具', category: '玩乐', rmb: 150, stock: 1, hint: '较大玩具，建议搭配储蓄目标。' },
+  { label: '心愿大奖', category: '玩乐', rmb: 300, stock: 1, hint: '大件/心愿，建议长期储蓄。' },
 ];
 
 // 定价建议：按「孩子多久能换到」反推商品价格
@@ -125,30 +148,54 @@ const normalizeChestSettings = (settings: any) => ({
 
 // 抽奖奖池模板（带稀有度）
 const LOTTERY_TEMPLATES = [
-  { title: '100金币', icon: '💰', cost: 100, weight: 1, rarity: 'legendary' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
-  { title: '家庭大奖', icon: '🏆', weight: 1, rarity: 'legendary' as RarityType },
-  { title: '看电影30分钟', icon: '🎬', weight: 4, rarity: 'epic' as RarityType },
-  { title: '特别活动券', icon: '🎟️', weight: 4, rarity: 'epic' as RarityType },
-  { title: '1特权点', icon: '💎', cost: 1, weight: 4, rarity: 'epic' as RarityType, effectType: 'bonus_privilege' as LotteryEffectType },
-  { title: '免做家务卡', icon: '🎫', weight: 12, rarity: 'rare' as RarityType },
-  { title: '20金币', icon: '🪙', cost: 20, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
-  { title: '25经验', icon: '✨', cost: 25, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
-  { title: '看电视10分钟', icon: '📺', weight: 28, rarity: 'uncommon' as RarityType },
-  { title: '小惊喜', icon: '🎁', weight: 28, rarity: 'uncommon' as RarityType },
+  // 普通（common）
+  { title: '屏幕10分钟', icon: '📱', weight: 60, rarity: 'common' as RarityType },
+  { title: '小零食', icon: '🍭', weight: 60, rarity: 'common' as RarityType },
+  { title: '贴纸一张', icon: '🏷️', weight: 60, rarity: 'common' as RarityType },
+  { title: '自选今天一首歌', icon: '🎵', weight: 60, rarity: 'common' as RarityType },
   { title: '10金币', icon: '🪙', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
   { title: '10经验', icon: '✨', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
-  { title: '贴纸一张', icon: '🏷️', weight: 60, rarity: 'common' as RarityType },
-  { title: '小零食', icon: '🍭', weight: 60, rarity: 'common' as RarityType },
-  { title: '5金币', icon: '🪙', cost: 5, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
-  { title: '谢谢参与', icon: '😎', weight: 60, rarity: 'common' as RarityType },
-  // 注意："再抽一次"是默认奖项，不在模板中，系统会自动创建
+  // 优秀（uncommon）
+  { title: '屏幕10分钟×2次券', icon: '🎟️', weight: 28, rarity: 'uncommon' as RarityType },
+  { title: '中份零食', icon: '🍩', weight: 28, rarity: 'uncommon' as RarityType },
+  { title: '挑一次菜', icon: '🍽️', weight: 28, rarity: 'uncommon' as RarityType },
+  { title: '小惊喜', icon: '🎁', weight: 28, rarity: 'uncommon' as RarityType },
+  // 稀有（rare）
+  { title: '选一次周末活动', icon: '🗓️', weight: 12, rarity: 'rare' as RarityType },
+  { title: '一本小书', icon: '📚', weight: 12, rarity: 'rare' as RarityType },
+  { title: '免做家务卡', icon: '🧹', weight: 12, rarity: 'rare' as RarityType },
+  { title: '20金币', icon: '🪙', cost: 20, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
+  { title: '25经验', icon: '✨', cost: 25, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
+  // 史诗（epic）
+  { title: '一次小出游', icon: '🚗', weight: 4, rarity: 'epic' as RarityType },
+  { title: '一个小心愿', icon: '⭐', weight: 4, rarity: 'epic' as RarityType },
+  { title: '特别活动券', icon: '🎪', weight: 4, rarity: 'epic' as RarityType },
+  { title: '1特权点', icon: '💎', cost: 1, weight: 4, rarity: 'epic' as RarityType, effectType: 'bonus_privilege' as LotteryEffectType },
+  // 传说（legendary）
+  { title: '一个大心愿达成', icon: '🌠', weight: 1, rarity: 'legendary' as RarityType },
+  { title: '一次特别家庭日', icon: '🎉', weight: 1, rarity: 'legendary' as RarityType },
+  { title: '家庭大奖', icon: '🏆', weight: 1, rarity: 'legendary' as RarityType },
+  { title: '100金币', icon: '💰', cost: 100, weight: 1, rarity: 'legendary' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
 ];
 
 const CHEST_RECOMMENDATIONS = [
-  { name: '小星币', icon: '🪙', type: 'coins', value: 3, weight: 45, rarity: 'common' as RarityType, desc: '简单任务的即时正反馈，量小但稳定。' },
-  { name: '经验火花', icon: '✨', type: 'xp', value: 8, weight: 35, rarity: 'common' as RarityType, desc: '适合学习、生活习惯类任务，强化成长感。' },
-  { name: '幸运抽奖券', icon: '🎫', type: 'lotteryTicket', value: 1, weight: 18, rarity: 'uncommon' as RarityType, desc: '中等任务的小惊喜，不直接放大金币。' },
-  { name: '特权碎片', icon: '💎', type: 'privilegePoints', value: 1, weight: 10, rarity: 'rare' as RarityType, desc: '困难任务或高抗拒任务的稀有反馈。' },
+  // 普通（common）
+  { name: '小星币', icon: '🪙', type: 'coins', value: 3, weight: 60, rarity: 'common', desc: '简单任务的即时正反馈，量小但稳定。' },
+  { name: '经验火花', icon: '✨', type: 'xp', value: 8, weight: 60, rarity: 'common', desc: '强化成长感，适合学习/生活习惯。' },
+  { name: '能量金币', icon: '⚡', type: 'coins', value: 5, weight: 60, rarity: 'common', desc: '常见小金币奖励。' },
+  // 优秀（uncommon）
+  { name: '专注经验包', icon: '📘', type: 'xp', value: 12, weight: 28, rarity: 'uncommon', desc: '坚持类任务的成长奖励。' },
+  { name: '幸运抽奖券', icon: '🎫', type: 'lotteryTicket', value: 1, weight: 28, rarity: 'uncommon', desc: '中等任务的小惊喜，不直接放大金币。' },
+  { name: '小额折扣券', icon: '🏷️', type: 'shopDiscount', value: 10, weight: 28, rarity: 'uncommon', desc: '商店兑换时省一点。' },
+  // 稀有（rare）
+  { name: '能量金币+', icon: '💰', type: 'coins', value: 15, weight: 12, rarity: 'rare', desc: '困难任务的稍大金币反馈。' },
+  { name: '双倍抽奖券', icon: '🎟️', type: 'lotteryTicket', value: 2, weight: 12, rarity: 'rare', desc: '一次给2张抽奖券。' },
+  { name: '中额折扣券', icon: '🏷️', type: 'shopDiscount', value: 20, weight: 12, rarity: 'rare', desc: '较大的商店折扣。' },
+  // 史诗（epic）
+  { name: '特权碎片', icon: '💎', type: 'privilegePoints', value: 1, weight: 4, rarity: 'epic', desc: '高抗拒/困难任务的稀有反馈。' },
+  { name: '大额金币', icon: '💰', type: 'coins', value: 30, weight: 4, rarity: 'epic', desc: '低频大金币惊喜。' },
+  // 传说（legendary）
+  { name: '特权点大奖', icon: '👑', type: 'privilegePoints', value: 2, weight: 1, rarity: 'legendary', desc: '极低频，重大坚持的顶级反馈。' },
 ] as const;
 
 // 根据类型获取图标分类
@@ -193,6 +240,9 @@ export default function ParentWishes() {
   const [priceDays, setPriceDays] = useState<number | null>(null);
   const [priceSuggestion, setPriceSuggestion] = useState<{ coins: number; isEstimate: boolean } | null>(null);
   const [priceSuggestionLoading, setPriceSuggestionLoading] = useState(false);
+  // P4：人民币→金币比例（家长可调常量 ecoCoinPerRmb，默认 10）+ 日均估算（ecoTasksPerDay×10），驱动预设与"≈攒X天"
+  const [coinPerRmb, setCoinPerRmb] = useState(10);
+  const [dailyEstimate, setDailyEstimate] = useState(100);
 
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
@@ -203,6 +253,9 @@ export default function ParentWishes() {
 
   // 编辑商品/奖品 - 完整编辑
   const [editingWish, setEditingWish] = useState<any>(null);
+  // P2：宝箱奖品编辑（后端 PUT /parent/reward-pools/:id 已就绪）
+  const [editingPool, setEditingPool] = useState<any>(null);
+  const [poolForm, setPoolForm] = useState<{ name: string; type: 'coins'|'xp'|'privilegePoints'|'lotteryTicket'|'shopDiscount'; value: number; weight: number; rarity: RarityType; icon: string; description: string; isActive: number }>({ name: '', type: 'coins', value: 1, weight: 10, rarity: 'common', icon: '🎁', description: '', isActive: 1 });
   const [editWeight, setEditWeight] = useState(10);
   const [editTitle, setEditTitle] = useState('');
   const [editIcon, setEditIcon] = useState('🎁');
@@ -223,11 +276,18 @@ export default function ParentWishes() {
       const results = await Promise.allSettled([
         api.get('/parent/wishes'),
         api.get('/parent/reward-pools'),
-        api.get('/parent/chest-settings')
+        api.get('/parent/chest-settings'),
+        api.get('/parent/economy-settings')
       ]);
-      const [resWishes, resPools, resSettings] = results.map(r =>
+      const [resWishes, resPools, resSettings, resEco] = results.map(r =>
         r.status === 'fulfilled' ? r.value : null
       );
+      if (resEco) {
+        const ratio = Math.round(Number(resEco.data?.ecoCoinPerRmb));
+        if (Number.isFinite(ratio) && ratio > 0) setCoinPerRmb(ratio);
+        const tpd = Math.round(Number(resEco.data?.ecoTasksPerDay));
+        if (Number.isFinite(tpd) && tpd > 0) setDailyEstimate(tpd * 10);
+      }
       if (resWishes) {
         setWishes(resWishes.data);
         const activeLotteryIds = resWishes.data
@@ -469,6 +529,33 @@ export default function ParentWishes() {
       });
       toast.success('修改成功！');
       setEditingWish(null);
+      fetchData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '保存失败');
+    }
+  };
+
+  // P2：打开/保存宝箱奖品编辑
+  const openPoolEditor = (pool: any) => {
+    setEditingPool(pool);
+    setPoolForm({
+      name: pool.name || '',
+      type: ['coins','xp','privilegePoints','lotteryTicket','shopDiscount'].includes(pool.type) ? pool.type : 'coins',
+      value: Number(pool.value || 0),
+      weight: Number(pool.weight || 10),
+      rarity: (pool.rarity || 'common') as RarityType,
+      icon: pool.icon || '🎁',
+      description: pool.description || '',
+      isActive: pool.isActive === 0 ? 0 : 1,
+    });
+  };
+  const savePoolEdit = async () => {
+    if (!editingPool) return;
+    if (!poolForm.name.trim()) { toast.warning('请填写名称'); return; }
+    try {
+      await api.put(`/parent/reward-pools/${editingPool.id}`, poolForm);
+      toast.success('已保存');
+      setEditingPool(null);
       fetchData();
     } catch (e: any) {
       toast.error(e.response?.data?.message || '保存失败');
@@ -801,14 +888,17 @@ export default function ParentWishes() {
               </div>
               <div className="p-3 rounded-xl border border-pink-100 bg-pink-50 text-xs text-pink-800">
                 <div className="font-bold mb-2">商品积分规则助手</div>
-                <div className="mb-2">建议按人民币 1 元 = 10 金币作为锚点。小零食 10-30 金币，普通玩乐 50-150 金币，高价值目标建议放入储蓄目标。</div>
+                <div className="mb-2">当前比例：人民币 1 元 ≈ {coinPerRmb} 金币（可在「规则与洞察 → 经济锚点」调整）。下面预设按现实物价 × 比例自动换算，并估算"≈攒几天"。</div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
-                  {SHOP_PRICING_PRESETS.map(item => (
+                  {SHOP_PRICING_PRESETS.map(item => {
+                    const coins = item.rmb * coinPerRmb;
+                    const days = Math.max(1, Math.round(coins / Math.max(1, dailyEstimate)));
+                    return (
                     <button
                       key={item.label}
                       type="button"
                       onClick={() => {
-                        setCost(String(item.cost));
+                        setCost(String(coins));
                         setShopCategory(item.category);
                         setStock(String(item.stock));
                       }}
@@ -816,23 +906,23 @@ export default function ParentWishes() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-black text-gray-800">{item.label}</span>
-                        <span className="text-pink-600 font-black">{item.cost}</span>
+                        <span className="text-pink-600 font-black">{coins}</span>
                       </div>
-                      <div className="mt-1 text-[10px] text-gray-500 leading-snug">{item.hint}</div>
+                      <div className="mt-1 text-[10px] text-gray-500 leading-snug">约 {item.rmb} 元 · ≈攒 {days} 天 · {item.hint}</div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: '约 1 元', value: 10 },
-                    { label: '约 5 元', value: 50 },
-                    { label: '约 10 元', value: 100 },
-                  ].map(item => (
-                    <button key={item.value} type="button" onClick={() => setCost(String(item.value))} className="rounded-lg bg-white border border-pink-100 p-2 text-left font-bold">
-                      <div>{item.label}</div>
-                      <div className="text-pink-600">{item.value} 金币</div>
+                  {[1, 5, 10].map(rmb => {
+                    const coins = rmb * coinPerRmb;
+                    return (
+                    <button key={rmb} type="button" onClick={() => setCost(String(coins))} className="rounded-lg bg-white border border-pink-100 p-2 text-left font-bold">
+                      <div>约 {rmb} 元</div>
+                      <div className="text-pink-600">{coins} 金币</div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <div>
@@ -992,7 +1082,7 @@ export default function ParentWishes() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-bold mb-2 block">价值层级</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => (
                     <button
                       key={key}
@@ -1103,6 +1193,9 @@ export default function ParentWishes() {
                   <Sparkles size={18} className="text-amber-500" /> 宝箱专属奖池
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">这里维护孩子开宝箱时会抽到的即时反馈奖品。</p>
+                <p className={`text-[11px] font-bold mt-1 ${rewardPools.filter((p: any) => p.isActive !== 0).length >= 9 ? 'text-red-500' : 'text-gray-400'}`}>
+                  启用中 {rewardPools.filter((p: any) => p.isActive !== 0).length}/9（上限 9，超出需先停用或删除）
+                </p>
               </div>
               {rewardPools.length > 0 && (
                 <Button size="sm" onClick={() => setShowAdd(true)} className="w-full bg-amber-600 border-none">
@@ -1142,15 +1235,20 @@ export default function ParentWishes() {
                             </div>
                           </div>
                         </div>
-                        <button onClick={async () => {
-                          if(await confirm({ message: '确认删除该宝箱奖品？' })) {
-                            await api.delete(`/parent/reward-pools/${pool.id}`);
-                            toast.success('已删除');
-                            fetchData();
-                          }
-                        }} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                          <Trash2 size={16}/>
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => openPoolEditor(pool)} className="p-2 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors">
+                            <Edit2 size={16}/>
+                          </button>
+                          <button onClick={async () => {
+                            if(await confirm({ message: '确认删除该宝箱奖品？' })) {
+                              await api.delete(`/parent/reward-pools/${pool.id}`);
+                              toast.success('已删除');
+                              fetchData();
+                            }
+                          }} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            <Trash2 size={16}/>
+                          </button>
+                        </div>
                       </Card>
                     );
                   })}
@@ -1406,9 +1504,18 @@ export default function ParentWishes() {
                 const isSelected = selectedTemplates.includes(index);
                 const lotteryTemplate = template as typeof LOTTERY_TEMPLATES[0];
                 const rarityConfig = viewType === 'lottery' && lotteryTemplate.rarity ? RARITY_CONFIG[lotteryTemplate.rarity] : null;
+                // P2：抽奖模板按稀有度分组——稀有度变化处插入整行分组标题（LOTTERY_TEMPLATES 已按稀有度连续排列）
+                const arr = (viewType === 'shop' ? SHOP_TEMPLATES : LOTTERY_TEMPLATES) as any[];
+                const showRarityHeader = viewType === 'lottery' && !!rarityConfig && (index === 0 || arr[index - 1].rarity !== lotteryTemplate.rarity);
                 return (
+                  <React.Fragment key={index}>
+                    {showRarityHeader && rarityConfig && (
+                      <div className={`col-span-2 flex items-center gap-1.5 mt-1 ${rarityConfig.textColor}`}>
+                        <span className="text-sm">{rarityConfig.emoji}</span>
+                        <span className="text-xs font-black">{rarityConfig.label}</span>
+                      </div>
+                    )}
                   <button
-                    key={index}
                     onClick={() => toggleTemplate(index)}
                     className={`p-3 rounded-xl text-left transition-all border-2 ${
                       isSelected
@@ -1436,6 +1543,7 @@ export default function ParentWishes() {
                       )}
                     </div>
                   </button>
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -1612,9 +1720,79 @@ export default function ParentWishes() {
       </div>
 
       {/* 完整编辑弹窗 - 支持安全区域 */}
-      {editingWish && (
+      {editingPool && createPortal(
         <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+            <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-lg">编辑宝箱奖品</h3>
+              <button onClick={() => setEditingPool(null)} className="p-1 hover:bg-gray-100 rounded-full"><X size={20} className="text-gray-500"/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="flex gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">图标</label>
+                  <IconPicker value={poolForm.icon} onChange={(v) => setPoolForm(f => ({ ...f, icon: v }))} categories={['reward','food','emoji','entertainment']} />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 font-bold block mb-1">名称</label>
+                  <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none" value={poolForm.name} onChange={e => setPoolForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">奖品类型</label>
+                  <select className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none" value={poolForm.type} onChange={e => setPoolForm(f => ({ ...f, type: e.target.value as typeof f.type }))}>
+                    <option value="coins">金币</option>
+                    <option value="xp">经验</option>
+                    <option value="privilegePoints">特权点</option>
+                    <option value="lotteryTicket">抽奖券</option>
+                    <option value="shopDiscount">折扣券</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">奖品数值</label>
+                  <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none" type="number" min={0} value={poolForm.value} onChange={e => setPoolForm(f => ({ ...f, value: +e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-bold mb-2 block">价值层级</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {(Object.entries(RARITY_CONFIG) as [RarityType, typeof RARITY_CONFIG[RarityType]][]).map(([key, config]) => (
+                    <button key={key} type="button" onClick={() => setPoolForm(f => ({ ...f, rarity: key }))} className={`p-2 rounded-xl border-2 text-center transition-all ${poolForm.rarity === key ? `bg-gradient-to-r ${config.color} text-white border-transparent shadow` : `${config.bgColor} border-gray-200`}`}>
+                      <div className="text-base">{config.emoji}</div>
+                      <div className={`text-[10px] font-bold ${poolForm.rarity === key ? 'text-white' : config.textColor}`}>{config.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-bold">中奖权重 (1-100)</label>
+                <div className="flex items-center gap-3 mt-1">
+                  <input type="range" min="1" max="100" value={poolForm.weight} onChange={e => setPoolForm(f => ({ ...f, weight: +e.target.value }))} className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+                  <input type="number" min="1" max="100" value={poolForm.weight} onChange={e => setPoolForm(f => ({ ...f, weight: Math.min(100, Math.max(1, +e.target.value)) }))} className="w-16 p-2 border rounded-lg text-center font-bold" />
+                </div>
+                <div className="text-[10px] text-gray-400 mt-1">💡 开箱概率 = 权重 × 稀有度因子 × 任务难度加成</div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-bold block mb-1">说明（可选）</label>
+                <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none" value={poolForm.description} onChange={e => setPoolForm(f => ({ ...f, description: e.target.value }))} />
+              </div>
+              <label className="flex items-center justify-between gap-2 p-3 rounded-xl border bg-gray-50">
+                <span className="text-sm font-bold text-gray-700">启用（计入上限 9）</span>
+                <input type="checkbox" checked={poolForm.isActive === 1} onChange={e => setPoolForm(f => ({ ...f, isActive: e.target.checked ? 1 : 0 }))} className="w-5 h-5 accent-amber-500" />
+              </label>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setEditingPool(null)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200">取消</button>
+                <button onClick={savePoolEdit} className="flex-1 py-2.5 text-white rounded-xl font-bold bg-amber-500 hover:bg-amber-600">保存修改</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        (typeof document !== 'undefined' ? (document.querySelector('[data-app-frame="true"], [data-child-app-frame="true"]') as HTMLElement | null) : null) || document.body
+      )}
+      {editingWish && createPortal(
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
             <div className="flex-shrink-0 flex justify-between items-center p-4 border-b">
               <h3 className="font-bold text-lg">
                 编辑{editingWish.type === 'shop' ? '商品' : editingWish.type === 'lottery' ? '奖品' : '储蓄目标'}
@@ -1677,12 +1855,14 @@ export default function ParentWishes() {
                   <div className="rounded-xl border border-pink-100 bg-pink-50 p-3">
                     <div className="text-xs font-black text-pink-800 mb-2">一键定价</div>
                     <div className="grid grid-cols-2 gap-2">
-                      {SHOP_PRICING_PRESETS.map(item => (
+                      {SHOP_PRICING_PRESETS.map(item => {
+                        const coins = item.rmb * coinPerRmb;
+                        return (
                         <button
                           key={item.label}
                           type="button"
                           onClick={() => {
-                            setEditCost(String(item.cost));
+                            setEditCost(String(coins));
                             setEditCategory(item.category);
                             setEditStock(String(item.stock));
                           }}
@@ -1690,11 +1870,12 @@ export default function ParentWishes() {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs font-black text-gray-800">{item.label}</span>
-                            <span className="text-xs text-pink-600 font-black">{item.cost}</span>
+                            <span className="text-xs text-pink-600 font-black">{coins}</span>
                           </div>
-                          <div className="mt-1 text-[10px] text-gray-500 leading-snug">{item.category}</div>
+                          <div className="mt-1 text-[10px] text-gray-500 leading-snug">约 {item.rmb} 元 · {item.category}</div>
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                   <div>
@@ -1859,7 +2040,8 @@ export default function ParentWishes() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        (typeof document !== 'undefined' ? (document.querySelector('[data-app-frame="true"], [data-child-app-frame="true"]') as HTMLElement | null) : null) || document.body
       )}
       <ConfirmDialog />
     </Layout>

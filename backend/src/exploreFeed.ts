@@ -253,23 +253,76 @@ const generateFestivalCard = async (db: any, family: any, today: string, beijing
 };
 
 // 关注源抓取：提取 <a> 链接，按活动关键词过滤，进家长待审核队列
-const SOURCE_KEYWORD_RE = /(展览|演出|活动|亲子|讲座|市集|节)/;
+const SOURCE_KEYWORD_RE = /(展览|展出|特展|演出|活动|亲子|讲座|工作坊|市集|研学|导览|绘本|手作|夏令营|冬令营|科技馆|博物馆|美术馆|节)/;
 const SOURCE_LINK_RE = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+// --- 官方源增强：RSS/Atom 订阅解析（公众号可经 RSSHub 转 RSS 后接入） ---
+const looksLikeFeed = (content: string): boolean => {
+  const head = content.slice(0, 800).toLowerCase();
+  return head.includes('<?xml') || head.includes('<rss') || /<feed[\s>]/.test(head) || head.includes('<item') || head.includes('<entry');
+};
+
+const stripXmlText = (raw: string): string =>
+  decodeHtmlEntities(
+    raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+  );
+
+// 解析 RSS <item> / Atom <entry>：取标题+链接候选（已截断去重，最多 40 条）。
+// 订阅源条目本身已是家长主动关注的活动，不再走关键词硬过滤，交由待审核环节把关。
+const parseFeedItems = (content: string): { text: string; href: string }[] => {
+  const out: { text: string; href: string }[] = [];
+  const blockRe = /<(item|entry)\b[\s\S]*?<\/\1>/gi;
+  let block: RegExpExecArray | null;
+  while ((block = blockRe.exec(content)) !== null && out.length < 40) {
+    const chunk = block[0];
+    const titleMatch = chunk.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const text = titleMatch ? trimText(stripXmlText(titleMatch[1]), 80) : '';
+    if (text.length < 6) continue;
+    let href = '';
+    const atomLink = chunk.match(/<link[^>]+href=["']([^"']+)["']/i);
+    if (atomLink) href = atomLink[1].trim();
+    if (!href) {
+      const rssLink = chunk.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+      if (rssLink) href = stripXmlText(rssLink[1]);
+    }
+    if (!href) {
+      const guid = chunk.match(/<guid[^>]*>([\s\S]*?)<\/guid>/i);
+      if (guid) href = stripXmlText(guid[1]);
+    }
+    if (!isHttpUrl(href)) continue;
+    if (out.some(item => item.text === text)) continue;
+    out.push({ text, href });
+  }
+  return out;
+};
+
+// 官方源示例：家长一键填入输入框后自行核对再添加（本地场馆/科普机构，或用 RSSHub 接公众号）
+const SEED_FEED_SOURCES: { label: string; urlTemplate: string; note: string }[] = [
+  { label: '本地博物馆官网', urlTemplate: '', note: '把所在城市博物馆的“展览/活动”栏目页网址填进来，系统会定期抓取活动链接' },
+  { label: '本地科技馆 / 少年宫', urlTemplate: '', note: '科技馆或少年宫官网的“活动/教育/报名”页面' },
+  { label: '图书馆少儿活动', urlTemplate: '', note: '本地图书馆“少儿/亲子活动”页面' },
+  { label: '公众号 → RSS（RSSHub）', urlTemplate: 'https://rsshub.app/wechat/', note: '公众号没有网页版，用 RSSHub 把它转成 RSS 订阅后把地址填这里（已支持 RSS/Atom）' },
+];
 
 const fetchSourceItems = async (db: any, family: any, source: any, today: string): Promise<number> => {
   try {
-    const html = await fetchHtml(source.url);
-    const candidates: { text: string; href: string }[] = [];
-    let match: RegExpExecArray | null;
-    SOURCE_LINK_RE.lastIndex = 0;
-    while ((match = SOURCE_LINK_RE.exec(html)) !== null && candidates.length < 40) {
-      const href = match[1].trim();
-      const text = decodeHtmlEntities(match[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim());
-      if (!href || href.startsWith('#') || /^javascript:/i.test(href)) continue;
-      if (text.length < 6 || text.length > 40) continue;
-      if (!SOURCE_KEYWORD_RE.test(text)) continue;
-      if (candidates.some(item => item.text === text)) continue;
-      candidates.push({ text, href });
+    const content = await fetchHtml(source.url);
+    let candidates: { text: string; href: string }[] = [];
+    if (looksLikeFeed(content)) {
+      // RSS/Atom 订阅：条目已是结构化活动，直接取标题+链接（审核环节再把关）
+      candidates = parseFeedItems(content);
+    } else {
+      let match: RegExpExecArray | null;
+      SOURCE_LINK_RE.lastIndex = 0;
+      while ((match = SOURCE_LINK_RE.exec(content)) !== null && candidates.length < 40) {
+        const href = match[1].trim();
+        const text = decodeHtmlEntities(match[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim());
+        if (!href || href.startsWith('#') || /^javascript:/i.test(href)) continue;
+        if (text.length < 6 || text.length > 40) continue;
+        if (!SOURCE_KEYWORD_RE.test(text)) continue;
+        if (candidates.some(item => item.text === text)) continue;
+        candidates.push({ text, href });
+      }
     }
     if (candidates.length === 0) {
       await db.run('UPDATE explore_feed_sources SET lastFetchedAt = CURRENT_TIMESTAMP WHERE id = ?', source.id);
@@ -410,13 +463,44 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
   // 孩子端：今日资讯流（家长推荐置顶，最新优先）
   app.get('/api/child/explore/feed', ...childGuards, async (req: any, res: any) => {
     const request = req as AuthRequest;
-    const rows = await getDb().all(
-      `SELECT id, type, title, summary, imageUrl, category, latitude, longitude, sourceUrl, status, recommendDate, createdAt
+    const db = getDb();
+    // 探索发现 v2：按孩子年龄 + 推送有效期(按天) + 城市 过滤；过 validUntil 自动下架
+    const child = await db.get('SELECT birthdate FROM users WHERE id = ?', request.user!.id);
+    let age: number | null = null;
+    if (child?.birthdate) {
+      const bd = new Date(child.birthdate);
+      if (!isNaN(bd.getTime())) {
+        const now = getBeijingDate();
+        age = now.getFullYear() - bd.getFullYear() - ((now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) ? 1 : 0);
+      }
+    }
+    const fam = await db.get('SELECT exploreCity, exploreCities FROM families WHERE id = ?', request.user!.familyId);
+    const cities = [
+      ...String(fam?.exploreCities || '').split(',').map((c: string) => c.trim()).filter(Boolean),
+      ...(fam?.exploreCity ? [String(fam.exploreCity).trim()] : [])
+    ];
+    const today = getBeijingDateString();
+    const conds: string[] = ['familyId = ?', "status = 'new'"];
+    const params: any[] = [request.user!.familyId];
+    conds.push("(validFrom IS NULL OR validFrom = '' OR date(validFrom) <= date(?))"); params.push(today);
+    conds.push("(validUntil IS NULL OR validUntil = '' OR date(validUntil) >= date(?))"); params.push(today);
+    if (age != null) {
+      conds.push('(ageMin IS NULL OR ageMin <= ?)'); params.push(age);
+      conds.push('(ageMax IS NULL OR ageMax >= ?)'); params.push(age);
+    }
+    if (cities.length > 0) {
+      conds.push("(city IS NULL OR city = '' OR city IN (" + cities.map(() => '?').join(',') + '))');
+      params.push(...cities);
+    }
+    const rows = await db.all(
+      `SELECT id, type, title, summary, imageUrl, category, feedCategory, venue, district, latitude, longitude,
+              sourceUrl, officialUrl, ageMin, ageMax, activityStart, activityEnd, signupDeadline, price, bookingMethod,
+              recommendReason, notes, verifyStatus, recommendScore, status, recommendDate, createdAt
        FROM explore_feed_items
-       WHERE familyId = ? AND status = 'new'
-       ORDER BY CASE type WHEN 'parent' THEN 0 ELSE 1 END, recommendDate DESC, createdAt DESC
+       WHERE ${conds.join(' AND ')}
+       ORDER BY CASE type WHEN 'parent' THEN 0 ELSE 1 END, COALESCE(recommendScore, 0) DESC, recommendDate DESC, createdAt DESC
        LIMIT 20`,
-      request.user!.familyId
+      ...params
     );
     res.json(rows);
   });
@@ -557,6 +641,11 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     res.json({ message: '关注源已添加', id });
   });
 
+  // 家长端：官方源示例（一键填入输入框，家长核对后再添加；含 RSSHub 接公众号说明）
+  app.get('/api/parent/explore/feed-sources/suggestions', ...parentGuards, async (_req: any, res: any) => {
+    res.json({ suggestions: SEED_FEED_SOURCES });
+  });
+
   app.delete('/api/parent/explore/feed-sources/:id', ...parentGuards, async (req: any, res: any) => {
     const request = req as AuthRequest;
     const db = getDb();
@@ -633,17 +722,46 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const sourceUrl = trimText(req.body?.sourceUrl, 500);
     if (imageUrl && !isHttpUrl(imageUrl)) return res.status(400).json({ message: '图片地址需要 http 或 https 开头' });
     if (sourceUrl && !isHttpUrl(sourceUrl)) return res.status(400).json({ message: '链接需要 http 或 https 开头' });
+    // 探索发现 v2：结构化字段（全部可选）
+    const officialUrl = trimText(req.body?.officialUrl, 500);
+    if (officialUrl && !isHttpUrl(officialUrl)) return res.status(400).json({ message: '官方链接需要 http 或 https 开头' });
+    const toIntOrNull = (v: any) => { if (v === null || v === undefined || String(v).trim() === '') return null; const n = Math.round(Number(v)); return Number.isFinite(n) ? n : null; };
+    const ageMin = toIntOrNull(req.body?.ageMin);
+    const ageMax = toIntOrNull(req.body?.ageMax);
+    const scoreRaw = toIntOrNull(req.body?.recommendScore);
+    const recommendScore = scoreRaw == null ? null : Math.max(1, Math.min(5, scoreRaw));
     const id = randomUUID();
     await getDb().run(
-      `INSERT INTO explore_feed_items (id, familyId, type, title, summary, imageUrl, sourceUrl, status, recommendDate)
-       VALUES (?, ?, 'parent', ?, ?, ?, ?, 'new', ?)`,
+      `INSERT INTO explore_feed_items (
+        id, familyId, type, title, summary, imageUrl, sourceUrl, status, recommendDate,
+        venue, district, feedCategory, ageMin, ageMax, activityStart, activityEnd, signupDeadline,
+        price, bookingMethod, officialUrl, recommendReason, notes, verifyStatus, recommendScore, city, validFrom, validUntil
+      ) VALUES (?, ?, 'parent', ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       request.user!.familyId,
       title,
       summary || null,
       imageUrl || null,
       sourceUrl || null,
-      getBeijingDateString()
+      getBeijingDateString(),
+      trimText(req.body?.venue, 80) || null,
+      trimText(req.body?.district, 40) || null,
+      trimText(req.body?.feedCategory, 20) || null,
+      ageMin,
+      ageMax,
+      trimText(req.body?.activityStart, 20) || null,
+      trimText(req.body?.activityEnd, 20) || null,
+      trimText(req.body?.signupDeadline, 20) || null,
+      trimText(req.body?.price, 40) || null,
+      trimText(req.body?.bookingMethod, 120) || null,
+      officialUrl || null,
+      trimText(req.body?.recommendReason, 300) || null,
+      trimText(req.body?.notes, 300) || null,
+      trimText(req.body?.verifyStatus, 20) || '未核验',
+      recommendScore,
+      trimText(req.body?.city, 40) || null,
+      trimText(req.body?.validFrom, 20) || null,
+      trimText(req.body?.validUntil, 20) || null
     );
     res.json({ message: '已经推荐给孩子啦', id });
   });
@@ -663,31 +781,53 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     res.json({ message: '今日推荐已生成', insertedCount });
   });
 
-  // 家长端：观察统计（月打卡数 / 点亮地点数 / 分类分布 / 本月新增想去）
+  // 家长端：观察统计（月打卡数 / 点亮地点数 / 分类分布 / 本月新增想去 / 去过的地点清单）
+  // P1b：支持 ?childId= 按孩子筛选（不传=全家）；新增 visitedPlaces 清单（名称/类型/次数/最近日期）
   app.get('/api/parent/explore/stats', ...parentGuards, async (req: any, res: any) => {
     const request = req as AuthRequest;
     const db = getDb();
     const familyId = request.user!.familyId;
+    // P1b：按孩子筛选——校验该孩子属于本家庭（与家长成就接口一致）
+    const childId = typeof req.query.childId === 'string' ? req.query.childId : '';
+    if (childId) {
+      const child = await db.get('SELECT id FROM users WHERE id = ? AND familyId = ? AND role = "child"', childId, familyId);
+      if (!child) return res.status(404).json({ message: '孩子不存在' });
+    }
+    // 打卡类查询的孩子筛选片段与参数（explore_places 无 childId，故"本月新想去"保持家庭级）
+    const ckFilter = childId ? ' AND ec.childId = ?' : '';
+    const ckArgs = childId ? [childId] : [];
+
     const monthCheckins = await db.get(
-      `SELECT COUNT(*) as c FROM explore_checkins
-       WHERE familyId = ? AND date(checkedInAt, '+8 hours') >= date('now', '+8 hours', 'start of month')`,
-      familyId
+      `SELECT COUNT(*) as c FROM explore_checkins ec
+       WHERE ec.familyId = ? AND date(ec.checkedInAt, '+8 hours') >= date('now', '+8 hours', 'start of month')${ckFilter}`,
+      familyId, ...ckArgs
     );
     const litPlaces = await db.get(
       `SELECT COUNT(DISTINCT ec.placeId) as c
        FROM explore_checkins ec
        JOIN explore_places p ON ec.placeId = p.id
-       WHERE ec.familyId = ? AND p.deletedAt IS NULL`,
-      familyId
+       WHERE ec.familyId = ? AND p.deletedAt IS NULL${ckFilter}`,
+      familyId, ...ckArgs
     );
     const categoryDistribution = await db.all(
       `SELECT p.category as category, COUNT(DISTINCT p.id) as count
        FROM explore_checkins ec
        JOIN explore_places p ON ec.placeId = p.id
-       WHERE ec.familyId = ? AND p.deletedAt IS NULL
+       WHERE ec.familyId = ? AND p.deletedAt IS NULL${ckFilter}
        GROUP BY p.category
        ORDER BY count DESC`,
-      familyId
+      familyId, ...ckArgs
+    );
+    // P1b：去过的地点清单——名称 + 类型 + 打卡次数 + 最近打卡日期（按最近优先）
+    const visitedPlaces = await db.all(
+      `SELECT p.id as placeId, p.title as title, p.category as category,
+              COUNT(ec.id) as checkinCount, MAX(ec.checkedInAt) as lastVisitedAt
+       FROM explore_checkins ec
+       JOIN explore_places p ON ec.placeId = p.id
+       WHERE ec.familyId = ? AND p.deletedAt IS NULL${ckFilter}
+       GROUP BY p.id
+       ORDER BY lastVisitedAt DESC`,
+      familyId, ...ckArgs
     );
     const monthWanted = await db.get(
       `SELECT COUNT(*) as c FROM explore_places
@@ -699,6 +839,7 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
       monthCheckinCount: monthCheckins?.c || 0,
       visitedPlaceCount: litPlaces?.c || 0,
       categoryDistribution,
+      visitedPlaces,
       monthWantedCount: monthWanted?.c || 0,
     });
   });

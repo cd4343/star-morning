@@ -67,11 +67,12 @@ export type ExploreMedium = {
   senderRole?: 'child' | 'parent';
 };
 
-export const EXPLORE_CATEGORIES = ['博物馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'] as const;
+export const EXPLORE_CATEGORIES = ['博物馆', '科技馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'] as const;
 export const EXPLORE_MOODS = ['好奇', '开心', '勇敢', '惊喜', '有点累'] as const;
 
 export const EXPLORE_CATEGORY_ICONS: Record<string, string> = {
   博物馆: '🏛️',
+  科技馆: '🔬',
   自然: '🌿',
   公园: '🌳',
   城市: '🏙️',
@@ -112,6 +113,22 @@ export type ExploreFeedItem = {
   latitude?: number | null;
   longitude?: number | null;
   sourceUrl?: string | null;
+  // 探索发现 v2：结构化字段
+  venue?: string | null;
+  district?: string | null;
+  feedCategory?: string | null;
+  ageMin?: number | null;
+  ageMax?: number | null;
+  activityStart?: string | null;
+  activityEnd?: string | null;
+  signupDeadline?: string | null;
+  price?: string | null;
+  bookingMethod?: string | null;
+  officialUrl?: string | null;
+  recommendReason?: string | null;
+  notes?: string | null;
+  verifyStatus?: string | null;
+  recommendScore?: number | null;
   status: string;
   recommendDate?: string;
   createdAt?: string;
@@ -135,10 +152,20 @@ export type ExploreFeedSettings = {
   pendingReview: ExploreFeedItem[];
 };
 
+// P1b：家长端"去过的地方"清单单项（名称 / 类型 / 打卡次数 / 最近打卡日期）
+export type ExploreVisitedPlace = {
+  placeId: string;
+  title: string;
+  category: string;
+  checkinCount: number;
+  lastVisitedAt: string;
+};
+
 export type ExploreStats = {
   monthCheckinCount: number;
   visitedPlaceCount: number;
   categoryDistribution: { category: string; count: number }[];
+  visitedPlaces: ExploreVisitedPlace[];
   monthWantedCount: number;
 };
 

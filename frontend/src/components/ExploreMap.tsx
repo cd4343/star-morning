@@ -56,10 +56,12 @@ type ExploreMapProps = {
   onPlaceClick: (place: ExploreMapPlace) => void;
   /** 探索三期：SDK 加载 reject 或初始化异常时通知父组件做列表兜底 */
   onLoadError?: () => void;
+  /** 搜索选中某地点时，把地图中心移到它（有坐标才移动） */
+  focusPlace?: ExploreMapPlace | null;
   className?: string;
 };
 
-export default function ExploreMap({ places, onPlaceClick, onLoadError, className = '' }: ExploreMapProps) {
+export default function ExploreMap({ places, onPlaceClick, onLoadError, focusPlace, className = '' }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -125,6 +127,15 @@ export default function ExploreMap({ places, onPlaceClick, onLoadError, classNam
       centeredRef.current = true;
     }
   }, [mapReady, locatedPlaces]);
+
+  // 搜索选中某地点：把地图中心移到它（有坐标才移动），方便孩子快速定位
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map || !focusPlace) return;
+    if (focusPlace.latitude != null && focusPlace.longitude != null) {
+      map.setZoomAndCenter(15, [Number(focusPlace.longitude), Number(focusPlace.latitude)]);
+    }
+  }, [mapReady, focusPlace]);
 
   // 无 key 或加载失败：降级提示卡，不报错
   if (!hasAmapKey() || failed) {

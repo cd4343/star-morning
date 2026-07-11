@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import type { Wish, InventoryItem, Privilege } from '../../types/shop';
@@ -93,9 +94,16 @@ const cacheScreenTime = (data: any) => {
 const TipModal = ({ isOpen, onClose, title, message, icon }: { isOpen: boolean, onClose: () => void, title: string, message: string, icon: string }) => {
   if (!isOpen) return null;
 
-  return (
-    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+  // 挂到设备框层的 overlay root：页面在 PullToRefresh（relative + overflow-y-auto）滚动容器内，
+  // 直接用 absolute inset-0 会以整段长内容为定位基准，弹窗被居中到内容中部而滚出可视区
+  // （表现为只见暗屏不见弹窗）。overlay root 是设备框的直接子节点，定位基准即可视区。
+  const overlayRoot = typeof document !== 'undefined'
+    ? (document.querySelector('[data-child-overlay-root="true"]') as HTMLElement | null)
+    : null;
+
+  const modal = (
+    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
         <div className="text-center">
           <div className="text-5xl mb-3">{icon}</div>
           <h3 className="text-xl font-bold text-gray-800 mb-2">{title}</h3>
@@ -107,6 +115,8 @@ const TipModal = ({ isOpen, onClose, title, message, icon }: { isOpen: boolean, 
       </div>
     </div>
   );
+
+  return overlayRoot ? createPortal(modal, overlayRoot) : modal;
 };
 
 export default function ChildWishes() {
@@ -417,7 +427,11 @@ export default function ChildWishes() {
       }
 
       if (result && !result.isDrawAgain) {
-        showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！已放入背包，快去查看吧~`, '🎊');
+        if (result.isNothing) {
+          showTip('谢谢参与', `这次没有中奖，下次再来试试运气吧~`, '😊');
+        } else {
+          showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！已放入背包，快去查看吧~`, '🎊');
+        }
       }
 
       refresh();
@@ -630,7 +644,9 @@ export default function ChildWishes() {
 
           // 最终展示中奖结果
           if (result && !result.isDrawAgain) {
-              if (result.isBonusCoins) {
+              if (result.isNothing) {
+                  showTip('谢谢参与', `这次没有中奖，下次再来试试运气吧~`, '😊');
+              } else if (result.isBonusCoins) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！直接获得 ${result.bonusCoins} 金币！`, '💰');
               } else if (result.isBonusXp) {
                   showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，获得 ${result.bonusXp} 经验。`, '✨');

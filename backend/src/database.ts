@@ -194,6 +194,26 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE families ADD COLUMN exploreFeedCategories TEXT'); } catch (e) {}
   // 发现卡「想去」落地图：记录地点来自哪条资讯
   try { await db.run('ALTER TABLE explore_places ADD COLUMN sourceFeedId TEXT'); } catch (e) {}
+  // 探索发现 v2：结构化活动字段 + 适龄 + 有效期(按天) + 城市（全部 append-only）
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN venue TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN district TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN feedCategory TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN ageMin INTEGER'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN ageMax INTEGER'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN activityStart TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN activityEnd TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN signupDeadline TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN price TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN bookingMethod TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN officialUrl TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN recommendReason TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN notes TEXT'); } catch (e) {}
+  try { await db.run("ALTER TABLE explore_feed_items ADD COLUMN verifyStatus TEXT DEFAULT '未核验'"); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN recommendScore INTEGER'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN city TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN validFrom TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN validUntil TEXT'); } catch (e) {}
+  try { await db.run('ALTER TABLE families ADD COLUMN exploreCities TEXT'); } catch (e) {}
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}

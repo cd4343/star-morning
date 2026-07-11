@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useOutletContext } from 'react-router-dom';
-import { Camera, CheckCircle2, Compass, FileText, MapPin, Mic, PauseCircle, Send, Sparkles, Upload, X } from 'lucide-react';
+import { Camera, CheckCircle2, Compass, FileText, List, MapPin, Mic, PauseCircle, Search, Send, Sparkles, Upload, X } from 'lucide-react';
 import api from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
@@ -102,6 +103,34 @@ export default function ChildExplore() {
     [mapPlaces]
   );
 
+  // 地图搜索：按名称过滤全家的探索地点（含无坐标的），选中即定位/打开抽屉，解决"加了地点找不到"
+  const [mapSearch, setMapSearch] = useState('');
+  const [focusPlace, setFocusPlace] = useState<ExploreMapPlace | null>(null);
+  const mapSearchResults = useMemo(() => {
+    const q = mapSearch.trim().toLowerCase();
+    if (!q) return [] as ExploreMapPlace[];
+    return mapPlaces.filter(place => (place.title || '').toLowerCase().includes(q)).slice(0, 8);
+  }, [mapSearch, mapPlaces]);
+  const openMapPlaceFromSearch = (place: ExploreMapPlace) => {
+    setMapSearch('');
+    if (place.latitude != null && place.longitude != null) setFocusPlace(place);
+    setShowObserveTips(false);
+    setMapSheetPlace(place);
+  };
+
+  // 地图"地点清单"：按分类分组全家地点，点一条即定位/打开（快速浏览"想去哪"）
+  const [showPlaceList, setShowPlaceList] = useState(false);
+  const placesByCategory = useMemo(() => {
+    const groups: Record<string, ExploreMapPlace[]> = {};
+    mapPlaces.forEach(place => {
+      const cat = (EXPLORE_CATEGORIES as readonly string[]).includes(place.category) ? place.category : '其他';
+      (groups[cat] ||= []).push(place);
+    });
+    return (EXPLORE_CATEGORIES as readonly string[])
+      .filter(c => groups[c]?.length)
+      .map(c => ({ category: c, items: groups[c] }));
+  }, [mapPlaces]);
+
   const loadData = async () => {
     const [placeRes, checkinRes, mapRes] = await Promise.all([
       api.get('/child/explore/places'),
@@ -159,7 +188,9 @@ export default function ChildExplore() {
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach(track => track.stop());
-        const blob = new Blob(chunks.current, { type: recorder.mimeType || mimeType });
+        // B2-2 修复：剥离 codecs 参数（audio/webm;codecs=opus → audio/webm），后端按基础 MIME 校验
+        const baseType = (recorder.mimeType || mimeType).split(';')[0];
+        const blob = new Blob(chunks.current, { type: baseType });
         // 根据实际 MIME 类型选择文件扩展名
         const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
         setAudioDataUrl(await fileToDataUrl(new File([blob], `explore-voice.${ext}`, { type: blob.type })));
@@ -336,6 +367,56 @@ export default function ChildExplore() {
 
       {viewMode === 'map' && !mapFailed ? (
       <>
+        {/* 地图搜索框 + 分类清单入口：按名称找 / 按分类浏览全家地点，选中即定位或打开抽屉 */}
+        <div className="flex items-stretch gap-2 shrink-0">
+          <div className="relative flex-1">
+          <div className="flex items-center gap-2 rounded-2xl bg-white border border-slate-200 px-3 shadow-sm">
+            <Search size={16} className="text-slate-400 shrink-0" />
+            <input
+              value={mapSearch}
+              onChange={e => setMapSearch(e.target.value)}
+              placeholder={t('explore.mapSearchPlaceholder')}
+              className="flex-1 min-h-[44px] bg-transparent text-sm font-bold text-slate-700 outline-none placeholder:text-slate-400"
+            />
+            {mapSearch && (
+              <button type="button" onClick={() => setMapSearch('')} className="shrink-0 p-1 text-slate-400" aria-label="clear">
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          {mapSearch.trim() && (
+            <div className="absolute inset-x-0 top-full mt-1 z-20 max-h-64 overflow-y-auto rounded-2xl bg-white border border-slate-200 shadow-lg">
+              {mapSearchResults.length === 0 ? (
+                <div className="px-4 py-3 text-xs font-bold text-slate-400">{t('explore.mapSearchNoResult')}</div>
+              ) : mapSearchResults.map(place => {
+                const located = place.latitude != null && place.longitude != null;
+                return (
+                  <button
+                    key={place.id}
+                    type="button"
+                    onClick={() => openMapPlaceFromSearch(place)}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left border-b border-slate-50 last:border-0 active:bg-slate-50"
+                  >
+                    <span className="text-base shrink-0">{EXPLORE_CATEGORY_ICONS[place.category] || '📍'}</span>
+                    <span className="flex-1 text-sm font-black text-slate-800 truncate">{place.title}</span>
+                    <span className={`shrink-0 text-[10px] font-black ${located ? 'text-emerald-600' : 'text-sky-600'}`}>
+                      {located ? t('explore.mapSearchLocated') : t('explore.mapSearchUnlocated')}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPlaceList(true)}
+            className="shrink-0 min-w-[48px] min-h-[44px] rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-600 active:scale-[0.97] transition-all"
+            aria-label={t('explore.placeListTitle')}
+          >
+            <List size={18} />
+          </button>
+        </div>
         {/* 探索三期：待定位的想去托盘（点胶囊开与点标记相同的抽屉） */}
         {unlocatedWishlist.length > 0 && (
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
@@ -356,6 +437,7 @@ export default function ChildExplore() {
         )}
         <ExploreMap
           places={mapPlaces}
+          focusPlace={focusPlace}
           onPlaceClick={place => {
             setShowObserveTips(false);
             setMapSheetPlace(place);
@@ -412,6 +494,19 @@ export default function ChildExplore() {
               )}
             </div>
             {item.summary && <p className="mt-1 text-sm text-slate-600 leading-relaxed line-clamp-3">{item.summary}</p>}
+            {/* 探索发现 v2：结构化信息 */}
+            {(item.ageMin != null || item.ageMax != null || item.price || item.signupDeadline || item.venue) && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(item.ageMin != null || item.ageMax != null) && (
+                  <span className="rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-[11px] font-black">👦 {item.ageMin ?? ''}{item.ageMin != null && item.ageMax != null ? '–' : ''}{item.ageMax ?? ''} 岁</span>
+                )}
+                {item.price && <span className="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-black">💰 {item.price}</span>}
+                {item.signupDeadline && <span className="rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-[11px] font-black">⏰ {item.signupDeadline} 截止</span>}
+                {item.venue && <span className="rounded-full bg-slate-50 text-slate-600 px-2 py-0.5 text-[11px] font-black">📍 {item.venue}</span>}
+              </div>
+            )}
+            {item.recommendReason && <p className="mt-1.5 text-xs font-bold text-rose-500 leading-relaxed">💡 {item.recommendReason}</p>}
+            {item.notes && <p className="mt-1 text-[11px] font-bold text-slate-400 leading-relaxed">注意：{item.notes}</p>}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -574,6 +669,51 @@ export default function ChildExplore() {
       )}
 
       <BottomSheet
+        isOpen={showPlaceList}
+        onClose={() => setShowPlaceList(false)}
+        title={t('explore.placeListTitle')}
+      >
+        {placesByCategory.length === 0 ? (
+          <div className="py-8 text-center text-sm font-bold text-slate-400">{t('explore.placeListEmpty')}</div>
+        ) : (
+          <div className="space-y-4 pb-2">
+            {placesByCategory.map(group => (
+              <div key={group.category}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="text-base">{EXPLORE_CATEGORY_ICONS[group.category] || '📍'}</span>
+                  <span className="text-sm font-black text-slate-800">{group.category}</span>
+                  <span className="text-xs font-bold text-slate-400">· {group.items.length}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {group.items.map(place => {
+                    const located = place.latitude != null && place.longitude != null;
+                    const visited = place.status === 'visited';
+                    return (
+                      <button
+                        key={place.id}
+                        type="button"
+                        onClick={() => { setShowPlaceList(false); openMapPlaceFromSearch(place); }}
+                        className="flex w-full items-center gap-2 rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2.5 text-left active:bg-slate-100"
+                      >
+                        <span className="flex-1 text-sm font-black text-slate-800 truncate">{place.title}</span>
+                        {visited ? (
+                          <span className="shrink-0 text-[10px] font-black text-emerald-600">{t('explore.visitedTimes', { count: place.checkinCount || 0 })}</span>
+                        ) : (
+                          <span className={`shrink-0 text-[10px] font-black ${located ? 'text-sky-600' : 'text-amber-600'}`}>
+                            {located ? t('explore.mapSearchLocated') : t('explore.mapSearchUnlocated')}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </BottomSheet>
+
+      <BottomSheet
         isOpen={!!mapSheetPlace}
         onClose={() => setMapSheetPlace(null)}
         title={mapSheetPlace?.title || ''}
@@ -642,7 +782,7 @@ export default function ChildExplore() {
         )}
       </BottomSheet>
 
-      {selected && (
+      {selected && createPortal(
         <div className="absolute inset-0 z-[80] bg-slate-950/55 backdrop-blur-sm flex items-end">
           <div className="w-full max-h-[88%] overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
@@ -744,7 +884,8 @@ export default function ChildExplore() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        (typeof document !== 'undefined' ? (document.querySelector('[data-app-frame="true"], [data-child-app-frame="true"]') as HTMLElement | null) : null) || document.body
       )}
     </div>
   );

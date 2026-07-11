@@ -1,4 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
+// 让 async 路由抛出的错误自动转交全局错误中间件（Express4 默认不转发，否则请求会挂到 30s 超时）
+import 'express-async-errors';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -12,6 +14,7 @@ import axios from 'axios';
 import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
+import { isLotteryInventoryVisible, normalizeLotteryPrize, normalizeLotteryPrizeInput, validateLotteryActivationIds } from './lotteryRules';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
@@ -173,7 +176,7 @@ const getTaskCategoryFilterValues = (value: unknown) => {
   return TASK_CATEGORY_ALIASES[text] || [text];
 };
 
-const EXPLORE_CATEGORIES = ['博物馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'];
+const EXPLORE_CATEGORIES = ['博物馆', '科技馆', '自然', '公园', '城市', '活动', '旅行', '运动体验', '公益体验', '其他'];
 const EXPLORE_STATUSES = ['wishlist', 'planned', 'visited', 'archived'];
 const EXPLORE_MOODS = ['开心', '好奇', '勇敢', '惊喜', '有点累'];
 
@@ -195,7 +198,8 @@ const normalizeExploreMood = (value: unknown) => {
 const trimText = (value: unknown, max = 500) => String(value || '').trim().slice(0, max);
 
 function inferExploreCategoryFromText(text: string) {
-  if (/(博物馆|纪念馆|科技馆|美术馆|展览馆|文化馆)/.test(text)) return '博物馆';
+  if (/(科技馆|科学馆|天文馆|海洋馆|科学中心)/.test(text)) return '科技馆';
+  if (/(博物馆|纪念馆|美术馆|展览馆|文化馆)/.test(text)) return '博物馆';
   if (/(公园|湿地|植物园|动物园)/.test(text)) return '公园';
   if (/(山|湖|海|自然|森林|河|地质)/.test(text)) return '自然';
   if (/(剧场|剧院|活动|演出|展览|营地|体验)/.test(text)) return '活动';
@@ -252,7 +256,8 @@ const haversineMeters = (lat1: number, lng1: number, lat2: number, lng2: number)
 const saveExploreMediaFile = async (payload: any, familyId: string, childId: string) => {
   const type = payload?.type === 'audio' ? 'audio' : 'image';
   const dataUrl = String(payload?.dataUrl || '');
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  // B2-2 修复：MediaRecorder 常产出带编解码参数的 MIME（如 audio/webm;codecs=opus），容忍参数段
+  const match = dataUrl.match(/^data:([^;,]+)(?:;[^;,]*)*;base64,(.+)$/);
   if (!match) {
     const error: any = new Error('媒体格式不正确');
     error.status = 400;
@@ -546,6 +551,22 @@ const buildAchievementDisplay = (achievement: any) => {
     };
   }
 
+  // 探索成就是多维独立成就（地点类型 / 打卡次数 / 表达形式），不是等级递进关系。
+  // 若走下面的 rankIndex→主题数组映射，value<10 的探索成就会全部落到 THEMES['探索'][0]「初次出发」🧭，
+  // 导致名称、图标全部重复。直接沿用数据库原始标题与图标（与前端 achievementDisplay.ts 保持一致）。
+  if (String(achievement?.conditionType || '').startsWith('explore_')) {
+    return {
+      ...achievement,
+      category,
+      rankLabel: rank.label,
+      rankIcon: rank.icon,
+      rankOrder: rank.order,
+      displayTitle: achievement?.title,
+      displayDescription: achievement?.description || getAchievementConditionDescription(achievement),
+      displayIcon: achievement?.icon,
+    };
+  }
+
   const rankIndex = Math.max(0, Math.min(5, Number(rank.order || 1) - 1));
   const theme = ACHIEVEMENT_DISPLAY_THEMES[getAchievementThemeKey(achievement, category, conditionCategory)]
     || ACHIEVEMENT_DISPLAY_THEMES.default;
@@ -598,6 +619,22 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '勇敢表达', desc: '留下 1 条语音留言', icon: '🎙️', type: 'explore_voice_count', value: 1, category: '探索', rewardCoins: 0, rewardXp: 5 },
   { title: '小小记录家', desc: '上传 3 次照片纪念', icon: '📷', type: 'explore_media_count', value: 3, category: '探索', rewardCoins: 0, rewardXp: 8 },
   { title: '亲子探索家', desc: '完成 3 次家长确认的探索', icon: '🎒', type: 'explore_confirmed_count', value: 3, category: '探索', rewardCoins: 0, rewardXp: 10 },
+  // P3：探索成就扩充（按 DESIGN_v2 C）——数量/场地类型/记录/家长确认/全能/高光时刻
+  { title: '探索老手', desc: '完成 25 次探索打卡', icon: '🧗', type: 'explore_checkin_count', value: 25, category: '探索', rewardCoins: 0, rewardXp: 25 },
+  { title: '探索大师', desc: '完成 50 次探索打卡', icon: '🏔️', type: 'explore_checkin_count', value: 50, category: '探索', rewardCoins: 0, rewardXp: 50 },
+  { title: '博物常客', desc: '打卡 3 个博物馆', icon: '🏛️', type: 'explore_category_count', value: 3, conditionCategory: '博物馆', category: '探索', rewardCoins: 0, rewardXp: 10 },
+  { title: '博物达人', desc: '打卡 5 个博物馆', icon: '🏛️', type: 'explore_category_count', value: 5, conditionCategory: '博物馆', category: '探索', rewardCoins: 0, rewardXp: 15 },
+  { title: '科技初探', desc: '打卡 1 个科技馆', icon: '🔬', type: 'explore_category_count', value: 1, conditionCategory: '科技馆', category: '探索', rewardCoins: 0, rewardXp: 5 },
+  { title: '科技小达人', desc: '打卡 3 个科技馆', icon: '🛰️', type: 'explore_category_count', value: 3, conditionCategory: '科技馆', category: '探索', rewardCoins: 0, rewardXp: 10 },
+  { title: '旅行小达人', desc: '打卡 3 个旅行景点', icon: '🧳', type: 'explore_category_count', value: 3, conditionCategory: '旅行', category: '探索', rewardCoins: 0, rewardXp: 10 },
+  { title: '记录小能手', desc: '上传 10 次照片纪念', icon: '📸', type: 'explore_media_count', value: 10, category: '探索', rewardCoins: 0, rewardXp: 15 },
+  { title: '小小播音员', desc: '留下 5 条语音留言', icon: '🎤', type: 'explore_voice_count', value: 5, category: '探索', rewardCoins: 0, rewardXp: 12 },
+  { title: '亲子探索家·进阶', desc: '完成 10 次家长确认的探索', icon: '👨‍👩‍👧', type: 'explore_confirmed_count', value: 10, category: '探索', rewardCoins: 0, rewardXp: 20 },
+  { title: '全能探索家', desc: '集齐 5 种不同类型场地各 1 次', icon: '🌟', type: 'explore_distinct_categories', value: 5, category: '探索', rewardCoins: 0, rewardXp: 30 },
+  { title: '我的第一次出行计划', desc: '自己规划并完成一次出行', icon: '🗺️', type: 'manual', value: 0, category: '探索', rewardCoins: 10, rewardXp: 20 },
+  { title: '小讲解员', desc: '把探索学到的讲给家人听', icon: '🎙️', type: 'manual', value: 0, category: '探索', rewardCoins: 10, rewardXp: 15 },
+  { title: '公益小天使', desc: '参与一次公益体验', icon: '🤝', type: 'manual', value: 0, category: '探索', rewardCoins: 10, rewardXp: 20 },
+  { title: '户外勇士', desc: '完成一次有挑战的户外探索', icon: '🏕️', type: 'manual', value: 0, category: '探索', rewardCoins: 10, rewardXp: 20 },
   { title: '启程有光', desc: '完成 1 个任务', icon: '🌱', type: 'task_count', value: 1, category: '启动', rewardCoins: 5, rewardXp: 5 },
   { title: '小步成章', desc: '完成 10 个任务', icon: '🧭', type: 'task_count', value: 10, category: '启动', rewardCoins: 8, rewardXp: 10 },
   { title: '百炼成章', desc: '完成 50 个任务', icon: '🏆', type: 'task_count', value: 50, category: '启动', rewardCoins: 25, rewardXp: 50 },
@@ -1083,6 +1120,8 @@ const checkAchievements = async (childId: string, db: any) => {
   `, childId);
   const exploreCategoryCountMap: Record<string, number> = {};
   exploreCategoryStats.forEach((s: any) => { exploreCategoryCountMap[s.category] = s.count; });
+  // P3：全能探索家——去过的不同场地类型数（排除"其他"）
+  const exploreDistinctCategories = Object.keys(exploreCategoryCountMap).filter(c => c && c !== '其他').length;
 
   // 连续天数统计（按类别）- 使用北京时间
   const getStreakDays = async (category?: string): Promise<number> => {
@@ -1180,6 +1219,9 @@ const checkAchievements = async (childId: string, db: any) => {
           break;
         case 'explore_confirmed_count':
           unlocked = exploreConfirmedCount >= def.conditionValue;
+          break;
+        case 'explore_distinct_categories':
+          unlocked = exploreDistinctCategories >= def.conditionValue;
           break;
       }
 
@@ -1289,13 +1331,15 @@ const seedFamilyData = async (familyId: string, db: any) => {
 
 // 探索模块晚于部分老家庭上线，老家庭缺少默认探索成就定义；按需幂等补齐
 const ensureExploreAchievementDefs = async (db: any, familyId: string) => {
-  const existing = (await db.get(
-    `SELECT COUNT(*) as c FROM achievement_defs WHERE familyId = ? AND conditionType LIKE 'explore_%'`,
-    familyId
-  ))?.c || 0;
-  if (existing > 0) return;
+  // P3：改为逐条存在性校验（append-only），让老家庭也能增量获得后续新增的探索成就/高光时刻；不动已有
+  const isExploreSeed = (ach: any) => String(ach.type).startsWith('explore_') || (ach.type === 'manual' && ach.category === '探索');
+  let added = 0;
   for (const ach of DEFAULT_ACHIEVEMENT_SEEDS) {
-    if (!String(ach.type).startsWith('explore_')) continue;
+    if (!isExploreSeed(ach)) continue;
+    const exists = ach.type === 'manual'
+      ? await db.get(`SELECT id FROM achievement_defs WHERE familyId = ? AND conditionType = 'manual' AND title = ?`, familyId, ach.title)
+      : await db.get(`SELECT id FROM achievement_defs WHERE familyId = ? AND conditionType = ? AND conditionValue = ? AND COALESCE(conditionCategory, '') = COALESCE(?, '')`, familyId, ach.type, ach.value, ach.conditionCategory || null);
+    if (exists) continue;
     await db.run(
       `INSERT INTO achievement_defs (
           id, familyId, title, description, icon, conditionType, conditionValue,
@@ -1308,8 +1352,9 @@ const ensureExploreAchievementDefs = async (db: any, familyId: string) => {
       Math.max(0, Number((ach as any).rewardPrivilegePoints || 0)),
       'instant'
     );
+    added++;
   }
-  console.log(`✅ 已为家庭 ${familyId} 补齐默认探索成就定义`);
+  if (added > 0) console.log(`✅ 已为家庭 ${familyId} 补齐 ${added} 个探索相关默认成就`);
 };
 
 const SMS_CODE_TTL_MINUTES = 5;
@@ -5007,6 +5052,31 @@ app.get('/api/parent/growth-insights', protect, async (req: any, res) => {
 // Family Explore routes
 // Places are prepared by parents and checked in by children.
 // ============================================================
+// 探索：地址/名称 → 坐标（高德地理编码，复用 POI 搜索同一把 Web 服务 Key）
+// 尽力而为：无 key / 无查询 / 失败 一律返回 null，绝不抛错、绝不阻塞地点创建
+async function geocodeExploreAddress(address: string, city: string): Promise<{ latitude: number; longitude: number } | null> {
+  const key = process.env.AMAP_WEB_SERVICE_KEY;
+  const query = trimText(address, 160);
+  if (!key || !query) return null;
+  try {
+    const result = await axios.get('https://restapi.amap.com/v3/geocode/geo', {
+      params: { key, address: query, city: trimText(city, 40) },
+      timeout: 8000
+    });
+    if (String(result.data?.status) !== '1') return null;
+    const loc = result.data?.geocodes?.[0]?.location;
+    if (typeof loc !== 'string' || !loc.includes(',')) return null;
+    const [lngStr, latStr] = loc.split(',');
+    const longitude = Number(lngStr);
+    const latitude = Number(latStr);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+    return { latitude, longitude };
+  } catch (error: any) {
+    console.error('Amap geocode failed:', error?.message || error);
+    return null;
+  }
+}
+
 app.get('/api/parent/explore/search', protect, requireParent, async (req: any, res) => {
   try {
     const key = process.env.AMAP_WEB_SERVICE_KEY;
@@ -5041,6 +5111,40 @@ app.get('/api/parent/explore/search', protect, requireParent, async (req: any, r
   }
 });
 
+// 探索：给"未定位"的地点批量补坐标（家长一键；单次最多 50 个，避免超时/限流）
+app.post('/api/parent/explore/geocode-missing', protect, requireParent, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const familyId = request.user!.familyId;
+  if (!process.env.AMAP_WEB_SERVICE_KEY) {
+    return res.status(400).json({ message: '尚未配置高德 Web 服务 Key，无法自动补坐标。', configured: false });
+  }
+  const missing = await db.all(
+    `SELECT id, title, address, city FROM explore_places
+     WHERE familyId = ? AND deletedAt IS NULL AND status != 'archived'
+       AND (latitude IS NULL OR longitude IS NULL)`,
+    familyId
+  );
+  let filled = 0;
+  for (const row of missing.slice(0, 50)) {
+    const geo = await geocodeExploreAddress(row.address || row.title, row.city);
+    if (geo) {
+      await db.run(
+        'UPDATE explore_places SET latitude = ?, longitude = ?, updatedAt = ? WHERE id = ? AND familyId = ?',
+        geo.latitude, geo.longitude, new Date().toISOString(), row.id, familyId
+      );
+      filled++;
+    }
+  }
+  const remainingRow = await db.get(
+    `SELECT COUNT(*) as c FROM explore_places
+     WHERE familyId = ? AND deletedAt IS NULL AND status != 'archived'
+       AND (latitude IS NULL OR longitude IS NULL)`,
+    familyId
+  );
+  res.json({ configured: true, total: missing.length, filled, remaining: remainingRow?.c || 0 });
+});
+
 app.get('/api/parent/explore/places', protect, requireParent, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
@@ -5067,6 +5171,15 @@ app.post('/api/parent/explore/places', protect, requireParent, async (req: any, 
   const db = getDb();
   const title = trimText(req.body.title, 80);
   if (!title) return res.status(400).json({ message: '地点名称不能为空' });
+  const city = trimText(req.body.city, 40);
+  const address = trimText(req.body.address, 160);
+  let latitude = req.body.latitude === null || req.body.latitude === undefined || req.body.latitude === '' ? null : Number(req.body.latitude);
+  let longitude = req.body.longitude === null || req.body.longitude === undefined || req.body.longitude === '' ? null : Number(req.body.longitude);
+  // 自动补坐标：没给坐标时用地址或名称做地理编码（尽力而为，失败保持无坐标、不阻塞创建）
+  if (latitude == null || longitude == null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const geo = await geocodeExploreAddress(address || title, city);
+    if (geo) { latitude = geo.latitude; longitude = geo.longitude; }
+  }
   const id = randomUUID();
   await db.run(
     `INSERT INTO explore_places (
@@ -5077,10 +5190,10 @@ app.post('/api/parent/explore/places', protect, requireParent, async (req: any, 
     request.user!.familyId,
     title,
     normalizeExploreCategory(req.body.category),
-    trimText(req.body.city, 40),
-    trimText(req.body.address, 160),
-    req.body.latitude === null || req.body.latitude === undefined || req.body.latitude === '' ? null : Number(req.body.latitude),
-    req.body.longitude === null || req.body.longitude === undefined || req.body.longitude === '' ? null : Number(req.body.longitude),
+    city,
+    address,
+    latitude,
+    longitude,
     req.body.source === 'amap' ? 'amap' : 'manual',
     trimText(req.body.externalId, 80),
     trimText(req.body.summary, 300),
@@ -5102,6 +5215,18 @@ app.put('/api/parent/explore/places/:id', protect, requireParent, async (req: an
   if (!place) return res.status(404).json({ message: '探索地点不存在' });
   const title = trimText(req.body.title ?? place.title, 80);
   if (!title) return res.status(400).json({ message: '地点名称不能为空' });
+  const nextCity = trimText(req.body.city ?? place.city, 40);
+  const nextAddress = trimText(req.body.address ?? place.address, 160);
+  // 坐标：显式传 null/'' 清空；传了值用值；没传沿用原值（保留 null，不再误变成 0）
+  let latitude = (req.body.latitude === null || req.body.latitude === '') ? null
+    : (req.body.latitude !== undefined ? Number(req.body.latitude) : (place.latitude == null ? null : Number(place.latitude)));
+  let longitude = (req.body.longitude === null || req.body.longitude === '') ? null
+    : (req.body.longitude !== undefined ? Number(req.body.longitude) : (place.longitude == null ? null : Number(place.longitude)));
+  // 自动补坐标：更新后仍无坐标且有地址/名称时地理编码（尽力而为）
+  if (latitude == null || longitude == null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const geo = await geocodeExploreAddress(nextAddress || title, nextCity);
+    if (geo) { latitude = geo.latitude; longitude = geo.longitude; }
+  }
   await db.run(
     `UPDATE explore_places SET
       title = ?, category = ?, city = ?, address = ?, latitude = ?, longitude = ?,
@@ -5109,10 +5234,10 @@ app.put('/api/parent/explore/places/:id', protect, requireParent, async (req: an
      WHERE id = ? AND familyId = ?`,
     title,
     normalizeExploreCategory(req.body.category ?? place.category),
-    trimText(req.body.city ?? place.city, 40),
-    trimText(req.body.address ?? place.address, 160),
-    req.body.latitude === null || req.body.latitude === '' ? null : Number(req.body.latitude ?? place.latitude),
-    req.body.longitude === null || req.body.longitude === '' ? null : Number(req.body.longitude ?? place.longitude),
+    nextCity,
+    nextAddress,
+    latitude,
+    longitude,
     trimText(req.body.summary ?? place.summary, 300),
     trimText(req.body.whyGo ?? place.whyGo, 500),
     trimText(req.body.observeTips ?? place.observeTips, 500),
@@ -5431,6 +5556,7 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
   const exploreConfirmedCount = confirmedCountRow?.count || 0;
   const exploreCategoryCountMap: Record<string, number> = {};
   exploreCategoryStats.forEach((s: any) => { exploreCategoryCountMap[s.category] = s.count; });
+  const exploreDistinctCategories = Object.keys(exploreCategoryCountMap).filter(c => c && c !== '其他').length;
 
   const progress = exploreDefs.map((def: any) => {
     let current = 0;
@@ -5451,6 +5577,9 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
         break;
       case 'explore_confirmed_count':
         current = exploreConfirmedCount;
+        break;
+      case 'explore_distinct_categories':
+        current = exploreDistinctCategories;
         break;
     }
     return {
@@ -5682,12 +5811,18 @@ app.get('/api/parent/wishes', protect, async (req: any, res) => {
 });
 app.post('/api/parent/wishes', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const weight = req.body.weight || 10;
-    const rarity = req.body.rarity || null;
-    const category = req.body.type === 'shop' ? inferWishCategory(req.body) : null;
+    let wishInput = req.body;
+    try {
+        if (wishInput.type === 'lottery') wishInput = normalizeLotteryPrizeInput(wishInput);
+    } catch (err: any) {
+        return res.status(400).json({ message: err.message });
+    }
+    const weight = wishInput.weight || 10;
+    const rarity = wishInput.rarity || null;
+    const category = wishInput.type === 'shop' ? inferWishCategory(wishInput) : null;
     await getDb().run(
         `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight, rarity, effectType, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-        randomUUID(), request.user!.familyId, req.body.type, req.body.title, req.body.cost, req.body.targetAmount, req.body.icon, req.body.stock, weight, rarity, req.body.effectType || null, category
+        randomUUID(), request.user!.familyId, wishInput.type, wishInput.title, wishInput.cost, wishInput.targetAmount, wishInput.icon, wishInput.stock, weight, rarity, wishInput.effectType || null, category
     );
     res.json({message:'ok'});
 });
@@ -5809,10 +5944,16 @@ app.put('/api/parent/wishes/:id', protect, async (req: any, res) => {
         );
     } else {
         const { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category } = req.body;
-        const nextCategory = wish.type === 'shop' ? inferWishCategory({ title, category }) : null;
+        let wishInput = { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category };
+        try {
+            if (wish.type === 'lottery') wishInput = normalizeLotteryPrizeInput(wishInput);
+        } catch (err: any) {
+            return res.status(400).json({ message: err.message });
+        }
+        const nextCategory = wish.type === 'shop' ? inferWishCategory(wishInput) : null;
         await db.run(
             'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ?, rarity = ?, targetAmount = ?, effectType = ?, category = ? WHERE id = ? AND familyId = ?',
-            title, cost, icon, stock, weight || 10, rarity || null, targetAmount || 0, effectType || null, nextCategory, req.params.id, request.user!.familyId
+            wishInput.title, wishInput.cost, wishInput.icon, wishInput.stock, wishInput.weight || 10, wishInput.rarity || null, wishInput.targetAmount || 0, wishInput.effectType || null, nextCategory, req.params.id, request.user!.familyId
         );
     }
     res.json({message:'ok'});
@@ -5834,22 +5975,36 @@ app.delete('/api/parent/wishes/:id', protect, async (req: any, res) => {
 // 抽奖奖池上架管理
 app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const { activeIds } = request.body;
-
-    if (!activeIds || activeIds.length !== 8) {
-        return res.status(400).json({ message: '必须选择恰好8个奖品上架' });
+    let activeIds: string[];
+    try {
+        activeIds = validateLotteryActivationIds(request.body.activeIds);
+    } catch (err: any) {
+        return res.status(400).json({ message: err.message });
     }
 
     const db = getDb();
     const familyId = request.user!.familyId;
-
-    // 先将该家庭所有抽奖奖品设为未上架
-    await db.run('UPDATE wishes SET isActive = 0 WHERE familyId = ? AND type = ?', familyId, 'lottery');
-
-    // 然后将选中的奖品设为上架
-    for (const id of activeIds) {
-        await db.run('UPDATE wishes SET isActive = 1 WHERE id = ? AND familyId = ? AND type = ?', id, familyId, 'lottery');
+    const placeholders = activeIds.map(() => '?').join(', ');
+    const selectedPrizes = await db.all(
+        `SELECT * FROM wishes WHERE familyId = ? AND type = 'lottery' AND id IN (${placeholders})`,
+        familyId, ...activeIds
+    );
+    if (selectedPrizes.length !== 8) {
+        return res.status(400).json({ message: '所选奖品不存在或不属于当前家庭，请刷新后重新选择' });
     }
+    try {
+        selectedPrizes.forEach(normalizeLotteryPrize);
+    } catch (err: any) {
+        return res.status(400).json({ message: err.message });
+    }
+
+    await withTransaction(async () => {
+        await db.run('UPDATE wishes SET isActive = 0 WHERE familyId = ? AND type = ?', familyId, 'lottery');
+        await db.run(
+            `UPDATE wishes SET isActive = 1 WHERE familyId = ? AND type = 'lottery' AND id IN (${placeholders})`,
+            familyId, ...activeIds
+        );
+    });
 
     res.json({ message: 'ok' });
 });
@@ -5967,7 +6122,17 @@ app.get('/api/parent/price-suggestion', protect, requireParent, async (req: any,
 });
 app.get('/api/parent/achievements', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const rows = await getDb().all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId);
+    const db = getDb();
+    await ensureExploreAchievementDefs(db, request.user!.familyId); // P3：按需补齐新增探索/高光成就，老家庭也能看到并颁发
+    // 传 childId：按该孩子返回三态（已解锁/已领取/进行中+进度），用于家长端正确显示完成状态
+    const childId = typeof req.query.childId === 'string' ? req.query.childId : '';
+    if (childId) {
+        const child = await db.get('SELECT id FROM users WHERE id = ? AND familyId = ? AND role = "child"', childId, request.user!.familyId);
+        if (!child) return res.status(404).json({ message: '孩子不存在' });
+        return res.json(await computeChildAchievements(db, childId, request.user!.familyId));
+    }
+    // 不传 childId：保持原行为（家庭成就定义列表）
+    const rows = await db.all('SELECT * FROM achievement_defs WHERE familyId = ?', request.user!.familyId);
     res.json(sortAchievementRows(rows));
 });
 app.post('/api/parent/achievements', protect, async (req: any, res) => {
@@ -6549,8 +6714,7 @@ app.post('/api/child/wishes/:id/redeem', protect, async (req: any, res) => {
         return res.status(sc).json({message: err.message || '兑换失败，请重试'});
     }
 });
-// 背包列表（联表 wishes 返回 effectType，用于「再抽一次」等可使用物品）
-// 过滤掉"再抽一次"的即时消费记录（status='used' 且 effectType='draw_again'），它们只用于统计
+// 背包列表（联表 wishes 返回 effectType，用于过滤即时结算流水）
 app.get('/api/child/inventory', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
@@ -6562,7 +6726,7 @@ app.get('/api/child/inventory', protect, async (req: any, res) => {
         AND NOT (ui.status = 'used' AND w.effectType = 'draw_again')
       ORDER BY ui.acquiredAt DESC
     `, request.user!.id);
-    res.json(rows);
+    res.json(rows.filter(isLotteryInventoryVisible));
 });
 // 撤销兑换（退还金币或特权点）- 抽奖物品和储蓄达成物品不可撤销，每类商品最多撤销一次
 app.post('/api/child/inventory/:id/cancel', protect, async (req: any, res) => {
@@ -6774,6 +6938,13 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
         request.user!.familyId
     );
 
+    let displayPrizes;
+    try {
+        displayPrizes = prizes.map(normalizeLotteryPrize);
+    } catch (err: any) {
+        return res.status(400).json({ message: err.message });
+    }
+
     res.json({
         todayDrawCount: todayCount,
         currentCost,
@@ -6781,7 +6952,7 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
         dailyLimit: LOTTERY_DAILY_LIMIT,
         remainingDraws,
         pity: pityInfo,
-        prizes
+        prizes: displayPrizes
     });
 });
 
@@ -6903,6 +7074,7 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             bonusPrivilegePoints: result.bonusPrivilegePoints,
             isFreeSpin: result.isFreeSpin,
             isDoubleNext: result.isDoubleNext,
+            isNothing: result.isNothing,
             pityTriggered: result.pityTriggered,
             pity: pityInfo
         });
@@ -6960,6 +7132,7 @@ app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
             bonusPrivilegePoints: result.bonusPrivilegePoints,
             isFreeSpin: result.isFreeSpin,
             isDoubleNext: result.isDoubleNext,
+            isNothing: result.isNothing,
             pityTriggered: result.pityTriggered,
             pity: pityInfo,
             message: '再抽一次成功！'
@@ -7024,11 +7197,8 @@ app.get('/api/child/chest-records', protect, async (req: any, res) => {
 });
 
 // Child All Achievements (包含未解锁的，显示进度)
-app.get('/api/child/all-achievements', protect, async (req: any, res) => {
-    const request = req as AuthRequest;
-    const db = getDb();
-    const childId = request.user!.id;
-    const familyId = request.user!.familyId;
+// 计算某个孩子的全部成就三态（解锁/领取/进度），家长端与孩子端共用
+async function computeChildAchievements(db: ReturnType<typeof getDb>, childId: string, familyId: string) {
 
     // 获取所有成就定义
     const allDefs = await db.all('SELECT * FROM achievement_defs WHERE familyId = ?', familyId);
@@ -7043,6 +7213,22 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
     const totalCoins = child?.coins || 0;
     const totalXp = child?.xp || 0;
     const level = Math.floor(totalXp / 100) + 1;
+
+    // 探索进度（与 explore/achievement-progress、checkAchievements 口径一致）
+    const [exploreCheckinRow, exploreImageRow, exploreVoiceRow, exploreConfirmedRow, exploreCatStats] = await Promise.all([
+      db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ?', childId),
+      db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'image'", childId),
+      db.get("SELECT COUNT(*) as count FROM explore_media WHERE childId = ? AND type = 'audio' AND senderRole = 'child'", childId),
+      db.get('SELECT COUNT(*) as count FROM explore_checkins WHERE childId = ? AND parentConfirmed = 1', childId),
+      db.all('SELECT p.category, COUNT(*) as count FROM explore_checkins ec JOIN explore_places p ON ec.placeId = p.id WHERE ec.childId = ? GROUP BY p.category', childId),
+    ]);
+    const exploreCheckinCount = exploreCheckinRow?.count || 0;
+    const exploreMediaCount = exploreImageRow?.count || 0;
+    const exploreVoiceCount = exploreVoiceRow?.count || 0;
+    const exploreConfirmedCount = exploreConfirmedRow?.count || 0;
+    const exploreCategoryCountMap: Record<string, number> = {};
+    exploreCatStats.forEach((row: any) => { exploreCategoryCountMap[row.category] = row.count; });
+    const exploreDistinctCategories = Object.keys(exploreCategoryCountMap).filter(c => c && c !== '其他').length;
 
     // 分类任务统计
     const categoryStats = await db.all(`
@@ -7133,6 +7319,12 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
               case 'level_reach': progress = level; break;
               case 'category_count': progress = getCategoryCount(def.conditionCategory); break;
               case 'streak_days': progress = def.conditionCategory ? (streakCache[def.conditionCategory] || 0) : streakCache['__all__']; break;
+              case 'explore_checkin_count': progress = exploreCheckinCount; break;
+              case 'explore_category_count': { const cats = String(def.conditionCategory || '').split(',').map((c: string) => c.trim()).filter(Boolean); progress = cats.reduce((sum: number, c: string) => sum + (exploreCategoryCountMap[c] || 0), 0); break; }
+              case 'explore_media_count': progress = exploreMediaCount; break;
+              case 'explore_voice_count': progress = exploreVoiceCount; break;
+              case 'explore_confirmed_count': progress = exploreConfirmedCount; break;
+              case 'explore_distinct_categories': progress = exploreDistinctCategories; break;
             }
         }
 
@@ -7179,7 +7371,13 @@ app.get('/api/child/all-achievements', protect, async (req: any, res) => {
         Number(a.conditionValue || 0) - Number(b.conditionValue || 0);
     });
 
-    res.json(result);
+    return result;
+}
+
+app.get('/api/child/all-achievements', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    await ensureExploreAchievementDefs(getDb(), request.user!.familyId); // P3：按需补齐新增探索成就，孩子端进度可见
+    res.json(await computeChildAchievements(getDb(), request.user!.id, request.user!.familyId));
 });
 
 app.post('/api/child/achievements/:achievementId/claim', protect, requireChild, async (req: any, res) => {

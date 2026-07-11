@@ -6,7 +6,7 @@ import { Button } from '../../components/Button';
 import api from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
-import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, EXPLORE_CATEGORIES } from '../../types/explore';
+import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, ExploreVisitedPlace, EXPLORE_CATEGORIES, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 
 const categories = EXPLORE_CATEGORIES;
 const statusOptions = [
@@ -34,6 +34,12 @@ const formatDate = (value: string) => new Date(value).toLocaleString(getDateLoca
   day: 'numeric',
   hour: '2-digit',
   minute: '2-digit'
+});
+
+// P1b：去过的地点清单只显示日期（无时间），更简洁
+const formatDay = (value: string) => new Date(value).toLocaleDateString(getDateLocale(), {
+  month: 'numeric',
+  day: 'numeric'
 });
 
 // 探索改版①：快捷回应短语（点击填入反馈输入框，可再编辑）
@@ -105,17 +111,54 @@ export default function ParentExplore() {
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceLabel, setSourceLabel] = useState('');
   const [addingSource, setAddingSource] = useState(false);
+  // Batch3 官方源增强：示例来源 + 选中提示
+  const [sourceSuggestions, setSourceSuggestions] = useState<{ label: string; urlTemplate: string; note: string }[]>([]);
+  const [sourceHint, setSourceHint] = useState('');
   const [pushUrl, setPushUrl] = useState('');
   const [pushPreviewLoading, setPushPreviewLoading] = useState(false);
-  const [pushForm, setPushForm] = useState({ title: '', summary: '', imageUrl: '', sourceUrl: '' });
+  const FEED_INP = 'w-full rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-bold outline-none focus:border-rose-300 bg-white';
+  const EMPTY_PUSH_FORM = { title: '', summary: '', imageUrl: '', sourceUrl: '', city: '', venue: '', district: '', feedCategory: '', ageMin: '', ageMax: '', activityStart: '', activityEnd: '', signupDeadline: '', price: '', bookingMethod: '', officialUrl: '', recommendReason: '', notes: '', verifyStatus: '未核验', recommendScore: '', validFrom: '', validUntil: '' };
+  const [pushForm, setPushForm] = useState(EMPTY_PUSH_FORM);
   const [pushing, setPushing] = useState(false);
   // 探索三期：立即生成今日推荐
   const [generatingNow, setGeneratingNow] = useState(false);
   const [stats, setStats] = useState<ExploreStats | null>(null);
+  // P1b：观察统计按孩子筛选（''=全家）+ 孩子列表（孩子选择器）
+  const [statsChildId, setStatsChildId] = useState<string>('');
+  const [statsChildren, setStatsChildren] = useState<{ id: string; name: string }[]>([]);
 
   const activePlaces = useMemo(() => places.filter(place => place.status !== 'archived'), [places]);
   const pendingCheckins = useMemo(() => checkins.filter(item => !item.parentConfirmed).length, [checkins]);
+  // P1b：去过的地点按规范类型归类罗列（按 EXPLORE_CATEGORIES 顺序，仅显示有数据的类型）
+  const visitedByCategory = useMemo(() => {
+    const groups: Record<string, ExploreVisitedPlace[]> = {};
+    (stats?.visitedPlaces || []).forEach(vp => {
+      const cat = (EXPLORE_CATEGORIES as readonly string[]).includes(vp.category) ? vp.category : '其他';
+      (groups[cat] ||= []).push(vp);
+    });
+    return (EXPLORE_CATEGORIES as readonly string[])
+      .filter(c => groups[c]?.length)
+      .map(c => ({ category: c, places: groups[c] }));
+  }, [stats]);
   const quotaPercent = quota && quota.totalBytes > 0 ? Math.round((quota.usedBytes / quota.totalBytes) * 100) : 0;
+
+  const [geocoding, setGeocoding] = useState(false);
+  // 地图定位：给"未定位"的地点批量补坐标（尽力而为，失败不影响其它）
+  const handleGeocodeMissing = async () => {
+    setGeocoding(true);
+    try {
+      const res = await api.post('/parent/explore/geocode-missing');
+      if (res.data?.configured === false) { toast.warning('未配置高德 Web 服务 Key，无法补坐标'); return; }
+      const filled = res.data?.filled || 0;
+      const remaining = res.data?.remaining || 0;
+      toast.success(`已补上 ${filled} 个坐标${remaining ? `，还剩 ${remaining} 个没搜到（可完善地址后再试）` : '，未定位的都搞定了 🎉'}`);
+      await loadData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '补坐标失败，请稍后再试');
+    } finally {
+      setGeocoding(false);
+    }
+  };
 
   const loadData = async () => {
     const [placeRes, checkinRes] = await Promise.all([
@@ -148,12 +191,30 @@ export default function ParentExplore() {
         setGeoVerify(!!res.data?.exploreGeoVerify);
       }).catch(() => {});
       loadFeedSettings();
-      api.get('/parent/explore/stats').then(res => setStats(res.data)).catch(() => {});
+      if (sourceSuggestions.length === 0) {
+        api.get('/parent/explore/feed-sources/suggestions')
+          .then(res => setSourceSuggestions(res.data?.suggestions || []))
+          .catch(() => {});
+      }
+      // P1b：加载孩子列表用于"观察统计"孩子选择器（只拉一次）
+      if (statsChildren.length === 0) {
+        api.get('/auth/members')
+          .then(res => setStatsChildren((res.data || []).filter((m: any) => m.role === 'child')))
+          .catch(() => {});
+      }
     }
     if (tab === 'memories' && timeline === null) {
       api.get('/parent/explore/timeline').then(res => setTimeline(res.data || [])).catch(() => toast.error('回忆加载失败'));
     }
   }, [tab]);
+
+  // P1b：观察统计——进入设置页或切换孩子时按孩子拉取（''=全家）
+  useEffect(() => {
+    if (tab !== 'settings') return;
+    api.get('/parent/explore/stats', statsChildId ? { params: { childId: statsChildId } } : undefined)
+      .then(res => setStats(res.data))
+      .catch(() => {});
+  }, [tab, statsChildId]);
 
   const runSearch = async () => {
     if (!query.trim()) {
@@ -299,7 +360,8 @@ export default function ParentExplore() {
       };
       recorder.onstop = () => {
         stream.getTracks().forEach(track => track.stop());
-        const blob = new Blob(replyChunks.current, { type: recorder.mimeType || mimeType });
+        // B2-2 修复：剥离 codecs 参数（audio/webm;codecs=opus → audio/webm），后端按基础 MIME 校验
+        const blob = new Blob(replyChunks.current, { type: (recorder.mimeType || mimeType).split(';')[0] });
         const duration = Math.max(1, Math.round((Date.now() - replyStartedAt.current) / 1000));
         const reader = new FileReader();
         reader.onload = () => {
@@ -430,12 +492,14 @@ export default function ParentExplore() {
     setPushPreviewLoading(true);
     try {
       const res = await api.post('/parent/explore/feed/push-link', { url: pushUrl.trim() });
-      setPushForm({
-        title: res.data?.title || '',
-        summary: res.data?.summary || '',
+      setPushForm(prev => ({
+        ...prev,
+        title: res.data?.title || prev.title,
+        summary: res.data?.summary || prev.summary,
         imageUrl: res.data?.imageUrl || '',
-        sourceUrl: res.data?.sourceUrl || pushUrl.trim()
-      });
+        sourceUrl: res.data?.sourceUrl || pushUrl.trim(),
+        officialUrl: prev.officialUrl || res.data?.sourceUrl || pushUrl.trim()
+      }));
     } catch (e: any) {
       toast.warning(e.response?.data?.message || t('toast.operateFailed'));
       setPushForm(prev => ({ ...prev, sourceUrl: pushUrl.trim() }));
@@ -455,7 +519,7 @@ export default function ParentExplore() {
       await api.post('/parent/explore/feed/push', pushForm);
       toast.success(t('explore.feedPushSuccess'));
       setPushUrl('');
-      setPushForm({ title: '', summary: '', imageUrl: '', sourceUrl: '' });
+      setPushForm(EMPTY_PUSH_FORM);
     } catch (e: any) {
       toast.error(e.response?.data?.message || t('toast.operateFailed'));
     } finally {
@@ -815,6 +879,26 @@ export default function ParentExplore() {
                 {t('explore.feedSourcesTitle')}
               </div>
               <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.feedSourcesDesc')}</p>
+              {sourceSuggestions.length > 0 && (
+                <div className="rounded-2xl bg-sky-50/70 border border-sky-100 px-3 py-2 space-y-1.5">
+                  <div className="text-[11px] font-black text-sky-700">{t('explore.feedSourceSeedTitle')}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sourceSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        title={s.note}
+                        onClick={() => { if (s.urlTemplate) setSourceUrl(s.urlTemplate); setSourceLabel(s.label); setSourceHint(s.note); }}
+                        className="min-h-[36px] rounded-full bg-white border border-sky-200 px-3 py-1 text-xs font-bold text-sky-700"
+                      >
+                        + {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  {sourceHint && <div className="text-[11px] font-bold text-sky-600 leading-relaxed">💡 {sourceHint}</div>}
+                  <div className="text-[11px] font-bold text-slate-400 leading-relaxed">{t('explore.feedSourceSeedHint')}</div>
+                </div>
+              )}
               {feedSettings && feedSettings.sources.length === 0 && (
                 <div className="rounded-2xl bg-slate-50 px-3 py-3 text-xs font-bold text-slate-400">{t('explore.feedSourcesEmpty')}</div>
               )}
@@ -924,6 +1008,49 @@ export default function ParentExplore() {
                 placeholder={t('explore.feedPushSummaryPlaceholder')}
                 className="w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none focus:border-rose-300"
               />
+              {/* 探索发现 v2：结构化活动字段（都可选，填了孩子端更清楚，且能按年龄/有效期/城市筛） */}
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3 space-y-2">
+                <div className="text-[11px] font-black text-slate-400">活动详情（可选）</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={pushForm.city} onChange={e => setPushForm(p => ({ ...p, city: e.target.value }))} placeholder="城市" className={FEED_INP} />
+                  <input value={pushForm.district} onChange={e => setPushForm(p => ({ ...p, district: e.target.value }))} placeholder="区域" className={FEED_INP} />
+                </div>
+                <input value={pushForm.venue} onChange={e => setPushForm(p => ({ ...p, venue: e.target.value }))} placeholder="场馆" className={FEED_INP} />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={pushForm.feedCategory} onChange={e => setPushForm(p => ({ ...p, feedCategory: e.target.value }))} className={FEED_INP}>
+                    <option value="">分类</option>
+                    <option value="文博">文博</option><option value="科普">科普</option><option value="美术">美术</option>
+                    <option value="阅读">阅读</option><option value="非遗">非遗</option><option value="户外">户外</option>
+                  </select>
+                  <select value={pushForm.verifyStatus} onChange={e => setPushForm(p => ({ ...p, verifyStatus: e.target.value }))} className={FEED_INP}>
+                    <option value="未核验">未核验</option><option value="已核验">已核验</option><option value="售罄">售罄</option><option value="待放票">待放票</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="number" min={0} max={18} value={pushForm.ageMin} onChange={e => setPushForm(p => ({ ...p, ageMin: e.target.value }))} placeholder="适龄最小(岁)" className={FEED_INP} />
+                  <input type="number" min={0} max={18} value={pushForm.ageMax} onChange={e => setPushForm(p => ({ ...p, ageMax: e.target.value }))} placeholder="适龄最大(岁)" className={FEED_INP} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">活动开始</div><input type="date" value={pushForm.activityStart} onChange={e => setPushForm(p => ({ ...p, activityStart: e.target.value }))} className={FEED_INP} /></div>
+                  <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">活动结束</div><input type="date" value={pushForm.activityEnd} onChange={e => setPushForm(p => ({ ...p, activityEnd: e.target.value }))} className={FEED_INP} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">报名截止</div><input type="date" value={pushForm.signupDeadline} onChange={e => setPushForm(p => ({ ...p, signupDeadline: e.target.value }))} className={FEED_INP} /></div>
+                  <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">费用</div><input value={pushForm.price} onChange={e => setPushForm(p => ({ ...p, price: e.target.value }))} placeholder="免费 / ¥30" className={FEED_INP} /></div>
+                </div>
+                <input value={pushForm.bookingMethod} onChange={e => setPushForm(p => ({ ...p, bookingMethod: e.target.value }))} placeholder="预约方式（如 小程序预约 / 电话）" className={FEED_INP} />
+                <input value={pushForm.officialUrl} onChange={e => setPushForm(p => ({ ...p, officialUrl: e.target.value }))} placeholder="官方链接 http(s)://" className={FEED_INP} />
+                <input value={pushForm.recommendReason} onChange={e => setPushForm(p => ({ ...p, recommendReason: e.target.value }))} placeholder="推荐理由" className={FEED_INP} />
+                <input value={pushForm.notes} onChange={e => setPushForm(p => ({ ...p, notes: e.target.value }))} placeholder="注意事项" className={FEED_INP} />
+                <div className="grid grid-cols-2 gap-2">
+                  <div><div className="text-[10px] font-bold text-rose-400 mb-0.5">推送生效日 ★</div><input type="date" value={pushForm.validFrom} onChange={e => setPushForm(p => ({ ...p, validFrom: e.target.value }))} className={FEED_INP} /></div>
+                  <div><div className="text-[10px] font-bold text-rose-400 mb-0.5">下架日（过期自动下架）</div><input type="date" value={pushForm.validUntil} onChange={e => setPushForm(p => ({ ...p, validUntil: e.target.value }))} className={FEED_INP} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 items-center">
+                  <div className="text-[11px] font-bold text-slate-500">推荐分（1–5）</div>
+                  <input type="number" min={1} max={5} value={pushForm.recommendScore} onChange={e => setPushForm(p => ({ ...p, recommendScore: e.target.value }))} placeholder="1-5" className={FEED_INP} />
+                </div>
+              </div>
               <Button fullWidth onClick={pushFeedCard} loading={pushing} disabled={!pushForm.title.trim()} className="bg-rose-500 hover:bg-rose-600">
                 {t('explore.feedPushConfirm')}
               </Button>
@@ -935,6 +1062,27 @@ export default function ParentExplore() {
                 <BarChart3 size={18} className="text-teal-500" />
                 {t('explore.statsTitle')}
               </div>
+              {/* P1b：观察统计——孩子选择器（''=全家） */}
+              {statsChildren.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-500">{t('explore.statsChildFilter')}</span>
+                  <button
+                    onClick={() => setStatsChildId('')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${statsChildId === '' ? 'bg-teal-500 text-white shadow' : 'bg-white border border-slate-200 text-slate-500'}`}
+                  >
+                    {t('explore.statsChildAll')}
+                  </button>
+                  {statsChildren.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setStatsChildId(c.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${statsChildId === c.id ? 'bg-teal-500 text-white shadow' : 'bg-white border border-slate-200 text-slate-500'}`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               {stats ? (
                 <>
                   <div className="grid grid-cols-2 gap-2">
@@ -955,6 +1103,37 @@ export default function ParentExplore() {
                       ))}
                     </div>
                   )}
+                  {/* P1b：去过的地方清单（按类型归类——名称 / 次数 / 最近日期） */}
+                  <div className="pt-1">
+                    <div className="text-xs font-black text-slate-500 mb-2">{t('explore.statsVisitedTitle')}</div>
+                    {visitedByCategory.length === 0 ? (
+                      <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-200 p-4 text-center text-xs font-bold text-slate-400">
+                        {t('explore.statsVisitedEmpty')}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {visitedByCategory.map(group => (
+                          <div key={group.category}>
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className="text-base">{EXPLORE_CATEGORY_ICONS[group.category] || '📍'}</span>
+                              <span className="text-xs font-black text-slate-700">{group.category}</span>
+                              <span className="text-[11px] font-bold text-slate-400">· {group.places.length}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {group.places.map(p => (
+                                <div key={p.placeId} className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2">
+                                  <span className="text-xs font-black text-slate-800 truncate">{p.title}</span>
+                                  <span className="shrink-0 text-[11px] font-bold text-slate-500">
+                                    {t('explore.statsVisitedCount', { count: p.checkinCount })} · {formatDay(p.lastVisitedAt)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
                 <div className="text-xs font-bold text-slate-400">{t('common.loading')}</div>
@@ -970,6 +1149,18 @@ export default function ParentExplore() {
               <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.achievementsDesc')}</p>
               <Button fullWidth onClick={() => navigate('/parent/achievements')} className="bg-slate-900 hover:bg-slate-800">
                 {t('explore.manageAchievements')}
+              </Button>
+            </div>
+
+            {/* 地图定位：给"未定位"的地点批量补坐标（孩子地图上才看得到） */}
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="font-black text-slate-900 flex items-center gap-2">
+                <MapPin size={18} className="text-sky-500" />
+                {t('explore.geocodeTitle')}
+              </div>
+              <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.geocodeDesc')}</p>
+              <Button fullWidth loading={geocoding} onClick={handleGeocodeMissing} className="bg-sky-600 hover:bg-sky-700">
+                {t('explore.geocodeButton')}
               </Button>
             </div>
           </section>

@@ -17,6 +17,20 @@ import {
 
 // 成就图标库 - 按类别分组，统一 emoji 风格
 const ACHIEVEMENT_ICON_CATEGORIES = {
+  '探索': [
+    { icon: '🧭', name: '指南针' },
+    { icon: '🗺️', name: '地图' },
+    { icon: '🏛️', name: '博物馆' },
+    { icon: '🔬', name: '科技馆' },
+    { icon: '🌿', name: '自然' },
+    { icon: '🧳', name: '旅行' },
+    { icon: '📸', name: '相机' },
+    { icon: '🎤', name: '语音' },
+    { icon: '🏔️', name: '高山' },
+    { icon: '🏕️', name: '露营' },
+    { icon: '🌟', name: '全能' },
+    { icon: '🚗', name: '出行' },
+  ],
   '基础': [
     { icon: '🌱', name: '新芽' },
     { icon: '🐝', name: '蜜蜂' },
@@ -138,6 +152,12 @@ const CONDITION_TYPES = [
   { value: 'category_count', label: '特定类别任务完成数', needValue: true, needCategory: true },
   { value: 'streak_days', label: '连续天数完成任务', needValue: true, needCategory: true },
   { value: 'manual', label: '家长确认类', needValue: false, needCategory: false },
+  // 探索成就：这些类型由后端评估，前端需在此登记，否则编辑时目标值输入框消失、下拉会改坏类型
+  { value: 'explore_checkin_count', label: '探索·累计打卡次数', needValue: true, needCategory: false },
+  { value: 'explore_category_count', label: '探索·某类地点打卡数', needValue: true, needCategory: false },
+  { value: 'explore_voice_count', label: '探索·语音留言数', needValue: true, needCategory: false },
+  { value: 'explore_media_count', label: '探索·照片纪念数', needValue: true, needCategory: false },
+  { value: 'explore_confirmed_count', label: '探索·家长确认探索次数', needValue: true, needCategory: false },
 ];
 
 // 任务类别
@@ -334,8 +354,39 @@ export default function ParentAchievements() {
   // 编辑状态
   const [editingAchievement, setEditingAchievement] = useState<any>(null);
 
-  useEffect(() => { fetchList(); }, []);
-  const fetchList = async () => { const res = await api.get('/parent/achievements'); setList(res.data); };
+  const [children, setChildren] = useState<any[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string>('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get('/auth/members');
+        const kids = (res.data || []).filter((m: any) => m.role === 'child');
+        setChildren(kids);
+        if (kids.length > 0) setSelectedChildId(prev => prev || kids[0].id);
+      } catch (e) { console.error(e); }
+    })();
+  }, []);
+
+  useEffect(() => { fetchList(); }, [selectedChildId]);
+  const fetchList = async () => {
+    const res = await api.get('/parent/achievements', selectedChildId ? { params: { childId: selectedChildId } } : undefined);
+    setList(res.data);
+  };
+
+  // P3：家长手动颁发"高光时刻"成就（后端 /award：颁发后不自动发奖，由孩子领取）
+  const handleAward = async (item: any) => {
+    if (!selectedChildId) { toast.warning('请先在上方选择要颁发的孩子'); return; }
+    const ok = await confirm({ title: '颁发成就', message: `确认给该孩子颁发「${item.title}」吗？颁发后由孩子自己去领取奖励。`, confirmText: '颁发' });
+    if (!ok) return;
+    try {
+      await api.post(`/parent/achievements/${item.id}/award`, { childId: selectedChildId });
+      toast.success('已颁发，等待孩子领取');
+      fetchList();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || '颁发失败');
+    }
+  };
 
   const resetForm = () => {
     setTitle('');
@@ -469,6 +520,11 @@ export default function ParentAchievements() {
       case 'level_reach': return `🚀 达到 ${item.conditionValue} 级`;
       case 'category_count': return `📊 完成 ${item.conditionValue} 个${item.conditionCategory || ''}任务`;
       case 'streak_days': return `🔥 连续 ${item.conditionValue} 天${item.conditionCategory ? `(${item.conditionCategory})` : ''}`;
+      case 'explore_checkin_count': return `🧭 完成 ${item.conditionValue} 次探索打卡`;
+      case 'explore_category_count': return `🗺️ 打卡 ${item.conditionValue} 个${item.conditionCategory ? ` ${String(item.conditionCategory).replace(/,/g, '/')} ` : ''}地点`;
+      case 'explore_voice_count': return `🎙️ 留下 ${item.conditionValue} 条语音留言`;
+      case 'explore_media_count': return `📷 上传 ${item.conditionValue} 次照片纪念`;
+      case 'explore_confirmed_count': return `🎒 完成 ${item.conditionValue} 次家长确认探索`;
       default: return item.conditionType;
     }
   };
@@ -782,6 +838,21 @@ export default function ParentAchievements() {
           tone="from-yellow-50 to-orange-50 border-yellow-100"
         />
 
+        {children.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-gray-500">查看孩子：</span>
+            {children.map((c: any) => (
+              <button
+                key={c.id}
+                onClick={() => setSelectedChildId(c.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${selectedChildId === c.id ? 'bg-yellow-500 text-white shadow' : 'bg-white border border-gray-200 text-gray-500'}`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-2xl border border-gray-100 bg-white p-3 text-center">
             <div className="text-xl font-black text-gray-800">{list.length}</div>
@@ -946,11 +1017,20 @@ export default function ParentAchievements() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <div className={`px-2 py-1 rounded-full text-[10px] font-bold ${
-                      isUnlocked ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'
-                    }`}>
-                      {isUnlocked ? '已解锁' : '进行中'}
-                    </div>
+                    {(() => {
+                      const claimable = item.rewardClaimable;
+                      const target = Number(item.conditionValue || 0);
+                      const cls = isUnlocked ? (claimable ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600') : 'bg-gray-50 text-gray-400';
+                      const label = isUnlocked
+                        ? (claimable ? '待领取' : '已完成')
+                        : (target > 0 ? `进行中 ${Math.min(Number(item.progress || 0), target)}/${target}` : '进行中');
+                      return <div className={`px-2 py-1 rounded-full text-[10px] font-bold ${cls}`}>{label}</div>;
+                    })()}
+                    {item.conditionType === 'manual' && !isUnlocked && selectedChildId && (
+                      <button onClick={() => handleAward(item)} className="px-2 py-1 rounded-full text-[10px] font-bold bg-purple-500 text-white hover:bg-purple-600 transition-colors whitespace-nowrap">
+                        颁发
+                      </button>
+                    )}
                     <button onClick={() => openEdit(item)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
                       <Pen size={16}/>
                     </button>

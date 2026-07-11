@@ -93,6 +93,27 @@ export default function ChildLayout() {
         try { localStorage.setItem(storageKey, latestReviewAt); } catch { /* 忽略：本地存储不可用 */ }
       }
 
+      // P5：探索/家长确认/手动颁发解锁的成就——复用提醒机制，提示孩子去领取（基线持久化，首次不弹）
+      try {
+        const achRes = await api.get('/child/all-achievements');
+        const claimableIds: string[] = (achRes.data || [])
+          .filter((a: any) => a.unlocked && a.rewardClaimable)
+          .map((a: any) => a.id);
+        const achKey = `starcoin:seenClaimableAch:${user.id}`;
+        const firstAchLoad = localStorage.getItem(achKey) === null;
+        let seen: string[] = [];
+        try { seen = JSON.parse(localStorage.getItem(achKey) || '[]'); } catch { seen = []; }
+        const fresh = claimableIds.filter(id => !seen.includes(id));
+        if (!firstAchLoad && fresh.length > 0) {
+          const a0 = (achRes.data || []).find((a: any) => a.id === fresh[0]);
+          const title0 = a0?.displayTitle || a0?.title || '新成就';
+          toast.showToast(`🎉 解锁了「${title0}」${fresh.length > 1 ? ` 等 ${fresh.length} 个成就` : ''}，快去「成就」领取奖励！`, 'success', 6000);
+        }
+        try { localStorage.setItem(achKey, JSON.stringify(claimableIds)); } catch { /* 忽略：本地存储不可用 */ }
+      } catch (achErr) {
+        console.error('achievement reminder load failed:', achErr);
+      }
+
       try {
         const reminderRes = await api.get('/child/task-session-reminders');
         setTaskReminders(reminderRes.data || []);
@@ -191,7 +212,7 @@ export default function ChildLayout() {
       {/* PC Device Frame Container */}
       <div
         data-child-app-frame="true"
-        className="w-full h-screen md:h-[850px] md:max-w-md bg-gray-50 flex flex-col md:rounded-[2.5rem] md:shadow-2xl md:border-[8px] md:border-gray-900 overflow-hidden relative"
+        className="w-full h-[100dvh] md:h-[850px] md:max-w-md bg-gray-50 flex flex-col md:rounded-[2.5rem] md:shadow-2xl md:border-[8px] md:border-gray-900 overflow-hidden relative"
       >
           
           {/* Top Bar */}
@@ -349,7 +370,7 @@ export default function ChildLayout() {
       {/* 家长 PIN 提示弹窗 - 支持安全区域 */}
       {showDefaultPinHint && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
             <div className="text-center">
               <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle className="w-8 h-8 text-blue-600" />
@@ -386,7 +407,7 @@ export default function ChildLayout() {
       {/* 修改PIN码提醒弹窗 - 支持安全区域 */}
       {showPinChangeReminder && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
+          <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)' }}>
             <div className="text-center">
               <div className="text-5xl mb-3">🔐</div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">安全提醒</h3>

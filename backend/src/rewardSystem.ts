@@ -1,6 +1,7 @@
 import { Express } from 'express';
 import { getDb } from './database';
 import { randomUUID } from 'crypto';
+import { normalizeLotteryPrize, resolveLotteryRewardAmount } from './lotteryRules';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const logger = {
@@ -320,7 +321,8 @@ export const updateChestSettings = async (db: any, familyId: string, input: any)
 };
 
 const rarityRank = (rarity: string) => {
-  const ranks: Record<string, number> = { common: 1, uncommon: 2, rare: 3, legendary: 4 };
+  // P2：统一为抽奖的 5 档稀有度（新增 epic），与 RARITY_RANK 一致
+  const ranks: Record<string, number> = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
   return ranks[rarity] || 1;
 };
 
@@ -366,9 +368,14 @@ export const drawChestReward = async (
   if (items.length === 0) return null;
 
   const candidates = filterChestItemsByDifficulty(items, difficulty);
+  // P2：权重统一——并入抽奖的 5 档稀有度因子（weight × 稀有度因子），再叠加任务难度努力加成（家长确认保留）
   const weightedItems = candidates.map((item: any) => ({
     ...item,
-    adjustedWeight: Math.max(1, Math.round(Number(item.weight || 10) * difficultyWeightMultiplier(item, difficulty))),
+    adjustedWeight: Math.max(1, Math.round(
+      Number(item.weight || 10)
+      * (LOTTERY_RARITY_WEIGHT_FACTOR[item.rarity || 'common'] || 1)
+      * difficultyWeightMultiplier(item, difficulty)
+    )),
   }));
   const totalWeight = weightedItems.reduce((sum: number, p: any) => sum + p.adjustedWeight, 0);
   let random = Math.random() * totalWeight;
@@ -575,6 +582,9 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const { name, type, value, weight, rarity, icon, description } = req.body;
     if (!name || !type || value === undefined) return res.status(400).json({ message: '名称、类型、数值不能为空' });
     if (!['coins', 'xp', 'privilegePoints', 'lotteryTicket', 'shopDiscount'].includes(type)) return res.status(400).json({ message: '无效的类型' });
+    // P2：启用中的宝箱奖品总数上限 9（够随机又不稀释稀有奖）；新增默认即启用，故先校验
+    const activeCount = await getDb().get('SELECT COUNT(*) as c FROM reward_pools WHERE familyId = ? AND isActive = 1', request.user!.familyId);
+    if ((activeCount?.c || 0) >= 9) return res.status(400).json({ message: '启用中的宝箱奖品已达上限（9 个），请先停用或删除其他奖品' });
     await getDb().run(
       `INSERT INTO reward_pools (id, familyId, name, type, value, weight, rarity, icon, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       randomUUID(), request.user!.familyId, name, type, value, weight || 10, rarity || 'common', icon || '🎁', description || ''
@@ -592,6 +602,11 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     if (!['coins', 'xp', 'privilegePoints', 'lotteryTicket', 'shopDiscount'].includes(nextType)) return res.status(400).json({ message: '无效的类型' });
     const nextName = name !== undefined ? name : existing.name;
     if (!nextName) return res.status(400).json({ message: '名称不能为空' });
+    // P2：若本次是"停用→启用"，需保证启用总数不超过上限 9（防止绕过添加校验）
+    if (isActive !== undefined && isActive && !existing.isActive) {
+      const activeCount = await getDb().get('SELECT COUNT(*) as c FROM reward_pools WHERE familyId = ? AND isActive = 1', request.user!.familyId);
+      if ((activeCount?.c || 0) >= 9) return res.status(400).json({ message: '启用中的宝箱奖品已达上限（9 个），请先停用其他奖品' });
+    }
     await getDb().run(
       `UPDATE reward_pools SET name = ?, type = ?, value = ?, weight = ?, rarity = ?, icon = ?, description = ?, isActive = ? WHERE id = ? AND familyId = ?`,
       nextName, nextType,
@@ -624,9 +639,10 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
        ORDER BY
          CASE rarity
            WHEN 'legendary' THEN 1
-           WHEN 'rare' THEN 2
-           WHEN 'uncommon' THEN 3
-           ELSE 4
+           WHEN 'epic' THEN 2
+           WHEN 'rare' THEN 3
+           WHEN 'uncommon' THEN 4
+           ELSE 5
          END,
          name ASC`,
       request.user!.familyId
@@ -1278,6 +1294,7 @@ export interface DrawResultV2 {
   bonusPrivilegePoints: number;
   isFreeSpin: boolean;
   isDoubleNext: boolean;
+  isNothing?: boolean;
   pityTriggered: {
     rare: boolean;
     epic: boolean;
@@ -1367,6 +1384,7 @@ export const drawPrizeCoreV2 = async (
 
   const newInventoryId = randomUUID();
   const effectType = prize.effectType;
+  const normalizedPrize = normalizeLotteryPrize(prize);
 
   // 处理特殊效果
   // draw_again: 再抽一次
@@ -1391,45 +1409,48 @@ export const drawPrizeCoreV2 = async (
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
        VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
-      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+      newInventoryId, childId, prize.id, normalizedPrize.title, prize.icon, cost, source, new Date().toISOString()
     );
-    return { prize, newInventoryId, isDrawAgain: true, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+    return { prize: normalizedPrize, newInventoryId, isDrawAgain: true, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'bonus_coins') {
-    let bonusAmount = prize.cost || 20;
+    let bonusAmount = resolveLotteryRewardAmount(prize);
     if (await consumeDoubleNextItem()) bonusAmount = bonusAmount * 2; // 双倍卡自动兑现
+    const awardedPrize = normalizeLotteryPrize({ ...prize, cost: bonusAmount });
     await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', bonusAmount, childId);
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
        VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
-      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+      newInventoryId, childId, prize.id, awardedPrize.title, prize.icon, cost, source, new Date().toISOString()
     );
-    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: true, bonusCoins: bonusAmount, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+    return { prize: awardedPrize, newInventoryId, isDrawAgain: false, isBonusCoins: true, bonusCoins: bonusAmount, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'bonus_xp') {
-    let bonusAmount = Math.max(1, Number(prize.cost || 10));
+    let bonusAmount = resolveLotteryRewardAmount(prize);
     if (await consumeDoubleNextItem()) bonusAmount = bonusAmount * 2; // 双倍卡自动兑现
+    const awardedPrize = normalizeLotteryPrize({ ...prize, cost: bonusAmount });
     await db.run('UPDATE users SET xp = xp + ? WHERE id = ?', bonusAmount, childId);
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
        VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
-      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+      newInventoryId, childId, prize.id, awardedPrize.title, prize.icon, cost, source, new Date().toISOString()
     );
-    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: true, bonusXp: bonusAmount, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+    return { prize: awardedPrize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: true, bonusXp: bonusAmount, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'bonus_privilege') {
-    let bonusAmount = Math.max(1, Number(prize.cost || 1));
+    let bonusAmount = resolveLotteryRewardAmount(prize);
     if (await consumeDoubleNextItem()) bonusAmount = bonusAmount * 2; // 双倍卡自动兑现
+    const awardedPrize = normalizeLotteryPrize({ ...prize, cost: bonusAmount });
     await db.run('UPDATE users SET privilegePoints = privilegePoints + ? WHERE id = ?', bonusAmount, childId);
     await db.run(
       `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt)
        VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'used', ?)`,
-      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+      newInventoryId, childId, prize.id, awardedPrize.title, prize.icon, cost, source, new Date().toISOString()
     );
-    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: true, bonusPrivilegePoints: bonusAmount, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+    return { prize: awardedPrize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: true, bonusPrivilegePoints: bonusAmount, isFreeSpin: false, isDoubleNext: false, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   if (effectType === 'free_spin') {
@@ -1446,6 +1467,16 @@ export const drawPrizeCoreV2 = async (
       newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source
     );
     return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: true, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
+  }
+
+  // 谢谢参与/空奖：弹出即结束，不进背包（记为 redeemed 以正确计入每日次数，但不作为待兑现物品）
+  const isNothingPrize = effectType === 'none' || String(prize.title || '').includes('谢谢参与');
+  if (isNothingPrize) {
+    await db.run(
+      `INSERT INTO user_inventory (id, childId, wishId, title, icon, cost, costType, source, status, redeemedAt) VALUES (?, ?, ?, ?, ?, ?, 'coins', ?, 'redeemed', ?)`,
+      newInventoryId, childId, prize.id, prize.title, prize.icon, cost, source, new Date().toISOString()
+    );
+    return { prize, newInventoryId, isDrawAgain: false, isBonusCoins: false, bonusCoins: 0, isBonusXp: false, bonusXp: 0, isBonusPrivilegePoints: false, bonusPrivilegePoints: 0, isFreeSpin: false, isDoubleNext: false, isNothing: true, pityTriggered, monthlyEpicOrAboveCount, monthlyEpicOrAboveLimit: LOTTERY_EPIC_OR_ABOVE_MONTHLY_LIMIT };
   }
 
   // 普通奖品
