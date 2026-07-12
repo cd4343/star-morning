@@ -370,8 +370,14 @@ export default function ParentAchievements() {
 
   useEffect(() => { fetchList(); }, [selectedChildId]);
   const fetchList = async () => {
-    const res = await api.get('/parent/achievements', selectedChildId ? { params: { childId: selectedChildId } } : undefined);
-    setList(res.data);
+    try {
+      const res = await api.get('/parent/achievements', selectedChildId ? { params: { childId: selectedChildId } } : undefined);
+      setList(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error('获取成就列表失败:', error);
+      setList([]);
+      toast.error('成就列表暂时无法加载，请稍后重试');
+    }
   };
 
   // P3：家长手动颁发"高光时刻"成就（后端 /award：颁发后不自动发奖，由孩子领取）

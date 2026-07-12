@@ -30,6 +30,13 @@ if not exist "backend\dist\server.js" (
     exit /b 1
 )
 
+node scripts\verify_phase1_deployment.js
+if %errorlevel% neq 0 (
+    echo [ERROR] Phase 1 deployment files are incomplete or in the wrong project root.
+    pause
+    exit /b 1
+)
+
 echo [INFO] Starting backend on port %PORT% ...
 cd backend
 node dist\server.js

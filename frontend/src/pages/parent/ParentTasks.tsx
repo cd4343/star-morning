@@ -232,8 +232,26 @@ export default function ParentTasks() {
   useEffect(() => { fetchTasks(); }, []);
   useEffect(() => { if (activeTab === 'coop') fetchFamilyMissions(); }, [activeTab]);
 
-  const fetchTasks = async () => { const res = await api.get('/parent/tasks'); setTasks(res.data); };
-  const fetchFamilyMissions = async () => { const res = await api.get('/parent/family-missions'); setFamilyMissions(res.data); };
+  const fetchTasks = async () => {
+    try {
+      const res = await api.get('/parent/tasks');
+      setTasks(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error('获取任务列表失败:', error);
+      setTasks([]);
+      toast.error('任务列表暂时无法加载，请稍后重试');
+    }
+  };
+  const fetchFamilyMissions = async () => {
+    try {
+      const res = await api.get('/parent/family-missions');
+      setFamilyMissions(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error('获取家庭合作任务失败:', error);
+      setFamilyMissions([]);
+      toast.error('家庭合作任务暂时无法加载');
+    }
+  };
 
   // 打开编辑
   const openEdit = (task: any) => {

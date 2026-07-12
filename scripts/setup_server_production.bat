@@ -52,6 +52,23 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM Phase 1 package marker: fail here when the ZIP was extracted into a nested folder
+REM instead of overlaying the real project root.
+if not exist "frontend\src\pages\child\ChildToday.tsx" (
+    color 0C
+    echo [ERROR] Phase 1 source is not present in this project root:
+    echo %CD%
+    echo [HINT] The update ZIP must overlay backend, frontend and scripts in this directory.
+    pause
+    exit /b 1
+)
+if not exist "backend\src\productConfig.ts" (
+    color 0C
+    echo [ERROR] Phase 1 backend source is missing. The patch was not fully overlaid.
+    pause
+    exit /b 1
+)
+
 set "DEFAULT_DOMAIN=starcoin.h5-online.com"
 set "DEFAULT_CORS=http://%DEFAULT_DOMAIN%"
 set "DEFAULT_DB_PATH=%CD%\stellar.db"
@@ -237,6 +254,15 @@ if %errorlevel% neq 0 (
 )
 popd
 
+echo [INFO] Verifying Phase 1 build assets...
+node scripts\verify_phase1_deployment.js
+if %errorlevel% neq 0 (
+    color 0C
+    echo [ERROR] Frontend/backend build output is incomplete.
+    pause
+    exit /b 1
+)
+
 echo.
 echo [INFO] Running database migration check...
 node -e "const d=require('./backend/dist/database');const r=require('./backend/dist/rewardSystem');(async()=>{await d.initializeDatabase();await r.initRewardTables();await r.initLotteryTables();const db=d.getDb();const i=await db.get('PRAGMA integrity_check');const f=await db.all('PRAGMA foreign_key_check');console.log('[DB] integrity_check:',Object.values(i)[0]);console.log('[DB] foreign_key_check errors:',f.length);await db.close();process.exit(f.length?1:0);})().catch(e=>{console.error(e);process.exit(1);});"
@@ -261,7 +287,9 @@ echo Database: %STARCOIN_DB_PATH%
 echo Backups: %STARCOIN_BACKUP_DIR%
 echo.
 echo Next step:
-echo   scripts\start_server_simple.bat
+echo   scripts\start_backend_only.bat
+echo Then verify Nginx is serving this exact build:
+echo   scripts\verify_live_frontend.bat
 echo ========================================
 pause
 exit /b 0

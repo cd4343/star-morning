@@ -85,7 +85,16 @@ export default function ParentPrivileges() {
   const [editTimeWindowDays, setEditTimeWindowDays] = useState<number[]>([1,2,3,4,5,6,0]);
 
   useEffect(() => { fetchList(); }, []);
-  const fetchList = async () => { const res = await api.get('/parent/privileges'); setList(res.data); };
+  const fetchList = async () => {
+    try {
+      const res = await api.get('/parent/privileges');
+      setList(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error('获取特权列表失败:', error);
+      setList([]);
+      toast.error('特权列表暂时无法加载，请稍后重试');
+    }
+  };
 
   // 打开编辑
   const openEdit = (p: any) => {
