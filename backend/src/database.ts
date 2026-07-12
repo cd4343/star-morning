@@ -4,6 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { ensureProductConfigTables } from './productConfig';
 import { ensureLotterySafetyTables } from './lotteryRules';
+import { ensureEconomySchema } from './economySchema';
 
 let db: Database;
 
@@ -29,6 +30,7 @@ export const initializeDatabase = async () => {
   await createTables();
   await ensureProductConfigTables(db);
   await ensureLotterySafetyTables(db);
+  await ensureEconomySchema(db);
 
   // B2-6: 迁移版本追踪
   await db.exec(`
@@ -51,6 +53,7 @@ export const initializeDatabase = async () => {
     { version: '010', description: '探索二期发现资讯流（feed 表/关注源/家庭城市配置）' },
     { version: '011', description: '家庭快速配置与推荐内容去重记录' },
     { version: '012', description: '家庭抽奖开关与每日付费抽取安全上限' },
+    { version: '013', description: '奖励经济目标、商品参考价与可回滚变更记录' },
   ];
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);
