@@ -16,6 +16,7 @@ import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
 import { registerProductConfigRoutes } from './productConfigRoutes';
 import { registerParentInboxRoutes } from './parentInboxRoutes';
+import { registerEconomyRoutes } from './economyRoutes';
 import {
   assertPaidLotteryDrawAllowed,
   getLotterySafetySettings,
@@ -1879,6 +1880,7 @@ app.use('/api/child', protect, requireChild);
 registerRewardSystemRoutes(app, protect);
 registerProductConfigRoutes(app, protect);
 registerParentInboxRoutes(app, protect);
+registerEconomyRoutes(app, protect, requireParent);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
 
@@ -6041,97 +6043,6 @@ app.put('/api/parent/privileges/:id', protect, async (req: any, res) => {
 });
 app.delete('/api/parent/privileges/:id', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run('DELETE FROM privileges WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId); res.json({message:'ok'}); });
 
-// ==================== R1: 经济锚点与建议定价 ====================
-// 锚点制：家长只回答几个问题，系统用确定性公式推导建议价；系统只建议，永不自动改价。
-const ECONOMY_SETTING_LIMITS = {
-  ecoTasksPerDay: { min: 1, max: 50, fallback: 10 },
-  ecoCoinPerRmb: { min: 1, max: 100, fallback: 10 },
-  ecoMidPrizeDays: { min: 1, max: 60, fallback: 10 },
-  ecoGamePrivilegePoints: { min: 1, max: 10, fallback: 2 },
-} as const;
-type EconomySettingKey = keyof typeof ECONOMY_SETTING_LIMITS;
-
-const getEconomySettings = async (db: any, familyId: string): Promise<Record<EconomySettingKey, number>> => {
-  const family = await db.get(
-    'SELECT ecoTasksPerDay, ecoCoinPerRmb, ecoMidPrizeDays, ecoGamePrivilegePoints FROM families WHERE id = ?',
-    familyId
-  );
-  const result = {} as Record<EconomySettingKey, number>;
-  for (const key of Object.keys(ECONOMY_SETTING_LIMITS) as EconomySettingKey[]) {
-    const limit = ECONOMY_SETTING_LIMITS[key];
-    const raw = Math.round(Number(family?.[key]));
-    result[key] = Number.isFinite(raw) ? Math.max(limit.min, Math.min(limit.max, raw)) : limit.fallback;
-  }
-  return result;
-};
-
-app.get('/api/parent/economy-settings', protect, requireParent, async (req: any, res) => {
-  const request = req as AuthRequest;
-  res.json(await getEconomySettings(getDb(), request.user!.familyId));
-});
-
-app.put('/api/parent/economy-settings', protect, requireParent, async (req: any, res) => {
-  const request = req as AuthRequest;
-  const db = getDb();
-  const familyId = request.user!.familyId;
-  // 只更新请求中携带的锚点；先全部校验再写入，避免半套更新
-  const updates: Array<{ key: EconomySettingKey; value: number }> = [];
-  for (const key of Object.keys(ECONOMY_SETTING_LIMITS) as EconomySettingKey[]) {
-    if (req.body?.[key] === undefined) continue;
-    const limit = ECONOMY_SETTING_LIMITS[key];
-    const raw = Math.round(Number(req.body[key]));
-    if (!Number.isFinite(raw)) return res.status(400).json({ message: `${key} 必须是数字` });
-    updates.push({ key, value: Math.max(limit.min, Math.min(limit.max, raw)) });
-  }
-  for (const u of updates) {
-    // 列名来自固定白名单（ECONOMY_SETTING_LIMITS 的 key），无注入风险
-    await db.run(`UPDATE families SET ${u.key} = ? WHERE id = ?`, u.value, familyId);
-  }
-  res.json({ message: '经济锚点已更新', ...(await getEconomySettings(db, familyId)) });
-});
-
-// 建议定价：?type=shop 按近14天实测日均收入；?type=privilege 按「日产约1特权点」折算
-app.get('/api/parent/price-suggestion', protect, requireParent, async (req: any, res) => {
-  const request = req as AuthRequest;
-  const db = getDb();
-  const familyId = request.user!.familyId;
-  const type = String(req.query.type || 'shop');
-  if (type !== 'shop' && type !== 'privilege') {
-    return res.status(400).json({ message: 'type 只支持 shop 或 privilege' });
-  }
-  const eco = await getEconomySettings(db, familyId);
-  const rawDays = Math.round(Number(req.query.days));
-  const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(365, rawDays) : eco.ecoMidPrizeDays;
-
-  if (type === 'privilege') {
-    return res.json({
-      suggestedPoints: Math.max(1, Math.round(days)),
-      gameAddonPoints: eco.ecoGamePrivilegePoints,
-      days,
-    });
-  }
-
-  // 商品：近14天该家庭所有孩子日均收入（实测）；无数据时用锚点估算（每天任务数 × 10金币基准）
-  const incomeRow = await db.get(
-    `SELECT COALESCE(SUM(te.earnedCoins), 0) as total
-     FROM task_entries te
-     JOIN users u ON te.childId = u.id
-     WHERE u.familyId = ? AND te.status = 'approved'
-       AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-14 days')`,
-    familyId
-  );
-  const totalEarned = Math.max(0, Math.round(Number(incomeRow?.total || 0)));
-  const estimated = totalEarned <= 0;
-  const dailyIncomeRaw = estimated ? eco.ecoTasksPerDay * 10 : totalEarned / 14;
-  const suggestedPrice = Math.max(1, Math.round(dailyIncomeRaw * days));
-  res.json({
-    dailyIncome: Math.round(dailyIncomeRaw),
-    suggestedPrice,
-    suggestedCoins: suggestedPrice, // 兼容已上线的家长端读取字段
-    days,
-    estimated,
-  });
-});
 app.get('/api/parent/achievements', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();

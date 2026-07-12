@@ -1056,89 +1056,24 @@ export interface SmartPricingResult {
 }
 
 export const calculateSmartPricing = async (db: any, childId: string): Promise<SmartPricingResult> => {
-  // 1. 近7天任务完成率
-  const completionStats = await db.get(`
-    SELECT 
-      COUNT(CASE WHEN status = 'approved' THEN 1 END) as approvedCount,
-      COUNT(CASE WHEN status IN ('approved', 'rejected', 'pending') THEN 1 END) as totalCount
-    FROM task_entries
-    WHERE childId = ? AND date(submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
-  `, childId);
-  const completionRate = completionStats?.totalCount > 0 
-    ? (completionStats.approvedCount || 0) / completionStats.totalCount 
-    : 0.5;
-
-  // 2. 近7天惩罚率
-  const punishmentStats = await db.get(`
-    SELECT COUNT(*) as count FROM punishment_records
-    WHERE childId = ? AND date(createdAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
-  `, childId);
-  const recentPunishmentRate = Math.min((punishmentStats?.count || 0) / 7, 1);
-
-  // 3. 近7天获得金币
-  const weeklyCoinStats = await db.get(`
-    SELECT COALESCE(SUM(earnedCoins), 0) as total FROM task_entries
-    WHERE childId = ? AND status = 'approved' AND date(submittedAt, '+8 hours') >= date('now', '+8 hours', '-7 days')
-  `, childId);
-  const weeklyCoinEarned = weeklyCoinStats?.total || 0;
-
-  // 4. 平均任务金币
-  const avgTaskStats = await db.get(`
-    SELECT COALESCE(AVG(coinReward), 0) as avg FROM tasks t
-    JOIN task_entries te ON t.id = te.taskId
-    WHERE te.childId = ? AND te.status = 'approved' AND date(te.submittedAt, '+8 hours') >= date('now', '+8 hours', '-30 days')
-  `, childId);
-  const avgTaskCoins = avgTaskStats?.avg || 10;
-
-  // 定价因子计算
-  let discountFactor = 1.0;
-  const factors = [];
-
-  // 完成率高 -> 价格上涨（激励保持）
-  if (completionRate >= 0.9) {
-    discountFactor *= 1.15;
-    factors.push('任务完成率优秀，价格上浮15%');
-  } else if (completionRate >= 0.7) {
-    discountFactor *= 1.05;
-    factors.push('任务完成率良好，价格上浮5%');
-  } else if (completionRate >= 0.5) {
-    // 不变
-    factors.push('任务完成率一般，价格维持');
-  } else {
-    discountFactor *= 0.85;
-    factors.push('任务完成率偏低，价格下调15%鼓励参与');
-  }
-
-  // 惩罚率高 -> 价格下降（减压）
-  if (recentPunishmentRate >= 0.3) {
-    discountFactor *= 0.9;
-    factors.push('近期惩罚较多，价格下调10%');
-  }
-
-  // 收入高 -> 价格可承受，微调
-  if (weeklyCoinEarned > avgTaskCoins * 10) {
-    discountFactor *= 1.05;
-    factors.push('近期收入丰厚，微调价格');
-  }
-
-  const basePrice = Math.round(avgTaskCoins * 3); // 基础价格 = 3个任务金币
-  const suggestedPrice = Math.max(1, Math.round(basePrice * discountFactor));
-  
-  let message = factors.join('；') || '按基础价格定价';
-  if (discountFactor < 0.95) message += '。建议关注孩子积极性，适当降低兑换门槛。';
-  else if (discountFactor > 1.05) message += '。孩子表现优秀，适度提高门槛可保持挑战感。';
-
+  const row = await db.get(
+    `SELECT f.ecoGamePrivilegePoints AS points
+       FROM users u JOIN families f ON u.familyId = f.id
+      WHERE u.id = ?`,
+    childId
+  );
+  const stablePrice = Math.max(1, Math.min(10, Math.round(Number(row?.points || 2))));
   return {
-    basePrice,
-    suggestedPrice,
-    discountFactor: Math.round(discountFactor * 100) / 100,
+    basePrice: stablePrice,
+    suggestedPrice: stablePrice,
+    discountFactor: 1,
     factors: {
-      completionRate: Math.round(completionRate * 100),
-      recentPunishmentRate: Math.round(recentPunishmentRate * 100),
-      weeklyCoinEarned,
-      avgTaskCoins: Math.round(avgTaskCoins)
+      completionRate: 0,
+      recentPunishmentRate: 0,
+      weeklyCoinEarned: 0,
+      avgTaskCoins: 0
     },
-    message
+    message: '按家庭固定成长权益锚点定价，不根据孩子表现涨价或降价。'
   };
 };
 
