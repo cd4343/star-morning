@@ -10,9 +10,12 @@ const requiredFiles = [
   'backend/dist/economyRoutes.js',
   'backend/dist/economySchema.js',
   'backend/dist/wishEconomy.js',
+  'backend/dist/taskSettlement.js',
+  'backend/src/taskSettlement.ts',
   'frontend/src/pages/child/ChildToday.tsx',
   'frontend/src/pages/parent/ParentQuickSetup.tsx',
   'frontend/src/pages/parent/ParentWishes.tsx',
+  'frontend/src/pages/parent/ParentTasks.tsx',
   'frontend/src/components/EconomySettingsPanel.tsx',
   'frontend/dist/index.html',
 ];
@@ -53,7 +56,7 @@ for (const relative of referenced) {
 }
 
 const assetNames = fs.existsSync(assetsRoot) ? fs.readdirSync(assetsRoot) : [];
-for (const prefix of ['ChildToday-', 'ChildMe-', 'ParentDashboard-', 'ParentQuickSetup-', 'ParentWishes-', 'EconomySettingsPanel-']) {
+for (const prefix of ['ChildToday-', 'ChildMe-', 'ParentDashboard-', 'ParentQuickSetup-', 'ParentTasks-', 'ParentWishes-', 'EconomySettingsPanel-']) {
   if (!assetNames.some(name => name.startsWith(prefix) && name.endsWith('.js'))) {
     fail(`Missing required page chunk: frontend/dist/assets/${prefix}*.js`);
   }

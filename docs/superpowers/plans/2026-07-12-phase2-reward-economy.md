@@ -178,18 +178,18 @@ POST /api/parent/economy-recalibration/:batchId/rollback
 - Modify: `frontend/src/pages/child/ChildChallenge.tsx`
 - Test: `backend/src/economyRoutes.test.ts`
 
-- [ ] **Step 1: 写测试**：同一 `taskEntryId` 只能结算一次；预告金币、批准金币、账本增量和余额差一致；生活任务不发游戏时间。
-- [ ] **Step 2: 新家庭模板以每日30金币目标校准**，存量任务只出预览，不自动改。
-- [ ] **Step 3: 家长任务编辑显示“预计每天产出/相当于商品积累天数”警告，不禁止家长覆盖。**
-- [ ] **Step 4: 审核响应统一返回**：
+- [x] **Step 1: 写测试**：同一 `taskEntryId` 只能结算一次；预告金币、批准金币、账本增量和余额差一致；生活任务不发游戏时间。
+- [x] **Step 2: 新家庭模板以每日30金币目标校准**，存量任务只出预览，不自动改。
+- [x] **Step 3: 家长任务编辑显示“预计每天产出/相当于商品积累天数”警告，不禁止家长覆盖。**
+- [x] **Step 4: 审核响应统一返回**：
 
 ```ts
 { coinsAwarded, growthXpAwarded, privilegePointsAwarded, gameMinutesAwarded,
   reasons: string[], balanceAfter: { coins, privilegePoints } }
 ```
 
-- [ ] **Step 5: 前端只使用该响应生成到账提示，不在页面重复计算奖励。**
-- [ ] **Step 6: 全部测试、构建通过后提交 `P2-E5: unify task reward settlement`。**
+- [x] **Step 5: 前端只使用该响应生成到账提示，不在页面重复计算奖励。**
+- [x] **Step 6: 全部测试、构建通过后提交 `P2-E5: unify task reward settlement`。**
 
 ### Task 6: 减少孩子端奖励认知负担
 

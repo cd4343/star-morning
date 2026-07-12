@@ -310,6 +310,14 @@ const zhCN: Record<string, string> = {
   'challenge.gameTicketDetail': '游戏票：完成后约 +{minutes} 分钟',
   'challenge.gameTicketSpeedBadge': '🎟️ 提前完成可得',
   'challenge.gameTicketSpeedDetail': '游戏票：比预计时间提前完成，省下的时间可以换游戏分钟 🎟️',
+  'tasks.feedbackScore': '过程反馈',
+  'tasks.fixedReward': '确定到账',
+  'tasks.scoreNotAffectReward': '评分用于记录过程，不再改变已经约定的金币。',
+  'tasks.punishmentSeparate': '惩罚将单独记录并扣除 {coins} 金币。',
+  'tasks.dailyOutput': '每日固定任务预计 {current} 金币 · 家庭目标 {target} 金币',
+  'tasks.nearestProductDays': '按当前经济设置，最近的商品约需积累 {days} 天；这里只预览，不会自动改旧任务。',
+  'tasks.existingPreviewOnly': '这里只预览现有任务产出，不会自动修改任何旧任务。',
+  'tasks.batchSettlement': '✅ 已通过 {count} 个任务，共到账 {coins} 金币、{minutes} 分钟游戏时间。',
 };
 
 export default zhCN;

@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { ensureProductConfigTables } from './productConfig';
 import { ensureLotterySafetyTables } from './lotteryRules';
 import { ensureEconomySchema } from './economySchema';
+import { ensureTaskSettlementSchema } from './taskSettlement';
 
 let db: Database;
 
@@ -31,6 +32,7 @@ export const initializeDatabase = async () => {
   await ensureProductConfigTables(db);
   await ensureLotterySafetyTables(db);
   await ensureEconomySchema(db);
+  await ensureTaskSettlementSchema(db);
 
   // B2-6: 迁移版本追踪
   await db.exec(`

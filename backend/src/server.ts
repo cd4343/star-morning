@@ -30,6 +30,7 @@ import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards'
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
 import { normalizeShopReferenceRmb, toChildWish, toParentWish } from './wishEconomy';
+import { settleTaskEntry, syncTaskSettlementCoinAdjustment, TaskSettlementError } from './taskSettlement';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -1970,42 +1971,15 @@ const autoApproveExpiredTasks = async (db: any, familyId: string) => {
   }
 
   for (const entry of expiredEntries) {
-    // 自动按基础奖励审批；合作任务加成与手动/批量审核同口径（1.5×/1.3×）
-    let coinsToAward = Math.max(0, Math.round(Number(entry.coinReward || 0)));
-    let xpToAward = Math.max(0, Math.round(Number(entry.xpReward || 0)));
-    if (entry.taskType === 'family') {
-      coinsToAward = Math.round(coinsToAward * 1.5);
-      xpToAward = Math.round(xpToAward * 1.3);
-    }
     const submitDateBeijing = getLocalDateString(new Date(entry.submittedAt));
 
-    console.log(`  ✅ 自动审批任务 ${entry.id}，提交日期(北京时间)：${submitDateBeijing}，奖励：${coinsToAward}金币，${xpToAward}经验`);
-
     try {
-      await withTransaction(async () => {
-        // 状态守卫：并发触发（家长多标签页刷新 dashboard）时只有一次能成功，防止重复发币
-        const upd = await db.run(
-          "UPDATE task_entries SET status = 'approved', reviewedAt = ?, earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ? AND status = 'pending'",
-          new Date().toISOString(), coinsToAward, xpToAward, xpToAward, entry.id
-        );
-        if ((upd.changes || 0) !== 1) {
-          console.log(`  ⏭️ 任务 ${entry.id} 已被并发处理，跳过`);
-          return;
-        }
-
-        await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?',
-          coinsToAward, xpToAward, entry.childId);
-
-        if (xpToAward > 0) {
-          const child = await db.get('SELECT rewardXpTotal FROM users WHERE id = ?', entry.childId);
-          if (child && child.rewardXpTotal !== undefined) {
-            const newRewardXpTotal = (child.rewardXpTotal || 0) + xpToAward;
-            const pointsGained = Math.floor(newRewardXpTotal / 100) - Math.floor((child.rewardXpTotal || 0) / 100);
-            await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-              newRewardXpTotal, pointsGained, entry.childId);
-          }
-        }
-      });
+      const outcome = await settleTaskEntry(db, {
+        entryId: entry.id,
+        familyId,
+        grantGameMinutes: settlementEntry => grantTaskSettlementGameMinutes(db, familyId, settlementEntry),
+      }, withTransaction);
+      console.log(`  ✅ 自动审批任务 ${entry.id}，提交日期(北京时间)：${submitDateBeijing}，奖励：${outcome.result.coinsAwarded}金币，${outcome.result.growthXpAwarded}经验`);
     } catch (error) {
       console.error(`  ❌ 自动审批任务 ${entry.id} 失败（已回滚，下次 dashboard 加载时重试）:`, error);
     }
@@ -2687,7 +2661,7 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
 
 app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const { action, timeScore, qualityScore, initiativeScore, finalCoins } = req.body;
+    const { action, qualityScore } = req.body;
     if (!['approve', 'reject'].includes(action)) return res.status(400).json({ message: '无效的审核操作' });
     const entry = await getDb().get(`
       SELECT te.*, t.title as taskTitle, t.coinReward, t.xpReward, t.durationMinutes as expectedDuration,
@@ -2698,27 +2672,7 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
     `, req.params.entryId);
     if (!entry) return res.status(404).json({ message: '不存在' });
     if (entry.familyId !== request.user!.familyId) return res.status(403).json({ message: '无权操作' });
-    if (entry.status !== 'pending') {
-        if (action === 'approve' && entry.status === 'approved') {
-            return res.json({
-                message: '该任务已通过',
-                alreadyReviewed: true,
-                coinsAwarded: entry.earnedCoins || 0,
-                xpAwarded: entry.earnedXp || 0,
-                rewardXpAwarded: entry.rewardXp || 0,
-                privilegePointsAwarded: 0,
-                gameTicketMinutesAwarded: 0,
-                gameTicketAwardLabel: '',
-                gameTicketMinutesRequested: 0,
-                gameTicketMinutesCapped: 0,
-                gameTicketGrant: null,
-                morningStartupTicketMinutesAwarded: 0,
-                morningStartupStreakBonusAwarded: 0,
-                morningStartupStreakDays: 0,
-                unlockedAchievements: [],
-                suggestion: null
-            });
-        }
+    if (entry.status !== 'pending' && !(action === 'approve' && entry.status === 'approved')) {
         return res.status(409).json({ message: '该任务已处理，请勿重复审核' });
     }
 
@@ -2730,134 +2684,27 @@ app.post('/api/parent/review/:entryId', protect, async (req: any, res) => {
         return res.json({ message: '已打回，孩子会看到你的说明' });
     }
 
-    // 计算建议奖励
+    // 评分只用于给家长提供过程反馈；实际到账始终按任务上已确认的基础奖励结算。
     const suggestion = calculateReviewSuggestion(entry.coinReward, entry.xpReward, entry.actualDurationMinutes, entry.expectedDuration, qualityScore);
-    const reviewCategory = normalizeRewardCategory(entry.category);
-    const useBaseSettlement = ['生活', '学习', '早晨启动', '运动', '活动', '情绪调节'].includes(reviewCategory) || entry.completionMode !== 'timer';
-
-    // 计算最终金币（如果前端传了 finalCoins 就用，否则用建议值）
-    let coinsToAward = finalCoins !== undefined
-      ? Math.min(100000, Math.max(0, Math.round(finalCoins)))
-      : useBaseSettlement
-        ? Math.max(0, Math.round(Number(entry.coinReward || 0)))
-        : suggestion.suggestedCoins;
-
-    // 经验值（xp）不受评分影响，固定值，用于升级
-    let xpToAward = entry.xpReward;
-
-    // 合作任务（全家任务）奖励加成：1.5倍金币 + 1.3倍经验
-    if (entry.taskType === 'family') {
-      coinsToAward = Math.round(coinsToAward * 1.5);
-      xpToAward = Math.round(xpToAward * 1.3);
-    }
-
-    // 奖励经验（rewardXp）不受评分影响，固定值，用于计算特权点
-    // 奖励经验 = 基础经验值（固定，不受评分影响）
-    const rewardXpToAward = xpToAward;
-
-    let privilegePointsAwarded = 0;
-    let gameTicketMinutesAwarded = 0;
-    let gameTicketAwardLabel = '';
-    let gameTicketGrant: ScreenTimeGrantResult | null = null;
-    let gameTicketMinutesRequested = 0;
-    let gameTicketMinutesCapped = 0;
-    let morningStartupTicketMinutesAwarded = 0;
-    let morningStartupStreakBonusAwarded = 0;
-    let morningStartupStreakDays = 0;
     try {
-        await withTransaction(async () => {
-            const updateResult = await getDb().run(
-                "UPDATE task_entries SET status = 'approved', reviewedAt = ?, earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ? AND status = 'pending'",
-                new Date().toISOString(), coinsToAward, xpToAward, rewardXpToAward, req.params.entryId
-            );
-            if ((updateResult.changes || 0) !== 1) {
-                const err = new Error('该任务已处理，请刷新后重试');
-                err.name = 'ConflictError';
-                throw err;
-            }
-
-            await getDb().run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', coinsToAward, xpToAward, entry.childId);
-
-            if (rewardXpToAward > 0) {
-                const user = await getDb().get('SELECT rewardXpTotal, privilegePoints FROM users WHERE id = ?', entry.childId);
-                const oldRewardXpTotal = user.rewardXpTotal || 0;
-                const newRewardXpTotal = oldRewardXpTotal + rewardXpToAward;
-
-                const oldPrivilegePoints = Math.floor(oldRewardXpTotal / 100);
-                const newPrivilegePoints = Math.floor(newRewardXpTotal / 100);
-                privilegePointsAwarded = newPrivilegePoints - oldPrivilegePoints;
-
-                await getDb().run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-                    newRewardXpTotal, privilegePointsAwarded, entry.childId);
-            }
-
-            if (reviewCategory === '学习') {
-                const studyGrant = await grantStudySavedGameTickets(getDb(), {
-                    familyId: request.user!.familyId,
-                    childId: entry.childId,
-                    title: entry.taskTitle,
-                    expectedMinutes: entry.expectedDuration,
-                    actualMinutes: entry.actualDurationMinutes,
-                    taskEntryId: req.params.entryId,
-                });
-                gameTicketGrant = studyGrant;
-                gameTicketMinutesAwarded = studyGrant.grantedMinutes;
-                gameTicketMinutesRequested = studyGrant.requestedMinutes;
-                gameTicketMinutesCapped = studyGrant.cappedMinutes;
-                if (gameTicketMinutesAwarded > 0) gameTicketAwardLabel = '学习节省游戏票';
-            } else if (reviewCategory === MORNING_STARTUP_CATEGORY) {
-                const morningAward = await grantMorningStartupGameTickets(getDb(), {
-                    familyId: request.user!.familyId,
-                    childId: entry.childId,
-                    title: entry.taskTitle,
-                    taskEntryId: req.params.entryId,
-                });
-                morningStartupTicketMinutesAwarded = morningAward.startupMinutes;
-                morningStartupStreakBonusAwarded = morningAward.streakBonusMinutes;
-                morningStartupStreakDays = morningAward.streakDays;
-                gameTicketMinutesAwarded = morningAward.total;
-                gameTicketMinutesRequested = morningAward.requestedMinutes;
-                gameTicketMinutesCapped = morningAward.cappedMinutes;
-                gameTicketGrant = {
-                  requestedMinutes: morningAward.requestedMinutes,
-                  grantedMinutes: morningAward.total,
-                  cappedMinutes: morningAward.cappedMinutes,
-                  dailyMaxMinutes: morningAward.grants[0]?.dailyMaxMinutes || 0,
-                  allowanceBefore: morningAward.grants[0]?.allowanceBefore || 0,
-                  earnedMinutesBefore: morningAward.grants[0]?.earnedMinutesBefore || 0,
-                  balanceBefore: morningAward.grants[0]?.balanceBefore || 0,
-                  source: SCREEN_TIME_SOURCES.MORNING_STARTUP,
-                  reason: 'morning_startup',
-                };
-                if (gameTicketMinutesAwarded > 0) {
-                  gameTicketAwardLabel = morningStartupStreakBonusAwarded > 0 ? '早晨启动与连续奖励游戏票' : '早晨启动游戏票';
-                }
-            }
+        const outcome = await settleTaskEntry(getDb(), {
+          entryId: req.params.entryId,
+          familyId: request.user!.familyId,
+          grantGameMinutes: settlementEntry => grantTaskSettlementGameMinutes(getDb(), request.user!.familyId, settlementEntry),
+        }, withTransaction);
+        const unlockedAchievements = outcome.alreadySettled ? [] : await checkAchievements(outcome.childId, getDb());
+        return res.json({
+          message: outcome.alreadySettled ? '该任务已通过' : '已通过',
+          alreadyReviewed: outcome.alreadySettled,
+          ...outcome.result,
+          unlockedAchievements,
+          suggestion,
         });
     } catch (err: any) {
-        if (err?.name === 'ConflictError') return res.status(409).json({ message: err.message });
+        if (err instanceof TaskSettlementError) return res.status(err.statusCode).json({ message: err.message });
         console.error('审核任务失败:', err);
         return res.status(500).json({ message: '审核失败，请重试' });
     }
-
-    const unlockedAchievements = await checkAchievements(entry.childId, getDb());
-    res.json({
-        message: '已通过',
-        coinsAwarded: coinsToAward,
-        xpAwarded: xpToAward,
-        rewardXpAwarded: rewardXpToAward,
-        privilegePointsAwarded: privilegePointsAwarded,
-        gameTicketMinutesAwarded,
-        gameTicketAwardLabel,
-        gameTicketMinutesRequested,
-        gameTicketMinutesCapped,
-        gameTicketGrant,
-        morningStartupTicketMinutesAwarded,
-        morningStartupStreakBonusAwarded,
-        morningStartupStreakDays,
-        unlockedAchievements,
-        suggestion
-    });
 });
 
 
@@ -3326,6 +3173,48 @@ const grantMorningStartupGameTickets = async (
     requestedMinutes: grants.reduce((sum, grant) => sum + grant.requestedMinutes, 0),
     cappedMinutes: grants.reduce((sum, grant) => sum + grant.cappedMinutes, 0),
     grants,
+  };
+};
+
+const grantTaskSettlementGameMinutes = async (db: any, familyId: string, entry: any) => {
+  const category = normalizeRewardCategory(entry.category);
+  if (category === '学习') {
+    const grant = await grantStudySavedGameTickets(db, {
+      familyId,
+      childId: entry.childId,
+      title: entry.taskTitle,
+      expectedMinutes: entry.expectedDuration,
+      actualMinutes: entry.actualDurationMinutes,
+      taskEntryId: entry.id,
+    });
+    return {
+      gameMinutesAwarded: grant.grantedMinutes,
+      gameTicketAwardLabel: '学习节省游戏票',
+      gameTicketMinutesRequested: grant.requestedMinutes,
+      gameTicketMinutesCapped: grant.cappedMinutes,
+      gameTicketGrant: grant,
+      reasons: grant.grantedMinutes > 0
+        ? [`比预计时间节省，获得${grant.grantedMinutes}分钟游戏时间`]
+        : [],
+    };
+  }
+
+  const morning = await grantMorningStartupGameTickets(db, {
+    familyId,
+    childId: entry.childId,
+    title: entry.taskTitle,
+    taskEntryId: entry.id,
+  });
+  return {
+    gameMinutesAwarded: morning.total,
+    gameTicketAwardLabel: morning.streakBonusMinutes > 0 ? '早晨启动与连续奖励游戏票' : '早晨启动游戏票',
+    gameTicketMinutesRequested: morning.requestedMinutes,
+    gameTicketMinutesCapped: morning.cappedMinutes,
+    morningStartupTicketMinutesAwarded: morning.startupMinutes,
+    morningStartupStreakBonusAwarded: morning.streakBonusMinutes,
+    morningStartupStreakDays: morning.streakDays,
+    gameTicketGrant: morning.grants[0] || null,
+    reasons: morning.total > 0 ? [`早晨启动获得${morning.total}分钟游戏时间`] : [],
   };
 };
 
@@ -7674,6 +7563,7 @@ app.put('/api/parent/task-entries/:id/adjust', protect, async (req: any, res) =>
 
     await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', delta, entry.childId);
     await db.run('UPDATE task_entries SET earnedCoins = ? WHERE id = ?', newFinalCoins, entryId);
+    await syncTaskSettlementCoinAdjustment(db, entryId, newFinalCoins, balanceAfter);
 
     // 用新的惩罚结果整体替换（0 则清空）
     await db.run('DELETE FROM punishment_records WHERE taskEntryId = ?', entryId);
@@ -7734,7 +7624,7 @@ app.post('/api/parent/task-entries/batch-review', protect, async (req: any, res)
         return res.status(400).json({ message: '单次批量审核不能超过20条' });
     }
 
-    const results: Array<{ id: string; status: string; coinsAwarded?: number; xpAwarded?: number }> = [];
+    const results: Array<{ id: string; status: string; [key: string]: unknown }> = [];
     const childIdsToCheck = new Set<string>();
 
     for (const entryId of entryIds) {
@@ -7757,41 +7647,13 @@ app.post('/api/parent/task-entries/batch-review', protect, async (req: any, res)
                 continue;
             }
 
-            // 审核通过：按基础奖励发放
-            let coinsToAward = Math.max(0, Math.round(Number(entry.coinReward || 0)));
-            let xpToAward = Math.round(Number(entry.xpReward || 0));
-            // 合作任务加成
-            if (entry.taskType === 'family') {
-                coinsToAward = Math.round(coinsToAward * 1.5);
-                xpToAward = Math.round(xpToAward * 1.3);
-            }
-            const rewardXpToAward = xpToAward;
-            const now = new Date().toISOString();
-
-            const updateResult = await db.run(
-                "UPDATE task_entries SET status = 'approved', reviewedAt = ?, earnedCoins = ?, earnedXp = ?, rewardXp = ? WHERE id = ? AND status = 'pending'",
-                now, coinsToAward, xpToAward, rewardXpToAward, entryId
-            );
-            if ((updateResult.changes || 0) !== 1) {
-                results.push({ id: entryId, status: 'conflict' });
-                continue;
-            }
-
-            await db.run('UPDATE users SET coins = coins + ?, xp = xp + ? WHERE id = ?', coinsToAward, xpToAward, entry.childId);
-
-            if (rewardXpToAward > 0) {
-                const user = await db.get('SELECT rewardXpTotal FROM users WHERE id = ?', entry.childId);
-                const oldRewardXpTotal = user.rewardXpTotal || 0;
-                const newRewardXpTotal = oldRewardXpTotal + rewardXpToAward;
-                // 与单条审核同口径：特权点增量 = 账本(rewardXpTotal)新旧各自取整后求差。
-                // 不得用可花费余额(privilegePoints)推算，否则孩子花掉的点会被错误补回。
-                const privilegePointsDelta = Math.floor(newRewardXpTotal / 100) - Math.floor(oldRewardXpTotal / 100);
-                await db.run('UPDATE users SET rewardXpTotal = ?, privilegePoints = privilegePoints + ? WHERE id = ?',
-                    newRewardXpTotal, privilegePointsDelta, entry.childId);
-            }
-
-            childIdsToCheck.add(entry.childId);
-            results.push({ id: entryId, status: 'approved', coinsAwarded: coinsToAward, xpAwarded: xpToAward });
+            const outcome = await settleTaskEntry(db, {
+              entryId,
+              familyId: request.user!.familyId,
+              grantGameMinutes: settlementEntry => grantTaskSettlementGameMinutes(db, request.user!.familyId, settlementEntry),
+            }, withTransaction);
+            childIdsToCheck.add(outcome.childId);
+            results.push({ id: entryId, status: 'approved', ...outcome.result });
         } catch (err) {
             console.error(`批量审核单项失败 [${entryId}]:`, err);
             results.push({ id: entryId, status: 'error' });

@@ -112,6 +112,22 @@ const TASK_TEMPLATES: Record<FocusArea, QuickStartTask> = {
   },
 };
 
+const calibrateDailyTaskCoins = (tasks: QuickStartTask[], dailyTarget = 30): QuickStartTask[] => {
+  if (tasks.length === 0) return [];
+  const weightTotal = tasks.reduce((sum, task) => sum + task.coinReward, 0);
+  const weighted = tasks.map((task, index) => {
+    const exact = weightTotal > 0 ? (task.coinReward / weightTotal) * dailyTarget : dailyTarget / tasks.length;
+    return { task, index, coins: Math.floor(exact), fraction: exact - Math.floor(exact) };
+  });
+  let remainder = dailyTarget - weighted.reduce((sum, item) => sum + item.coins, 0);
+  for (const item of [...weighted].sort((a, b) => b.fraction - a.fraction || a.index - b.index)) {
+    if (remainder <= 0) break;
+    item.coins += 1;
+    remainder -= 1;
+  }
+  return weighted.sort((a, b) => a.index - b.index).map(item => ({ ...item.task, coinReward: item.coins }));
+};
+
 const assertIntegerInRange = (value: unknown, field: string, min: number, max: number): number => {
   const numberValue = Number(value);
   if (!Number.isInteger(numberValue) || numberValue < min || numberValue > max) {
@@ -150,16 +166,24 @@ export const normalizeQuickSetupInput = (input: unknown): QuickSetupInput => {
   };
 };
 
-export const buildQuickStartPlan = (input: QuickSetupInput): QuickStartPlan => {
+export const buildQuickStartPlan = (input: QuickSetupInput, dailyCoinTarget = 30): QuickStartPlan => {
   const normalized = normalizeQuickSetupInput(input);
+  const normalizedDailyTarget = Number.isInteger(dailyCoinTarget) && dailyCoinTarget >= 1 && dailyCoinTarget <= 200
+    ? dailyCoinTarget
+    : 30;
   const taskCount = Math.min(normalized.dailyCoreActions, normalized.focusAreas.length);
   const weeklyCoinBudget = normalized.weeklyRewardBudgetRmb * 10;
   const smallRewardCost = Math.max(20, Math.round(weeklyCoinBudget * 0.15));
   const mediumRewardCost = Math.max(50, Math.round(weeklyCoinBudget * 0.35));
   const savingsRewardCost = Math.max(100, Math.round(weeklyCoinBudget * 0.8));
 
+  const tasks = calibrateDailyTaskCoins(
+    normalized.focusAreas.slice(0, taskCount).map(area => ({ ...TASK_TEMPLATES[area] })),
+    normalizedDailyTarget,
+  );
+
   return {
-    tasks: normalized.focusAreas.slice(0, taskCount).map(area => ({ ...TASK_TEMPLATES[area] })),
+    tasks,
     wishes: [
       { templateKey: 'quick-start-small-choice', type: 'shop', title: '选择一次家庭小活动', cost: smallRewardCost, icon: '🎲', category: '玩乐' },
       { templateKey: 'quick-start-favorite-snack', type: 'shop', title: '选择一份喜欢的小点心', cost: mediumRewardCost, icon: '🍪', category: '零食' },
@@ -264,8 +288,16 @@ export const applyQuickSetup = async (
   input: QuickSetupInput
 ): Promise<ProductSetupState> => {
   const normalized = normalizeQuickSetupInput(input);
-  const plan = buildQuickStartPlan(normalized);
   await ensureProductConfigTables(db);
+  let dailyCoinTarget = 30;
+  try {
+    const economy = await db.get('SELECT eco_daily_coin_target AS dailyCoinTarget FROM families WHERE id = ?', familyId);
+    const configured = Number(economy?.dailyCoinTarget);
+    if (Number.isInteger(configured) && configured >= 1 && configured <= 200) dailyCoinTarget = configured;
+  } catch {
+    // Older minimal databases receive the default until the additive economy column is present.
+  }
+  const plan = buildQuickStartPlan(normalized, dailyCoinTarget);
 
   await db.exec('BEGIN IMMEDIATE');
   try {

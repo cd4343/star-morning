@@ -498,12 +498,14 @@ export default function ParentDashboard() {
         entryIds: Array.from(selectedReviewIds),
         action: 'approve',
       });
-      const { approved, failed } = res.data;
+      const { approved, failed, results = [] } = res.data;
+      const totalCoins = results.reduce((sum: number, item: any) => sum + Number(item.coinsAwarded || 0), 0);
+      const totalGameMinutes = results.reduce((sum: number, item: any) => sum + Number(item.gameMinutesAwarded || 0), 0);
       setSelectedReviewIds(new Set());
       fetchDashboard();
 
       if (failed === 0) {
-        toast.success(`✅ 成功批量通过 ${approved} 个任务！`);
+        toast.success(t('tasks.batchSettlement', { count: approved, coins: totalCoins, minutes: totalGameMinutes }));
       } else {
         toast.warning(`通过 ${approved} 个，失败 ${failed} 个`);
       }
@@ -555,13 +557,6 @@ export default function ParentDashboard() {
       deduction = Math.max(min, Math.min(max, Math.round(amount)));
     }
     return deduction;
-  };
-
-  const calculateFinalCoins = () => {
-    if (!currentReview) return 0;
-    const baseCoins = currentReview.coinReward;
-    const totalBonus = timeScore + qualityScore + initiativeScore;
-    return Math.round(baseCoins * (100 + totalBonus) / 100);
   };
 
   const getScoreValue = (key: ScoreKey) => {
@@ -714,7 +709,6 @@ export default function ParentDashboard() {
         timeScore,
         qualityScore,
         initiativeScore,
-        finalCoins: calculateFinalCoins()
       });
 
       // 2. 如果启用了惩罚，执行惩罚
@@ -749,6 +743,7 @@ export default function ParentDashboard() {
       const {
         coinsAwarded,
         xpAwarded,
+        growthXpAwarded,
         rewardXpAwarded,
         privilegePointsAwarded,
         gameTicketMinutesAwarded,
@@ -759,7 +754,7 @@ export default function ParentDashboard() {
       } = res.data;
       let message = `✅ 审核通过！\n\n`;
       message += `💰 金币：${coinsAwarded}\n`;
-      message += `⭐ 经验：${xpAwarded}\n`;
+      message += `⭐ 经验：${growthXpAwarded ?? xpAwarded}\n`;
       message += `🎯 奖励经验：${rewardXpAwarded}`;
       if (privilegePointsAwarded > 0) {
         message += `\n👑 特权点：+${privilegePointsAwarded}（累计奖励经验达到 ${Math.floor((rewardXpAwarded || 0) / 100) * 100} 点）`;
@@ -1553,18 +1548,18 @@ export default function ParentDashboard() {
               </div>
 
               {/* 最终结算 */}
-              <div className={`p-4 rounded-xl ${totalBonus >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <div className="p-4 rounded-xl bg-green-50 border border-green-200">
                 <div className="flex justify-between items-center">
                   <div>
-                    <div className="text-sm text-gray-600">综合评分加成</div>
-                    <div className={`text-2xl font-black ${totalBonus >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className="text-sm text-gray-600">{t('tasks.feedbackScore')}</div>
+                    <div className={`text-2xl font-black ${totalBonus >= 0 ? 'text-green-600' : 'text-orange-600'}`}>
                       {totalBonus > 0 ? `+${totalBonus}%` : `${totalBonus}%`}
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm text-gray-600">最终奖励</div>
+                    <div className="text-sm text-gray-600">{t('tasks.fixedReward')}</div>
                     <div className="text-3xl font-black text-yellow-600">
-                      {calculateFinalCoins()} 💰
+                      {currentReview.coinReward} 💰
                     </div>
                     {enablePunishment && (
                       <div className="mt-1 text-xs font-bold text-red-600">
@@ -1574,15 +1569,8 @@ export default function ParentDashboard() {
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 mt-2 text-center">
-                  {enablePunishment ? (
-                    <>
-                      奖励公式：{currentReview.coinReward} × (100% + {totalBonus}%) = {calculateFinalCoins()} 金币；惩罚会单独记录并扣除 {getPunishmentDeduction()} 金币
-                    </>
-                  ) : (
-                    <>
-                      计算公式：{currentReview.coinReward} × (100% + {totalBonus}%) = {calculateFinalCoins()} 金币
-                    </>
-                  )}
+                  {t('tasks.scoreNotAffectReward')}
+                  {enablePunishment ? ` ${t('tasks.punishmentSeparate', { coins: getPunishmentDeduction() })}` : ''}
                 </div>
               </div>
 

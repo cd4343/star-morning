@@ -42,12 +42,14 @@ describe('家庭快速配置推荐计划', () => {
     expect(plan.tasks.map(task => task.focusArea)).toEqual(['morning', 'homework']);
     expect(plan.tasks.every(task => Number.isInteger(task.coinReward) && task.coinReward > 0)).toBe(true);
     expect(plan.tasks.every(task => Number.isInteger(task.xpReward) && task.xpReward > 0)).toBe(true);
+    expect(plan.tasks.reduce((sum, task) => sum + task.coinReward, 0)).toBe(30);
   });
 
   it('生成少量可理解的奖励和特权，不把探索变成金币任务', () => {
     const plan = buildQuickStartPlan({ ...validInput, focusAreas: ['outdoor'] });
 
     expect(plan.tasks).toHaveLength(1);
+    expect(plan.tasks[0].coinReward).toBe(30);
     expect(plan.tasks[0].category).toBe('活动');
     expect(plan.tasks[0].title).not.toContain('探索打卡');
     expect(plan.wishes).toHaveLength(3);
@@ -56,6 +58,11 @@ describe('家庭快速配置推荐计划', () => {
 
   it('相同输入生成稳定结果，支持接口重复提交时去重', () => {
     expect(buildQuickStartPlan(validInput)).toEqual(buildQuickStartPlan(validInput));
+  });
+
+  it('按家庭选择的每日目标校准新任务，不固定写死30金币', () => {
+    const plan = buildQuickStartPlan(validInput, 50);
+    expect(plan.tasks.reduce((sum, task) => sum + task.coinReward, 0)).toBe(50);
   });
 });
 

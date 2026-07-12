@@ -29,6 +29,8 @@ import {
   getTaskCompletionSummary,
 } from '../../utils/taskCompletion';
 import { getSuggestedTaskReward } from '../../utils/taskRewards';
+import { t } from '../../i18n';
+import type { EconomyAuditResponse } from '../../types/economy';
 
 // 预设任务模板
 const TASK_TEMPLATES = [
@@ -75,6 +77,7 @@ export default function ParentTasks() {
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [tasks, setTasks] = useState<any[]>([]);
+  const [economyAudit, setEconomyAudit] = useState<EconomyAuditResponse | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const { showTemplates, selectedIndexes, selectedCount, toggleTemplate, isSelected, openTemplates, closeTemplates } = useTemplateSelector();
 
@@ -229,7 +232,12 @@ export default function ParentTasks() {
   const [missionXpReward, setMissionXpReward] = useState('100');
   const [missionDuration, setMissionDuration] = useState('30');
 
-  useEffect(() => { fetchTasks(); }, []);
+  useEffect(() => {
+    fetchTasks();
+    api.get<EconomyAuditResponse>('/parent/economy-audit')
+      .then(response => setEconomyAudit(response.data))
+      .catch(error => console.error('加载金币目标失败:', error));
+  }, []);
   useEffect(() => { if (activeTab === 'coop') fetchFamilyMissions(); }, [activeTab]);
 
   const fetchTasks = async () => {
@@ -450,10 +458,32 @@ export default function ParentTasks() {
     acc[template.category].push({ ...template, index });
     return acc;
   }, {} as Record<string, (typeof TASK_TEMPLATES[0] & { index: number })[]>);
+  const expectedDailyCoins = tasks
+    .filter(task => task.isEnabled !== 0 && (task.taskType || 'daily') === 'daily')
+    .reduce((sum, task) => sum + Math.max(0, Number(task.coinReward || 0)), 0);
+  const dailyTarget = Number(economyAudit?.settings.settings.dailyCoinTarget || 30);
+  const nearestProductDays = economyAudit?.catalog.items
+    .filter(item => item.daysToRedeem > 0)
+    .sort((a, b) => a.daysToRedeem - b.daysToRedeem)[0]?.daysToRedeem;
+  const outputTone = expectedDailyCoins > dailyTarget * 1.25
+    ? 'border-orange-200 bg-orange-50 text-orange-800'
+    : expectedDailyCoins < dailyTarget * 0.75
+      ? 'border-blue-200 bg-blue-50 text-blue-800'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-800';
 
   return (
     <Layout>
       <Header title="任务管理" showBack onBack={() => navigate('/parent/dashboard')} />
+      <div className={`mx-4 mt-3 rounded-2xl border p-3 ${outputTone}`}>
+        <div className="text-sm font-black">
+          {t('tasks.dailyOutput', { current: expectedDailyCoins, target: dailyTarget })}
+        </div>
+        <div className="mt-1 text-xs font-bold opacity-80">
+          {nearestProductDays
+            ? t('tasks.nearestProductDays', { days: nearestProductDays })
+            : t('tasks.existingPreviewOnly')}
+        </div>
+      </div>
 
       {/* 新建任务 - 底部抽屉 */}
       <BottomSheet

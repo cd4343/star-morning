@@ -94,10 +94,9 @@ export default function ParentQuickSetup() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await Promise.all([
-        api.post('/parent/product-setup/quick', input),
-        api.put('/parent/economy-settings', economy),
-      ]);
+      // 先保存每日金币目标，再按同一目标生成新家庭任务，避免两个并发请求产生不同口径。
+      await api.put('/parent/economy-settings', economy);
+      await api.post('/parent/product-setup/quick', input);
       toast.success(t('quickSetup.saveSuccess'));
       navigate('/parent/dashboard', { replace: true });
     } catch (error) {
