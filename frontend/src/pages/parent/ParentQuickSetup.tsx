@@ -7,6 +7,8 @@ import { useToast } from '../../components/Toast';
 import { t } from '../../i18n';
 import api, { getErrorMessage } from '../../services/api';
 import type { ChildAgeBand, FocusArea, ProductSetupResponse, QuickSetupInput } from '../../types/productConfig';
+import type { EconomyDraft, EconomySettingsResponse } from '../../types/economy';
+import { EconomyModeSelector } from '../../components/EconomySettingsPanel';
 
 const DEFAULT_INPUT: QuickSetupInput = {
   childAgeBand: '9-10',
@@ -43,18 +45,28 @@ export default function ParentQuickSetup() {
   const toast = useToast();
   const [step, setStep] = useState(0);
   const [input, setInput] = useState<QuickSetupInput>(DEFAULT_INPUT);
+  const [economy, setEconomy] = useState<EconomyDraft>({ coinPerRmb: 10, dailyCoinTarget: 30 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
-    api.get<ProductSetupResponse>('/parent/product-setup')
-      .then(response => {
+    Promise.allSettled([
+      api.get<ProductSetupResponse>('/parent/product-setup'),
+      api.get<EconomySettingsResponse>('/parent/economy-settings'),
+    ])
+      .then(([productResult, economyResult]) => {
         if (!active) return;
-        setInput(response.data.settings || response.data.defaults || DEFAULT_INPUT);
-      })
-      .catch(error => {
-        if (active) toast.error(getErrorMessage(error) || t('quickSetup.loadError'));
+        if (productResult.status === 'fulfilled') {
+          setInput(productResult.value.data.settings || productResult.value.data.defaults || DEFAULT_INPUT);
+        } else {
+          toast.error(getErrorMessage(productResult.reason) || t('quickSetup.loadError'));
+        }
+        if (economyResult.status === 'fulfilled') {
+          setEconomy(economyResult.value.data.settings || { coinPerRmb: 10, dailyCoinTarget: 30 });
+        } else {
+          toast.error(getErrorMessage(economyResult.reason) || t('quickSetup.loadError'));
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -82,7 +94,10 @@ export default function ParentQuickSetup() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.post('/parent/product-setup/quick', input);
+      await Promise.all([
+        api.post('/parent/product-setup/quick', input),
+        api.put('/parent/economy-settings', economy),
+      ]);
       toast.success(t('quickSetup.saveSuccess'));
       navigate('/parent/dashboard', { replace: true });
     } catch (error) {
@@ -141,16 +156,21 @@ export default function ParentQuickSetup() {
 
     if (step === 3) {
       return (
-        <OptionGrid title={t('quickSetup.budgetTitle')} description={t('quickSetup.budgetDescription')}>
-          {[0, 20, 30, 50].map(value => (
-            <ChoiceButton
-              key={value}
-              selected={input.weeklyRewardBudgetRmb === value}
-              onClick={() => setInput(current => ({ ...current, weeklyRewardBudgetRmb: value }))}
-              label={value === 0 ? t('quickSetup.budgetVirtual') : t('quickSetup.budgetAmount', { amount: value })}
-            />
-          ))}
-        </OptionGrid>
+        <div className="space-y-6">
+          <OptionGrid title={t('quickSetup.budgetTitle')} description={t('quickSetup.budgetDescription')}>
+            {[0, 20, 30, 50].map(value => (
+              <ChoiceButton
+                key={value}
+                selected={input.weeklyRewardBudgetRmb === value}
+                onClick={() => setInput(current => ({ ...current, weeklyRewardBudgetRmb: value }))}
+                label={value === 0 ? t('quickSetup.budgetVirtual') : t('quickSetup.budgetAmount', { amount: value })}
+              />
+            ))}
+          </OptionGrid>
+          <div className="rounded-3xl border border-blue-100 bg-blue-50 p-4">
+            <EconomyModeSelector value={economy} onChange={setEconomy} compact />
+          </div>
+        </div>
       );
     }
 

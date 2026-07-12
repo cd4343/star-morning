@@ -14,6 +14,19 @@ test('parent completes five-step quick setup at 375px', async ({ page }) => {
   });
 
   await page.route('**/api/auth/members', route => route.fulfill({ json: [] }));
+  await page.route('**/api/parent/dashboard', route => route.fulfill({ json: {
+    children: [], pendingTasks: [], recentActivities: [], stats: {},
+  } }));
+  await page.route('**/api/parent/task-session-reminders', route => route.fulfill({ json: [] }));
+  await page.route('**/api/parent/inbox', route => route.fulfill({ json: [] }));
+  await page.route('**/api/parent/stats', route => route.fulfill({ json: {
+    overview: { todayTasks: 0, weekTasks: 0, monthTasks: 0, totalTasks: 0, streakDays: 0, maxStreakDays: 0 },
+    coins: { todayEarned: 0, weekEarned: 0, monthEarned: 0, totalEarned: 0, todaySpent: 0, weekSpent: 0, monthSpent: 0, totalSpent: 0 },
+    categoryStats: [], dailyAverage: 0, coinTrend: [], nearestAchievements: [], children: [],
+  } }));
+  await page.route('**/api/parent/punishment-tips', route => route.fulfill({ json: [] }));
+  await page.route('**/api/parent/punishment-settings', route => route.fulfill({ json: {} }));
+  await page.route('**/api/parent/weekly-reports**', route => route.fulfill({ json: [] }));
   await page.route('**/api/parent/product-setup', route => route.fulfill({
     json: {
       setupStatus: 'not_started',
@@ -28,6 +41,17 @@ test('parent completes five-step quick setup at 375px', async ({ page }) => {
       preview: { tasks: [], wishes: [], privileges: [] },
     },
   }));
+  await page.route('**/api/parent/economy-settings', async route => {
+    if (route.request().method() === 'PUT') {
+      return route.fulfill({ json: { settings: route.request().postDataJSON() } });
+    }
+    return route.fulfill({ json: {
+      ecoCoinPerRmb: 10,
+      ecoTasksPerDay: 3,
+      dailyCoinTarget: 30,
+      settings: { preset: 'standard', coinPerRmb: 10, dailyCoinTarget: 30 },
+    } });
+  });
 
   let postedBody: Record<string, unknown> | null = null;
   await page.route('**/api/parent/product-setup/quick', async route => {

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const useExternalServer = process.env.PW_EXTERNAL_SERVER === '1';
+
 export default defineConfig({
   testDir: './tests/smoke',
   timeout: 30_000,
@@ -10,8 +12,9 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:3000',
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 3000',
+  webServer: useExternalServer ? undefined : {
+    // Direct Vite process lets Playwright terminate the Windows child cleanly.
+    command: 'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 3000',
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

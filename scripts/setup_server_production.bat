@@ -68,6 +68,18 @@ if not exist "backend\src\productConfig.ts" (
     pause
     exit /b 1
 )
+if not exist "frontend\src\components\EconomySettingsPanel.tsx" (
+    color 0C
+    echo [ERROR] Phase 2 economy panel source is missing. The P2-E4 patch was not fully overlaid.
+    pause
+    exit /b 1
+)
+if not exist "backend\src\wishEconomy.ts" (
+    color 0C
+    echo [ERROR] Phase 2 wish economy source is missing. The P2-E4 patch was not fully overlaid.
+    pause
+    exit /b 1
+)
 
 set "DEFAULT_DOMAIN=starcoin.h5-online.com"
 set "DEFAULT_CORS=http://%DEFAULT_DOMAIN%"
@@ -254,7 +266,7 @@ if %errorlevel% neq 0 (
 )
 popd
 
-echo [INFO] Verifying Phase 1 build assets...
+echo [INFO] Verifying Phase 1 and Phase 2 build assets...
 node scripts\verify_phase1_deployment.js
 if %errorlevel% neq 0 (
     color 0C

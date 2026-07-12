@@ -29,6 +29,7 @@ import {
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
+import { normalizeShopReferenceRmb, toChildWish, toParentWish } from './wishEconomy';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -5777,6 +5778,8 @@ const inferWishCategory = (wish: any) => {
 };
 
 const withWishCategory = (wish: any) => ({ ...wish, category: inferWishCategory(wish) });
+const withParentWishCategory = (wish: any) => withWishCategory(toParentWish(wish));
+const withChildWishCategory = (wish: any) => withWishCategory(toChildWish(wish));
 
 const ensureSingleDrawAgainPrize = async (db: any, familyId: string) => {
     let systemDrawAgain = await db.get(
@@ -5821,13 +5824,16 @@ app.get('/api/parent/wishes', protect, async (req: any, res) => {
     await ensureSingleDrawAgainPrize(db, familyId);
 
     const wishes = await db.all('SELECT * FROM wishes WHERE familyId = ?', familyId);
-    res.json(wishes.map(withWishCategory));
+    res.json(wishes.map(withParentWishCategory));
 });
 app.post('/api/parent/wishes', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     let wishInput = req.body;
     try {
         if (wishInput.type === 'lottery') wishInput = normalizeLotteryPrizeInput(wishInput);
+        if (wishInput.type === 'shop') {
+            wishInput = { ...wishInput, referenceRmb: normalizeShopReferenceRmb(wishInput.referenceRmb) };
+        }
     } catch (err: any) {
         return res.status(400).json({ message: err.message });
     }
@@ -5835,8 +5841,8 @@ app.post('/api/parent/wishes', protect, async (req: any, res) => {
     const rarity = wishInput.rarity || null;
     const category = wishInput.type === 'shop' ? inferWishCategory(wishInput) : null;
     await getDb().run(
-        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight, rarity, effectType, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-        randomUUID(), request.user!.familyId, wishInput.type, wishInput.title, wishInput.cost, wishInput.targetAmount, wishInput.icon, wishInput.stock, weight, rarity, wishInput.effectType || null, category
+        `INSERT INTO wishes (id, familyId, type, title, cost, targetAmount, icon, stock, isActive, weight, rarity, effectType, category, reference_rmb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        randomUUID(), request.user!.familyId, wishInput.type, wishInput.title, wishInput.cost, wishInput.targetAmount, wishInput.icon, wishInput.stock, weight, rarity, wishInput.effectType || null, category, wishInput.type === 'shop' ? wishInput.referenceRmb : null
     );
     res.json({message:'ok'});
 });
@@ -5957,17 +5963,25 @@ app.put('/api/parent/wishes/:id', protect, async (req: any, res) => {
             weight || 25, rarity || 'uncommon', req.params.id, request.user!.familyId
         );
     } else {
-        const { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category } = req.body;
-        let wishInput = { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category };
+        const { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category, referenceRmb } = req.body;
+        let wishInput = { title, cost, icon, stock, weight, rarity, targetAmount, effectType, category, referenceRmb };
         try {
             if (wish.type === 'lottery') wishInput = normalizeLotteryPrizeInput(wishInput);
+            if (wish.type === 'shop') {
+                wishInput = {
+                    ...wishInput,
+                    referenceRmb: referenceRmb === undefined
+                        ? normalizeShopReferenceRmb(wish.reference_rmb)
+                        : normalizeShopReferenceRmb(referenceRmb)
+                };
+            }
         } catch (err: any) {
             return res.status(400).json({ message: err.message });
         }
         const nextCategory = wish.type === 'shop' ? inferWishCategory(wishInput) : null;
         await db.run(
-            'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ?, rarity = ?, targetAmount = ?, effectType = ?, category = ? WHERE id = ? AND familyId = ?',
-            wishInput.title, wishInput.cost, wishInput.icon, wishInput.stock, wishInput.weight || 10, wishInput.rarity || null, wishInput.targetAmount || 0, wishInput.effectType || null, nextCategory, req.params.id, request.user!.familyId
+            'UPDATE wishes SET title = ?, cost = ?, icon = ?, stock = ?, weight = ?, rarity = ?, targetAmount = ?, effectType = ?, category = ?, reference_rmb = ? WHERE id = ? AND familyId = ?',
+            wishInput.title, wishInput.cost, wishInput.icon, wishInput.stock, wishInput.weight || 10, wishInput.rarity || null, wishInput.targetAmount || 0, wishInput.effectType || null, nextCategory, wish.type === 'shop' ? wishInput.referenceRmb : null, req.params.id, request.user!.familyId
         );
     }
     res.json({message:'ok'});
@@ -6916,13 +6930,13 @@ app.get('/api/child/wishes', protect, async (req: any, res) => {
           familyId,
           type
         );
-        return res.json(rows.map(withWishCategory));
+        return res.json(rows.map(withChildWishCategory));
     }
 
     res.json({
-        savings: await db.all("SELECT * FROM wishes WHERE familyId = ? AND type='savings' ORDER BY datetime(createdAt) DESC", familyId),
-        shop: (await db.all("SELECT * FROM wishes WHERE familyId = ? AND type='shop'", familyId)).map(withWishCategory),
-        lottery: (await db.all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery' AND isActive = 1", familyId)).map(withWishCategory)
+        savings: (await db.all("SELECT * FROM wishes WHERE familyId = ? AND type='savings' ORDER BY datetime(createdAt) DESC", familyId)).map(toChildWish),
+        shop: (await db.all("SELECT * FROM wishes WHERE familyId = ? AND type='shop'", familyId)).map(withChildWishCategory),
+        lottery: (await db.all("SELECT * FROM wishes WHERE familyId = ? AND type='lottery' AND isActive = 1", familyId)).map(withChildWishCategory)
     });
 });
 

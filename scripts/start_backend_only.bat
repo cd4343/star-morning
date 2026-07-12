@@ -32,7 +32,7 @@ if not exist "backend\dist\server.js" (
 
 node scripts\verify_phase1_deployment.js
 if %errorlevel% neq 0 (
-    echo [ERROR] Phase 1 deployment files are incomplete or in the wrong project root.
+    echo [ERROR] Phase 1 or Phase 2 deployment files are incomplete or in the wrong project root.
     pause
     exit /b 1
 )

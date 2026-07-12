@@ -7,8 +7,13 @@ const requiredFiles = [
   'backend/dist/server.js',
   'backend/dist/productConfig.js',
   'backend/dist/parentInbox.js',
+  'backend/dist/economyRoutes.js',
+  'backend/dist/economySchema.js',
+  'backend/dist/wishEconomy.js',
   'frontend/src/pages/child/ChildToday.tsx',
   'frontend/src/pages/parent/ParentQuickSetup.tsx',
+  'frontend/src/pages/parent/ParentWishes.tsx',
+  'frontend/src/components/EconomySettingsPanel.tsx',
   'frontend/dist/index.html',
 ];
 
@@ -48,9 +53,9 @@ for (const relative of referenced) {
 }
 
 const assetNames = fs.existsSync(assetsRoot) ? fs.readdirSync(assetsRoot) : [];
-for (const prefix of ['ChildToday-', 'ChildMe-', 'ParentDashboard-', 'ParentQuickSetup-']) {
+for (const prefix of ['ChildToday-', 'ChildMe-', 'ParentDashboard-', 'ParentQuickSetup-', 'ParentWishes-', 'EconomySettingsPanel-']) {
   if (!assetNames.some(name => name.startsWith(prefix) && name.endsWith('.js'))) {
-    fail(`Missing Phase 1 page chunk: frontend/dist/assets/${prefix}*.js`);
+    fail(`Missing required page chunk: frontend/dist/assets/${prefix}*.js`);
   }
 }
 
@@ -84,7 +89,7 @@ if (!process.exitCode) {
   console.log(`[OK] Project root: ${root}`);
   console.log(`[OK] Entry asset: ${entryMatch[1]}`);
   console.log(`[OK] Checked ${referenced.size} referenced frontend assets`);
-  console.log('[OK] Phase 1 source and page chunks are complete');
+  console.log('[OK] Phase 1 and Phase 2 source/page chunks are complete');
 }
 
 if (process.argv.includes('--live') && !process.exitCode) {

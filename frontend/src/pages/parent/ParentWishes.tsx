@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../../components/Header';
@@ -13,6 +13,8 @@ import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
 import { IconPicker, ICON_LIBRARY } from '../../components/IconPicker';
 import { CreateActionCard } from '../../components/CreateActionCard';
+import { EconomySettingsPanel } from '../../components/EconomySettingsPanel';
+import type { EconomyDraft } from '../../types/economy';
 
 // 商品模板（带分类）
 const SHOP_TEMPLATES = [
@@ -228,6 +230,7 @@ export default function ParentWishes() {
   // Form
   const [title, setTitle] = useState('');
   const [cost, setCost] = useState('');
+  const [referenceRmb, setReferenceRmb] = useState('');
   const [target, setTarget] = useState('');
   const [stock, setStock] = useState('99');
   const [icon, setIcon] = useState('🎁');
@@ -240,9 +243,9 @@ export default function ParentWishes() {
   const [priceDays, setPriceDays] = useState<number | null>(null);
   const [priceSuggestion, setPriceSuggestion] = useState<{ coins: number; isEstimate: boolean } | null>(null);
   const [priceSuggestionLoading, setPriceSuggestionLoading] = useState(false);
-  // P4：人民币→金币比例（家长可调常量 ecoCoinPerRmb，默认 10）+ 日均估算（ecoTasksPerDay×10），驱动预设与"≈攒X天"
+  // P4：人民币→金币比例 + 家庭日均目标，驱动预设与"≈攒X天"
   const [coinPerRmb, setCoinPerRmb] = useState(10);
-  const [dailyEstimate, setDailyEstimate] = useState(100);
+  const [dailyEstimate, setDailyEstimate] = useState(30);
 
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
@@ -262,6 +265,7 @@ export default function ParentWishes() {
   const [editTitle, setEditTitle] = useState('');
   const [editIcon, setEditIcon] = useState('🎁');
   const [editCost, setEditCost] = useState('');
+  const [editReferenceRmb, setEditReferenceRmb] = useState('');
   const [editTarget, setEditTarget] = useState('');
   const [editStock, setEditStock] = useState('99');
   const [editRarity, setEditRarity] = useState<RarityType>('common');
@@ -286,10 +290,10 @@ export default function ParentWishes() {
         r.status === 'fulfilled' ? r.value : null
       );
       if (resEco) {
-        const ratio = Math.round(Number(resEco.data?.ecoCoinPerRmb));
+        const ratio = Math.round(Number(resEco.data?.settings?.coinPerRmb ?? resEco.data?.ecoCoinPerRmb));
         if (Number.isFinite(ratio) && ratio > 0) setCoinPerRmb(ratio);
-        const tpd = Math.round(Number(resEco.data?.ecoTasksPerDay));
-        if (Number.isFinite(tpd) && tpd > 0) setDailyEstimate(tpd * 10);
+        const dailyTarget = Math.round(Number(resEco.data?.settings?.dailyCoinTarget ?? resEco.data?.dailyCoinTarget));
+        if (Number.isFinite(dailyTarget) && dailyTarget > 0) setDailyEstimate(dailyTarget);
       }
       if (resWishes) {
         setWishes(resWishes.data);
@@ -334,6 +338,7 @@ export default function ParentWishes() {
   const resetForm = () => {
       setTitle('');
       setCost('');
+      setReferenceRmb('');
       setTarget('');
       setStock('99');
       setIcon('🎁');
@@ -356,10 +361,10 @@ export default function ParentWishes() {
       if (Number.isFinite(coins) && coins > 0) {
         setPriceSuggestion({ coins, isEstimate: false });
       } else {
-        setPriceSuggestion({ coins: days * 100, isEstimate: true });
+        setPriceSuggestion({ coins: days * dailyEstimate, isEstimate: true });
       }
     } catch {
-      setPriceSuggestion({ coins: days * 100, isEstimate: true });
+      setPriceSuggestion({ coins: days * dailyEstimate, isEstimate: true });
     } finally {
       setPriceSuggestionLoading(false);
     }
@@ -434,7 +439,8 @@ export default function ParentWishes() {
       weight,
       rarity: viewType === 'lottery' ? rarity : null,
       effectType: lotteryEffectType,
-      category: viewType === 'shop' ? shopCategory : null
+      category: viewType === 'shop' ? shopCategory : null,
+      referenceRmb: viewType === 'shop' && referenceRmb !== '' ? Number(referenceRmb) : null,
     });
 
     // 抽奖奖品添加提示
@@ -491,14 +497,16 @@ export default function ParentWishes() {
         const template = templates[index];
         if (viewType === 'shop') {
           const shopTemplate = template as typeof SHOP_TEMPLATES[0];
+          const templateReferenceRmb = Math.max(0, Math.round(shopTemplate.cost / 10));
           await api.post('/parent/wishes', {
             type: viewType,
             title: shopTemplate.title,
             icon: shopTemplate.icon,
-            cost: shopTemplate.cost,
+            cost: templateReferenceRmb * coinPerRmb,
             stock: shopTemplate.stock,
             weight: 10,
-            category: shopTemplate.category || '其他'
+            category: shopTemplate.category || '其他',
+            referenceRmb: templateReferenceRmb,
           });
         } else {
           const lotteryTemplate = template as typeof LOTTERY_TEMPLATES[0];
@@ -530,6 +538,7 @@ export default function ParentWishes() {
     setEditIcon(wish.icon);
     setEditWeight(wish.weight || 10);
     setEditCost(String(wish.cost || 0));
+    setEditReferenceRmb(wish.referenceRmb === null || wish.referenceRmb === undefined ? '' : String(wish.referenceRmb));
     setEditTarget(String(wish.targetAmount || 0));
     setEditStock(String(wish.stock ?? 99));
     setEditRarity(wish.rarity || 'common');
@@ -550,7 +559,8 @@ export default function ParentWishes() {
         weight: editWeight,
         rarity: editingWish.type === 'lottery' ? editRarity : null,
         effectType: editingWish.isSystemDefault === 1 ? editingWish.effectType : (editEffectType === 'normal' ? null : editEffectType),
-        category: editingWish.type === 'shop' ? editCategory : null
+        category: editingWish.type === 'shop' ? editCategory : null,
+        referenceRmb: editingWish.type === 'shop' && editReferenceRmb !== '' ? Number(editReferenceRmb) : null,
       });
       toast.success('修改成功！');
       setEditingWish(null);
@@ -816,7 +826,11 @@ export default function ParentWishes() {
       ? { title: '储蓄目标', desc: '适合乐高、旅行、课程等高价值目标；完成后保留目标，作为孩子的成就记录。', button: '🎯 新建储蓄目标', tone: 'from-blue-50 to-cyan-50 border-blue-100', btn: 'bg-blue-600' }
       : viewType === 'lottery'
         ? { title: '抽奖奖池', desc: '适合仪式感奖励；高价值奖项控制数量，避免孩子只盯着大奖。', button: '🎰 新建抽奖奖品', tone: 'from-purple-50 to-indigo-50 border-purple-100', btn: 'bg-purple-600' }
-        : { title: '宝箱专属奖池', desc: '孩子完成任何任务都会开宝箱，奖品价值根据任务难度匹配。这里配置可抽到的奖品。', button: '🎁 新建宝箱奖品', tone: 'from-amber-50 to-sky-50 border-amber-100', btn: 'bg-amber-600' };
+      : { title: '宝箱专属奖池', desc: '孩子完成任何任务都会开宝箱，奖品价值根据任务难度匹配。这里配置可抽到的奖品。', button: '🎁 新建宝箱奖品', tone: 'from-amber-50 to-sky-50 border-amber-100', btn: 'bg-amber-600' };
+  const handleEconomySettingsChange = useCallback((settings: EconomyDraft) => {
+    setCoinPerRmb(settings.coinPerRmb);
+    setDailyEstimate(settings.dailyCoinTarget);
+  }, []);
 
   return (
     <Layout>
@@ -877,6 +891,10 @@ export default function ParentWishes() {
           {viewType === 'shop' && (
             <>
               <div>
+                <label className="text-xs text-gray-500 font-bold block mb-1">{t('wishes.referencePriceLabel')}</label>
+                <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" min="0" step="1" placeholder={t('wishes.referencePricePlaceholder')} value={referenceRmb} onChange={e => setReferenceRmb(e.target.value)} />
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 font-bold block mb-1">💰 兑换价格 (金币)</label>
                 <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none" type="number" placeholder="30" value={cost} onChange={e => setCost(e.target.value)} />
                 <div className="mt-2 p-2.5 rounded-xl border border-pink-100 bg-white">
@@ -917,13 +935,14 @@ export default function ParentWishes() {
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {SHOP_PRICING_PRESETS.map(item => {
                     const coins = item.rmb * coinPerRmb;
-                    const days = Math.max(1, Math.round(coins / Math.max(1, dailyEstimate)));
+                    const days = Math.max(1, Math.ceil(coins / Math.max(1, dailyEstimate)));
                     return (
                     <button
                       key={item.label}
                       type="button"
                       onClick={() => {
                         setCost(String(coins));
+                        setReferenceRmb(String(item.rmb));
                         setShopCategory(item.category);
                         setStock(String(item.stock));
                       }}
@@ -942,7 +961,7 @@ export default function ParentWishes() {
                   {[1, 5, 10].map(rmb => {
                     const coins = rmb * coinPerRmb;
                     return (
-                    <button key={rmb} type="button" onClick={() => setCost(String(coins))} className="rounded-lg bg-white border border-pink-100 p-2 text-left font-bold">
+                    <button key={rmb} type="button" onClick={() => { setCost(String(coins)); setReferenceRmb(String(rmb)); }} className="rounded-lg bg-white border border-pink-100 p-2 text-left font-bold">
                       <div>约 {rmb} 元</div>
                       <div className="text-pink-600">{coins} 金币</div>
                     </button>
@@ -1155,6 +1174,12 @@ export default function ParentWishes() {
       </BottomSheet>
 
       <div className="p-4 pb-20 space-y-3 overflow-y-auto flex-1">
+        {viewType === 'shop' && (
+          <EconomySettingsPanel
+            onSettingsChange={handleEconomySettingsChange}
+            onCatalogChanged={fetchData}
+          />
+        )}
         <CreateActionCard
           icon={viewType === 'shop' ? '🛒' : viewType === 'savings' ? '🎯' : viewType === 'lottery' ? '🎰' : '🎁'}
           title={createActionMeta.title}
@@ -1709,6 +1734,9 @@ export default function ParentWishes() {
                       <span className="bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full">💰 {w.cost} 金币</span>
                       <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">📦 {w.stock === -1 || w.stock === null ? '无限' : w.stock}</span>
                       <span className="bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">🏷️ {inferShopCategory(w)}</span>
+                      {w.referenceRmb !== null && w.referenceRmb !== undefined && (
+                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{t('wishes.referencePriceBadge', { rmb: w.referenceRmb })}</span>
+                      )}
                     </>
                   )}
                   {w.type === 'savings' && (
@@ -1888,6 +1916,17 @@ export default function ParentWishes() {
               {editingWish.type === 'shop' && (
                 <>
                   <div>
+                    <label className="text-xs text-gray-500 font-bold">{t('wishes.referencePriceLabel')}</label>
+                    <input
+                      className="w-full p-2 rounded-lg border mt-1"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={editReferenceRmb}
+                      onChange={e => setEditReferenceRmb(e.target.value)}
+                    />
+                  </div>
+                  <div>
                     <label className="text-xs text-gray-500 font-bold">兑换价格 (金币)</label>
                     <input
                       className="w-full p-2 rounded-lg border mt-1"
@@ -1907,6 +1946,7 @@ export default function ParentWishes() {
                           type="button"
                           onClick={() => {
                             setEditCost(String(coins));
+                            setEditReferenceRmb(String(item.rmb));
                             setEditCategory(item.category);
                             setEditStock(String(item.stock));
                           }}
