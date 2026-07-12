@@ -44,6 +44,17 @@ robocopy "%TARGET%\backend\src" "%CODE_BACKUP%\backend\src" /E /R:1 /W:1 /NFL /N
 robocopy "%TARGET%\backend\dist" "%CODE_BACKUP%\backend\dist" /E /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
 robocopy "%TARGET%\frontend\src" "%CODE_BACKUP%\frontend\src" /E /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
 robocopy "%TARGET%\frontend\dist" "%CODE_BACKUP%\frontend\dist" /E /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
+mkdir "%CODE_BACKUP%\backend" >nul 2>&1
+mkdir "%CODE_BACKUP%\frontend" >nul 2>&1
+mkdir "%CODE_BACKUP%\scripts" >nul 2>&1
+if exist "%TARGET%\backend\package.json" copy /Y "%TARGET%\backend\package.json" "%CODE_BACKUP%\backend\package.json" >nul
+if exist "%TARGET%\backend\package-lock.json" copy /Y "%TARGET%\backend\package-lock.json" "%CODE_BACKUP%\backend\package-lock.json" >nul
+if exist "%TARGET%\frontend\package.json" copy /Y "%TARGET%\frontend\package.json" "%CODE_BACKUP%\frontend\package.json" >nul
+if exist "%TARGET%\frontend\package-lock.json" copy /Y "%TARGET%\frontend\package-lock.json" "%CODE_BACKUP%\frontend\package-lock.json" >nul
+if exist "%TARGET%\frontend\index.html" copy /Y "%TARGET%\frontend\index.html" "%CODE_BACKUP%\frontend\index.html" >nul
+for %%F in (setup_server_production.bat start_backend_only.bat verify_phase1_deployment.js verify_live_frontend.bat) do (
+    if exist "%TARGET%\scripts\%%F" copy /Y "%TARGET%\scripts\%%F" "%CODE_BACKUP%\scripts\%%F" >nul
+)
 if defined SELF_OVERLAY goto :VERIFY_COPY
 
 echo [2/5] Overlaying Phase 1 source files...
