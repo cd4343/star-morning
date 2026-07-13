@@ -30,12 +30,12 @@
 - Create: `backend/src/growthIdentitySchema.test.ts`
 - Modify: `backend/src/database.ts`
 
-- [ ] Start from an in-memory legacy schema containing unlocked, rewarded, renamed and custom achievements. Write failing tests for two repeated migrations, append-only columns, system classification, custom-row preservation and unchanged foreign keys.
-- [ ] Implement `ensureGrowthIdentitySchema(db)` with a transaction, `PRAGMA table_info`, additive `system_key`/`is_system` columns and a partial unique index on `(familyId, system_key)` where `is_system = 1`.
-- [ ] Match legacy rows only by the catalog's full condition signature plus approved historical titles. Leave ambiguous or renamed rows custom; log a count, never the child's data.
-- [ ] Call the migration from `initializeDatabase` after `achievement_defs` exists and before default achievements are seeded.
-- [ ] Run `npm test -- growthIdentitySchema.test.ts`; expect migration tests to pass twice against the same database.
-- [ ] Commit: `git commit -m "P4-2: migrate stable achievement identities"`
+- [x] Start from an in-memory legacy schema containing unlocked, rewarded, renamed and custom achievements. Write failing tests for two repeated migrations, append-only columns, system classification, custom-row preservation and unchanged foreign keys.
+- [x] Implement `ensureGrowthIdentitySchema(db)` with a transaction, `PRAGMA table_info`, additive `system_key`/`is_system` columns and a partial unique index on `(familyId, system_key)` where `is_system = 1`.
+- [x] Match legacy rows only by the catalog's full condition signature plus approved historical titles. Leave ambiguous or renamed rows custom; log a count, never the child's data.
+- [x] Call the migration from `initializeDatabase` after `achievement_defs` exists and after legacy achievement seeds are applied.
+- [x] Run `npm test -- growthIdentitySchema.test.ts`; expect migration tests to pass twice against the same database.
+- [x] Commit: `git commit -m "P4-2: migrate stable achievement identities"`
 
 ## Task 3: Make backend display fields authoritative
 

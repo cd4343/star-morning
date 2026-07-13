@@ -10,7 +10,7 @@ describe('Phase 4 系统成就目录', () => {
   it('固定覆盖现有92项系统成就，防止发布时静默漏项', () => {
     expect(SYSTEM_ACHIEVEMENT_CATALOG).toHaveLength(92);
     expect(createHash('sha256').update(JSON.stringify(SYSTEM_ACHIEVEMENT_CATALOG)).digest('hex'))
-      .toBe('e20d42e1a8c6a0185646d5a493a9e100dc2212c8fea9d32a9c1c41f3099cf1e1');
+      .toBe('0fe0ccd6352ba02ebbc608d6afb499d0e032d65c5404f800710f2a0800652a46');
   });
 
   it('稳定键、中文名称和图标键全局唯一，避免孩子看到同名或同图标成就', () => {
@@ -44,13 +44,11 @@ describe('Phase 4 系统成就目录', () => {
       conditionType: 'streak_days',
       conditionValue: 3,
       conditionCategory: '生活',
-      category: '生活',
     }).map(item => item.systemKey)).toEqual(['life.streak.3']);
 
     expect(getSystemAchievementsByLegacySignature({
       conditionType: 'manual',
       conditionValue: 0,
-      category: '探索',
-    })).toHaveLength(4);
+    })).toHaveLength(19);
   });
 });

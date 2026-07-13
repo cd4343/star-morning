@@ -6,6 +6,7 @@ import { ensureProductConfigTables } from './productConfig';
 import { ensureLotterySafetyTables } from './lotteryRules';
 import { ensureEconomySchema } from './economySchema';
 import { ensureTaskSettlementSchema } from './taskSettlement';
+import { ensureGrowthIdentitySchema } from './growthIdentitySchema';
 
 let db: Database;
 
@@ -503,6 +504,9 @@ export const initializeDatabase = async () => {
   await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_reports_childId_weekStart ON weekly_reports(childId, weekStart)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_weekly_reports_familyId_weekStart ON weekly_reports(familyId, weekStart)');
   await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', ['011', '周报表 weekly_reports']);
+
+  // Phase 4: run after every legacy achievement seed/backfill so the first restart classifies them too.
+  await ensureGrowthIdentitySchema(db);
 
   return db;
 };

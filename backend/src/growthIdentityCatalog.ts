@@ -20,7 +20,7 @@ const achievement = (
   conditionType: string,
   conditionValue: number,
   category: string,
-  legacyTitle: string,
+  legacyTitle: string | readonly string[],
   conditionCategory?: string,
 ): SystemAchievementDefinition => Object.freeze({
   systemKey,
@@ -33,7 +33,7 @@ const achievement = (
   conditionValue,
   ...(conditionCategory ? { conditionCategory } : {}),
   category,
-  legacyTitles: Object.freeze([legacyTitle]),
+  legacyTitles: Object.freeze(typeof legacyTitle === 'string' ? [legacyTitle] : [...legacyTitle]),
 });
 
 export const SYSTEM_ACHIEVEMENT_CATALOG: readonly SystemAchievementDefinition[] = Object.freeze([
@@ -61,10 +61,10 @@ export const SYSTEM_ACHIEVEMENT_CATALOG: readonly SystemAchievementDefinition[] 
   achievement('explore.highlight.family-guide', '家庭小讲解员', '把探索学到的讲给家人听', 'explore.family-guide', 'manual', 0, '探索', '小讲解员'),
   achievement('explore.highlight.public-good', '公益体验星', '参与一次公益体验', 'explore.public-good', 'manual', 0, '探索', '公益小天使'),
   achievement('explore.highlight.outdoor', '户外挑战者', '完成一次有挑战的户外探索', 'explore.outdoor', 'manual', 0, '探索', '户外勇士'),
-  achievement('task.count.1', '点亮第一步', '完成 1 个任务', 'task.first-step', 'task_count', 1, '启动', '启程有光'),
-  achievement('task.count.10', '十步成行', '完成 10 个任务', 'task.ten-steps', 'task_count', 10, '启动', '小步成章'),
-  achievement('task.count.50', '五十步成章', '完成 50 个任务', 'task.fifty', 'task_count', 50, '启动', '百炼成章'),
-  achievement('task.count.100', '百事小能手', '完成 100 个任务', 'task.hundred', 'task_count', 100, '启动', '星路领航'),
+  achievement('task.count.1', '点亮第一步', '完成 1 个任务', 'task.first-step', 'task_count', 1, '启动', ['启程有光', '初来乍到']),
+  achievement('task.count.10', '十步成行', '完成 10 个任务', 'task.ten-steps', 'task_count', 10, '启动', ['小步成章', '小小勤劳者']),
+  achievement('task.count.50', '五十步成章', '完成 50 个任务', 'task.fifty', 'task_count', 50, '启动', ['百炼成章', '任务达人']),
+  achievement('task.count.100', '百事小能手', '完成 100 个任务', 'task.hundred', 'task_count', 100, '启动', ['星路领航', '任务大师']),
   achievement('task.count.300', '星路长行', '完成 300 个任务', 'task.three-hundred', 'task_count', 300, '启动', '一路繁星'),
   achievement('streak.all.3', '三日不断线', '连续 3 天完成任务', 'streak.three', 'streak_days', 3, '坚持', '三天不断线'),
   achievement('streak.all.7', '一周守约', '连续 7 天完成任务', 'streak.week', 'streak_days', 7, '坚持', '一周节奏'),
@@ -106,9 +106,9 @@ export const SYSTEM_ACHIEVEMENT_CATALOG: readonly SystemAchievementDefinition[] 
   achievement('emotion.voice', '听见心声', '能说出自己现在的感受', 'emotion.voice', 'manual', 0, '情绪', '会说感受'),
   achievement('emotion.calm', '冷静有方法', '尝试一次冷静动作', 'emotion.calm', 'manual', 0, '情绪', '冷静有方'),
   achievement('emotion.help', '求助真勇敢', '卡住时能主动求助', 'emotion.help', 'manual', 0, '情绪', '求助很勇敢'),
-  achievement('saving.coins.100', '百币小储蓄家', '获得 100 金币', 'saving.hundred', 'coin_count', 100, '金币', '积少成多'),
-  achievement('saving.coins.500', '五百聚沙者', '获得 500 金币', 'saving.five-hundred', 'coin_count', 500, '金币', '聚沙成塔'),
-  achievement('saving.coins.1000', '千币小金库', '获得 1000 金币', 'saving.thousand', 'coin_count', 1000, '金币', '家财万贯'),
+  achievement('saving.coins.100', '百币小储蓄家', '获得 100 金币', 'saving.hundred', 'coin_count', 100, '金币', ['积少成多', '小小存钱罐']),
+  achievement('saving.coins.500', '五百聚沙者', '获得 500 金币', 'saving.five-hundred', 'coin_count', 500, '金币', ['聚沙成塔', '财富小能手']),
+  achievement('saving.coins.1000', '千币小金库', '获得 1000 金币', 'saving.thousand', 'coin_count', 1000, '金币', ['家财万贯', '金币大亨']),
   achievement('saving.coins.3000', '三千规划家', '获得 3000 金币', 'saving.three-thousand', 'coin_count', 3000, '金币', '富足有方'),
   achievement('saving.coins.5000', '五千梦想仓', '获得 5000 金币', 'saving.five-thousand', 'coin_count', 5000, '金币', '星河宝藏'),
   achievement('saving.coins.10000', '万币目标家', '获得 10000 金币', 'saving.ten-thousand', 'coin_count', 10000, '金币', '丰盈之库'),
@@ -153,14 +153,13 @@ const SYSTEM_ACHIEVEMENT_BY_KEY = new Map(
 
 type AchievementConditionIdentity = Pick<
   SystemAchievementDefinition,
-  'conditionType' | 'conditionValue' | 'conditionCategory' | 'category'
+  'conditionType' | 'conditionValue' | 'conditionCategory'
 >;
 
 export const getAchievementLegacySignature = (item: AchievementConditionIdentity) => [
   item.conditionType,
   item.conditionValue,
   item.conditionCategory || '',
-  item.category,
 ].join('|');
 
 const SYSTEM_ACHIEVEMENTS_BY_LEGACY_SIGNATURE = new Map<string, readonly SystemAchievementDefinition[]>();
