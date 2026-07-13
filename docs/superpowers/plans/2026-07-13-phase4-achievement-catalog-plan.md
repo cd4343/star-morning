@@ -44,12 +44,12 @@
 - Create: `backend/src/achievementDisplay.test.ts`
 - Modify: `backend/src/server.ts` around the display helpers and achievement routes
 
-- [ ] Write failing tests proving parent and child projections return identical `systemKey`, `isSystem`, `displayTitleKey`, `displayDescriptionKey`, `displayTitle`, `displayDescription`, `iconKey` and fallback `displayIcon` for the same row.
-- [ ] Implement a pure `buildAchievementDisplay` that reads the catalog for system rows and preserves database text/icon for custom rows.
-- [ ] Replace the duplicate `ACHIEVEMENT_DISPLAY_THEMES` path in `server.ts` with the imported pure helper; keep reward, progress and sorting logic unchanged.
-- [ ] Reject edits to identity/condition/icon fields of system achievements with HTTP 409 and code `system_achievement_identity_locked`; continue allowing only reward fields. Keep custom CRUD behavior unchanged.
-- [ ] Run `npm test -- achievementDisplay.test.ts` and `npm test`; expect zero skipped tests.
-- [ ] Commit: `git commit -m "P4-2: unify achievement display contract"`
+- [x] Write failing tests proving parent and child projections return identical `systemKey`, `isSystem`, `displayTitleKey`, `displayDescriptionKey`, `displayTitle`, `displayDescription`, `iconKey` and fallback `displayIcon` for the same row.
+- [x] Implement a pure `buildAchievementDisplay` that reads the catalog for system rows and preserves database text/icon for custom rows.
+- [x] Replace the duplicate `ACHIEVEMENT_DISPLAY_THEMES` path in `server.ts` with the imported pure helper; keep reward, progress and sorting logic unchanged.
+- [x] Reject edits to identity/condition/icon fields of system achievements with HTTP 409 and code `system_achievement_identity_locked`; continue allowing only reward fields. Keep custom CRUD behavior unchanged.
+- [x] Run `npm test -- achievementDisplay.test.ts` and `npm test`; expect zero skipped tests.
+- [x] Commit: `git commit -m "P4-2: unify achievement display contract"`
 
 ## Task 4: Remove client-side renaming and render stable icons
 

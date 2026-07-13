@@ -32,6 +32,8 @@ import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreF
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
 import { normalizeShopReferenceRmb, toChildWish, toParentWish } from './wishEconomy';
 import { settleTaskEntry, syncTaskSettlementCoinAdjustment, TaskSettlementError } from './taskSettlement';
+import { buildAchievementDisplayFields, hasSystemAchievementIdentityChanged } from './achievementDisplay';
+import { getSystemAchievementsByLegacySignature } from './growthIdentityCatalog';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -389,113 +391,6 @@ const ACHIEVEMENT_RANKS = [
   { label: '王者', icon: '👑', order: 6 },
 ];
 
-const ACHIEVEMENT_DISPLAY_THEMES: Record<string, Array<{ title: string; icon: string }>> = {
-  task_count: [
-    { title: '启程有光', icon: '🌱' },
-    { title: '小步成章', icon: '🧭' },
-    { title: '稳步前行', icon: '🚩' },
-    { title: '百炼成章', icon: '🏆' },
-    { title: '星路领航', icon: '🌟' },
-    { title: '一路繁星', icon: '✨' },
-  ],
-  coin_count: [
-    { title: '积少成多', icon: '🪙' },
-    { title: '聚沙成塔', icon: '💰' },
-    { title: '家财万贯', icon: '🏦' },
-    { title: '富足有方', icon: '💎' },
-    { title: '星河宝藏', icon: '🎁' },
-    { title: '丰盈之库', icon: '👑' },
-  ],
-  growth: [
-    { title: '初露锋芒', icon: '⭐' },
-    { title: '渐入佳境', icon: '📈' },
-    { title: '步步高升', icon: '🚀' },
-    { title: '独当一面', icon: '🏅' },
-    { title: '光芒万丈', icon: '🌟' },
-    { title: '登峰造极', icon: '👑' },
-  ],
-  streak: [
-    { title: '三日成习', icon: '📅' },
-    { title: '一周有恒', icon: '🗓️' },
-    { title: '习惯成风', icon: '💯' },
-    { title: '月满常新', icon: '⚡' },
-    { title: '久久为功', icon: '🔥' },
-    { title: '百日如一', icon: '🎊' },
-  ],
-  生活: [
-    { title: '井井有条', icon: '🧹' },
-    { title: '自理有方', icon: '🛏️' },
-    { title: '家务能手', icon: '🧺' },
-    { title: '生活掌舵', icon: '🍽️' },
-    { title: '日常小管家', icon: '🏠' },
-    { title: '烟火小主人', icon: '🌤️' },
-  ],
-  学习: [
-    { title: '开卷有益', icon: '📖' },
-    { title: '勤学不倦', icon: '✏️' },
-    { title: '学海拾贝', icon: '📚' },
-    { title: '思路清亮', icon: '🔢' },
-    { title: '博学笃行', icon: '🔬' },
-    { title: '文思泉涌', icon: '🎓' },
-  ],
-  运动: [
-    { title: '动若晨光', icon: '🏃' },
-    { title: '活力满格', icon: '⚽' },
-    { title: '身轻如燕', icon: '🏸' },
-    { title: '元气奔跑', icon: '🚴' },
-    { title: '风驰少年', icon: '🏅' },
-    { title: '强健之星', icon: '💪' },
-  ],
-  活动: [
-    { title: '妙趣初探', icon: '🎹' },
-    { title: '灵感小匠', icon: '🎨' },
-    { title: '兴味盎然', icon: '🎸' },
-    { title: '艺海拾光', icon: '🎤' },
-    { title: '创意满格', icon: '✨' },
-    { title: '小小策展人', icon: '🌈' },
-  ],
-  情绪: [
-    { title: '心声可见', icon: '💝' },
-    { title: '冷静有方', icon: '🤫' },
-    { title: '情绪复原', icon: '🍀' },
-    { title: '表达清亮', icon: '🗣️' },
-    { title: '内心有光', icon: '🌤️' },
-    { title: '从容自如', icon: '🌈' },
-  ],
-  品格: [
-    { title: '温言有礼', icon: '😊' },
-    { title: '乐于相助', icon: '🤝' },
-    { title: '心怀感谢', icon: '🙏' },
-    { title: '诚实有信', icon: '🦁' },
-    { title: '勇敢担当', icon: '🦸' },
-    { title: '品格闪光', icon: '🌟' },
-  ],
-  家庭: [
-    { title: '家中小手', icon: '🏠' },
-    { title: '分担有心', icon: '🧺' },
-    { title: '合作同心', icon: '🤝' },
-    { title: '约定守护', icon: '🎯' },
-    { title: '家庭星光', icon: '✨' },
-    { title: '温暖同行', icon: '💝' },
-  ],
-  探索: [
-    { title: '初次出发', icon: '🧭' },
-    { title: '博物初见', icon: '🏛️' },
-    { title: '自然观察员', icon: '🌿' },
-    { title: '城市小旅人', icon: '🗺️' },
-    { title: '勇敢表达', icon: '🎙️' },
-    { title: '行路少年', icon: '🎒' },
-  ],
-  default: [
-    { title: '小有收获', icon: '🏅' },
-    { title: '渐有章法', icon: '🎯' },
-    { title: '稳稳向前', icon: '🚩' },
-    { title: '光芒初现', icon: '🌟' },
-    { title: '一路闪耀', icon: '✨' },
-    { title: '星河在握', icon: '👑' },
-  ],
-};
-
 const pickAchievementRank = (achievement: any) => {
   const type = String(achievement?.conditionType || '');
   const value = Number(achievement?.conditionValue || 0);
@@ -516,85 +411,17 @@ const pickAchievementRank = (achievement: any) => {
   return ACHIEVEMENT_RANKS[index] || ACHIEVEMENT_RANKS[0];
 };
 
-const getAchievementThemeKey = (achievement: any, category: string, conditionCategory: string) => {
-  if (achievement?.conditionType === 'task_count') return 'task_count';
-  if (achievement?.conditionType === 'coin_count') return 'coin_count';
-  if (achievement?.conditionType === 'xp_count' || achievement?.conditionType === 'level_reach') return 'growth';
-  if (achievement?.conditionType === 'streak_days') return 'streak';
-  if (String(achievement?.conditionType || '').startsWith('explore_')) return '探索';
-  if (achievement?.conditionType === 'category_count') return conditionCategory || category || 'default';
-  return category || 'default';
-};
-
-const getAchievementConditionDescription = (achievement: any) => {
-  const value = Number(achievement?.conditionValue || 0);
-  const conditionCategory = achievement?.conditionCategory ? normalizeTaskCategoryInput(achievement.conditionCategory) : '';
-  switch (achievement?.conditionType) {
-    case 'task_count':
-      return `完成 ${value} 个任务`;
-    case 'coin_count':
-      return `获得 ${value} 金币`;
-    case 'xp_count':
-      return `获得 ${value} 经验`;
-    case 'level_reach':
-      return `达到 Lv.${value}`;
-    case 'category_count':
-      return `完成 ${value} 个${conditionCategory || '指定'}任务`;
-    case 'streak_days':
-      return conditionCategory && conditionCategory !== '其他' ? `连续 ${value} 天${conditionCategory}` : `连续 ${value} 天`;
-    default:
-      return achievement?.description || '家长确认解锁';
-  }
-};
-
 const buildAchievementDisplay = (achievement: any) => {
   const category = inferAchievementCategory(achievement);
   const rank = pickAchievementRank(achievement);
-  const conditionCategory = achievement?.conditionCategory ? normalizeTaskCategoryInput(achievement.conditionCategory) : '';
-
-  if (achievement?.conditionType === 'manual') {
-    return {
-      ...achievement,
-      category,
-      rankLabel: rank.label,
-      rankIcon: rank.icon,
-      rankOrder: rank.order,
-      displayTitle: achievement?.title,
-      displayDescription: achievement?.description || '由家长确认后解锁',
-      displayIcon: achievement?.icon || rank.icon,
-    };
-  }
-
-  // 探索成就是多维独立成就（地点类型 / 打卡次数 / 表达形式），不是等级递进关系。
-  // 若走下面的 rankIndex→主题数组映射，value<10 的探索成就会全部落到 THEMES['探索'][0]「初次出发」🧭，
-  // 导致名称、图标全部重复。直接沿用数据库原始标题与图标（与前端 achievementDisplay.ts 保持一致）。
-  if (String(achievement?.conditionType || '').startsWith('explore_')) {
-    return {
-      ...achievement,
-      category,
-      rankLabel: rank.label,
-      rankIcon: rank.icon,
-      rankOrder: rank.order,
-      displayTitle: achievement?.title,
-      displayDescription: achievement?.description || getAchievementConditionDescription(achievement),
-      displayIcon: achievement?.icon,
-    };
-  }
-
-  const rankIndex = Math.max(0, Math.min(5, Number(rank.order || 1) - 1));
-  const theme = ACHIEVEMENT_DISPLAY_THEMES[getAchievementThemeKey(achievement, category, conditionCategory)]
-    || ACHIEVEMENT_DISPLAY_THEMES.default;
-  const display = theme[rankIndex] || theme[0] || ACHIEVEMENT_DISPLAY_THEMES.default[0];
+  const display = buildAchievementDisplayFields({ ...achievement, category });
 
   return {
     ...achievement,
-    category,
+    ...display,
     rankLabel: rank.label,
     rankIcon: rank.icon,
     rankOrder: rank.order,
-    displayTitle: display.title,
-    displayDescription: getAchievementConditionDescription(achievement),
-    displayIcon: display.icon,
   };
 };
 
@@ -718,6 +545,18 @@ const DEFAULT_ACHIEVEMENT_SEEDS: AchievementSeed[] = [
   { title: '坚持到最后', desc: '很累但坚持完成了整场运动', icon: '🏁', type: 'manual', value: 0, category: '运动', rewardCoins: 10, rewardXp: 15 },
   { title: '勇敢再试一次', desc: '失败后没放弃，重新尝试', icon: '🌈', type: 'manual', value: 0, category: '成长', rewardCoins: 12, rewardXp: 20 },
 ];
+
+const getSystemAchievementForSeed = (seed: AchievementSeed) => {
+  const matches = getSystemAchievementsByLegacySignature({
+    conditionType: seed.type,
+    conditionValue: seed.value,
+    conditionCategory: seed.conditionCategory,
+  }).filter(item => item.title === seed.title || item.legacyTitles.includes(seed.title));
+  if (matches.length !== 1) {
+    throw new Error(`System achievement seed mapping failed: ${seed.title}`);
+  }
+  return matches[0];
+};
 
 // 数据库操作包装器 - 带重试机制
 const dbRunWithRetry = async (sql: string, ...params: any[]) => {
@@ -1321,11 +1160,13 @@ const seedFamilyData = async (familyId: string, db: any) => {
     // 新家庭只预设成就定义，任务、商品、抽奖奖品等都需要家长手动添加。
     // 成就按成长维度预置，避免所有默认成就堆在“成长”一类里。
     for (const ach of DEFAULT_ACHIEVEMENT_SEEDS) {
+        const systemAchievement = getSystemAchievementForSeed(ach);
         await db.run(
             `INSERT INTO achievement_defs (
                 id, familyId, title, description, icon, conditionType, conditionValue,
-                conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery,
+                system_key, is_system
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
             randomUUID(),
             familyId,
             ach.title,
@@ -1338,7 +1179,8 @@ const seedFamilyData = async (familyId: string, db: any) => {
             Math.max(0, Number(ach.rewardCoins || 0)),
             Math.max(0, Number(ach.rewardXp || 0)),
             Math.max(0, Number(ach.rewardPrivilegePoints || 0)),
-            'instant'
+            'instant',
+            systemAchievement.systemKey
         );
     }
 };
@@ -1350,6 +1192,7 @@ const ensureExploreAchievementDefs = async (db: any, familyId: string) => {
   let added = 0;
   for (const ach of DEFAULT_ACHIEVEMENT_SEEDS) {
     if (!isExploreSeed(ach)) continue;
+    const systemAchievement = getSystemAchievementForSeed(ach);
     const exists = ach.type === 'manual'
       ? await db.get(`SELECT id FROM achievement_defs WHERE familyId = ? AND conditionType = 'manual' AND title = ?`, familyId, ach.title)
       : await db.get(`SELECT id FROM achievement_defs WHERE familyId = ? AND conditionType = ? AND conditionValue = ? AND COALESCE(conditionCategory, '') = COALESCE(?, '')`, familyId, ach.type, ach.value, ach.conditionCategory || null);
@@ -1357,14 +1200,15 @@ const ensureExploreAchievementDefs = async (db: any, familyId: string) => {
     await db.run(
       `INSERT INTO achievement_defs (
           id, familyId, title, description, icon, conditionType, conditionValue,
-          conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery,
+          system_key, is_system
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       randomUUID(), familyId, ach.title, ach.desc, ach.icon, ach.type, ach.value,
       ach.conditionCategory || null, ach.category,
       Math.max(0, Number(ach.rewardCoins || 0)),
       Math.max(0, Number(ach.rewardXp || 0)),
       Math.max(0, Number((ach as any).rewardPrivilegePoints || 0)),
-      'instant'
+      'instant', systemAchievement.systemKey
     );
     added++;
   }
@@ -2480,12 +2324,19 @@ app.get('/api/parent/stats', protect, async (req: any, res) => {
     }
 
     const percent = def.conditionValue > 0 ? Math.min(Math.round((progress / def.conditionValue) * 100), 99) : 0;
+    const display = buildAchievementDisplay(def);
 
     nearestAchievements.push({
       id: def.id,
       title: def.title,
       description: def.description,
       icon: def.icon,
+      systemKey: display.systemKey,
+      isSystem: display.isSystem,
+      displayTitle: display.displayTitle,
+      displayDescription: display.displayDescription,
+      iconKey: display.iconKey,
+      displayIcon: display.displayIcon,
       conditionType: def.conditionType,
       conditionValue: def.conditionValue,
       progress,
@@ -5487,10 +5338,17 @@ app.get('/api/child/explore/achievement-progress', protect, requireChild, async 
         current = exploreDistinctCategories;
         break;
     }
+    const display = buildAchievementDisplay(def);
     return {
       id: def.id,
       title: def.title,
       icon: def.icon,
+      systemKey: display.systemKey,
+      isSystem: display.isSystem,
+      displayTitle: display.displayTitle,
+      displayDescription: display.displayDescription,
+      iconKey: display.iconKey,
+      displayIcon: display.displayIcon,
       conditionType: def.conditionType,
       target: def.conditionValue,
       current: Math.min(current, def.conditionValue),
@@ -5988,9 +5846,39 @@ app.post('/api/parent/achievements', protect, async (req: any, res) => {
 });
 app.put('/api/parent/achievements/:id', protect, async (req: any, res) => {
     const request = req as AuthRequest;
+    if (request.user!.role !== 'parent') {
+        return res.status(403).json({ code: 'parent_required', message: '仅家长可管理成就' });
+    }
+    const db = getDb();
+    const existing = await db.get(
+        'SELECT * FROM achievement_defs WHERE id = ? AND familyId = ?',
+        req.params.id, request.user!.familyId
+    );
+    if (!existing) return res.status(404).json({ message: '成就不存在' });
+
     const { title, description, icon, conditionType, conditionValue, conditionCategory, category, rewardCoins, rewardXp, rewardPrivilegePoints, rewardDelivery } = request.body;
+    if (Number(existing.is_system || 0) === 1) {
+        if (hasSystemAchievementIdentityChanged(existing, request.body)) {
+            return res.status(409).json({
+                code: 'system_achievement_identity_locked',
+                message: '系统成就的名称、条件和图标由系统统一管理，可调整奖励',
+            });
+        }
+        await db.run(
+            `UPDATE achievement_defs
+             SET rewardCoins = ?, rewardXp = ?, rewardPrivilegePoints = ?, rewardDelivery = ?
+             WHERE id = ? AND familyId = ?`,
+            Math.max(0, Number(rewardCoins || 0)),
+            Math.max(0, Number(rewardXp || 0)),
+            Math.max(0, Number(rewardPrivilegePoints || 0)),
+            rewardDelivery === 'backpack' ? 'backpack' : 'instant',
+            req.params.id, request.user!.familyId
+        );
+        return res.json({ message: '更新成功' });
+    }
+
     const displayCategory = category || inferAchievementCategory({ title, description, conditionType, conditionCategory });
-    await getDb().run(
+    await db.run(
         `UPDATE achievement_defs SET title = ?, description = ?, icon = ?, conditionType = ?, conditionValue = ?, conditionCategory = ?, category = ?, rewardCoins = ?, rewardXp = ?, rewardPrivilegePoints = ?, rewardDelivery = ? WHERE id = ? AND familyId = ?`,
         title, description, icon, conditionType, conditionValue, conditionCategory || null, displayCategory,
         Math.max(0, Number(rewardCoins || 0)), Math.max(0, Number(rewardXp || 0)), Math.max(0, Number(rewardPrivilegePoints || 0)),
@@ -5999,7 +5887,26 @@ app.put('/api/parent/achievements/:id', protect, async (req: any, res) => {
     );
     res.json({message:'ok'});
 });
-app.delete('/api/parent/achievements/:id', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run('DELETE FROM achievement_defs WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId); res.json({message:'ok'}); });
+app.delete('/api/parent/achievements/:id', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    if (request.user!.role !== 'parent') {
+        return res.status(403).json({ code: 'parent_required', message: '仅家长可管理成就' });
+    }
+    const db = getDb();
+    const existing = await db.get(
+        'SELECT is_system FROM achievement_defs WHERE id = ? AND familyId = ?',
+        req.params.id, request.user!.familyId
+    );
+    if (!existing) return res.status(404).json({ message: '成就不存在' });
+    if (Number(existing.is_system || 0) === 1) {
+        return res.status(409).json({
+            code: 'system_achievement_identity_locked',
+            message: '系统成就不可删除，可调整奖励或复制为家庭自定义成就',
+        });
+    }
+    await db.run('DELETE FROM achievement_defs WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    res.json({ message: 'ok' });
+});
 app.post('/api/parent/achievements/:id/award', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
@@ -7170,6 +7077,11 @@ async function computeChildAchievements(db: ReturnType<typeof getDb>, childId: s
             conditionValue: def.conditionValue,
             conditionCategory: def.conditionCategory,
             category: display.category,
+            systemKey: display.systemKey,
+            isSystem: display.isSystem,
+            displayTitleKey: display.displayTitleKey,
+            displayDescriptionKey: display.displayDescriptionKey,
+            iconKey: display.iconKey,
             displayTitle: display.displayTitle,
             displayDescription: display.displayDescription,
             displayIcon: display.displayIcon,
