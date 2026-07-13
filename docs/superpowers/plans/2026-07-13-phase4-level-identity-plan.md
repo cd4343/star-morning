@@ -17,12 +17,12 @@
 - Create: `backend/src/levelIdentity.test.ts`
 - Modify: `frontend/src/utils/levelPerks.ts`
 
-- [ ] Write boundary tests for levels 1, 3, 4, 7, 8, 12, 13, 18, 19, 25 and 26, plus invalid input normalization.
-- [ ] Implement six stages exactly as approved: `启程星芽`, `稳步行动家`, `自主探索者`, `习惯建造师`, `成长领航员`, `星河开拓者`.
-- [ ] Keep `level = Math.floor(Math.max(0, xp) / 100) + 1`; export `currentXp`, `nextLevelXp` and remaining XP without changing stored data.
-- [ ] Replace `LEVEL_TITLE_ANCHORS`, Roman numerals and `PERK_MILESTONES` with the six-stage display model. Do not add feature gates.
-- [ ] Run `npm test -- levelIdentity.test.ts` and `npm run build`.
-- [ ] Commit: `git commit -m "P4-3: define six-stage level identity"`
+- [x] Write boundary tests for levels 1, 3, 4, 7, 8, 12, 13, 18, 19, 25 and 26, plus invalid input normalization.
+- [x] Implement six stages exactly as approved: `启程星芽`, `稳步行动家`, `自主探索者`, `习惯建造师`, `成长领航员`, `星河开拓者`.
+- [x] Keep `level = Math.floor(Math.max(0, xp) / 100) + 1`; export `currentXp`, `nextLevelXp` and remaining XP without changing stored data.
+- [x] Replace `LEVEL_TITLE_ANCHORS`, Roman numerals and `PERK_MILESTONES` with the six-stage display model. Do not add feature gates.
+- [x] Run `npm test -- levelIdentity.test.ts` and `npm run build`.
+- [x] Commit: `git commit -m "P4-3: define six-stage level identity"`
 
 ## Task 2: Correct upgrade and growth-page messaging
 
@@ -32,16 +32,16 @@
 - Modify: `frontend/src/i18n/locales/zh-CN.ts`
 - Modify: `frontend/tests/smoke/product-phase2.spec.ts`
 
-- [ ] Add smoke assertions that the modal never says lottery, transfer or autonomous-task permission was unlocked.
+- [x] Add smoke assertions that the modal never says lottery, transfer or autonomous-task permission was unlocked.
 - [ ] Show only new level, current stage, distance to the next level and any cosmetic newly earned from the growth-identity response.
-- [ ] Replace inline styles added by this batch with Tailwind safe-area utilities or existing project classes; preserve a 56px primary close action.
-- [ ] Replace new hard-coded text with `t('growthIdentity.*')` keys.
-- [ ] At 375px verify stage title, XP ledger and privilege ledger are visually distinct and no horizontal scroll occurs.
-- [ ] Run frontend build and the focused smoke test.
-- [ ] Commit: `git commit -m "P4-3: align level feedback with growth identity"`
+- [x] Replace inline styles added by this batch with Tailwind safe-area utilities or existing project classes; preserve a 56px primary close action.
+- [x] Replace new hard-coded text with `t('growthIdentity.*')` keys.
+- [x] At 375px verify stage title, XP ledger and privilege ledger are visually distinct and no horizontal scroll occurs.
+- [x] Run frontend build and the focused smoke test.
+- [x] Commit: `git commit -m "P4-3: align level feedback with growth identity"`
 
 ## Task 3: Regression checkpoint
 
-- [ ] Verify existing `xp` and `rewardXpTotal` tests still encode separate ledgers.
-- [ ] Search `rg -n "PERK_MILESTONES|抽奖资格|背包转赠权|罗马" frontend/src`; expect no obsolete level-permission copy.
-- [ ] Run backend full tests and frontend build before cosmetics work.
+- [x] Verify existing `xp` and `rewardXpTotal` tests still encode separate ledgers.
+- [x] Search `rg -n "PERK_MILESTONES|抽奖资格|背包转赠权|罗马" frontend/src`; expect no obsolete level-permission copy.
+- [x] Run backend full tests and frontend build before cosmetics work.

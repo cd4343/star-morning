@@ -9,7 +9,7 @@ import { useToast } from '../../components/Toast';
 import {
   getAchievementDisplay as getSharedAchievementDisplay,
 } from '../../utils/achievementDisplay';
-import { getLevelTitle, PERK_MILESTONES } from '../../utils/levelPerks';
+import { getLevelStage, getLevelTitle, LEVEL_STAGES } from '../../utils/levelPerks';
 import { GrowthIcon } from '../../components/GrowthIcon';
 
 interface Achievement {
@@ -423,7 +423,7 @@ export default function ChildMe() {
         </div>
       </div>
 
-      {/* R3: 我的等级之路——称号 + 权益里程碑（纯展示，不锁功能） TODO i18n */}
+      {/* 成长阶段只记录长期进步，不承担功能权限。 */}
       <div className="rounded-[1.75rem] bg-white border border-indigo-100 p-4 shadow-sm">
         <button
           type="button"
@@ -434,7 +434,7 @@ export default function ChildMe() {
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-2xl flex-shrink-0 shadow-sm">🌟</div>
             <div className="min-w-0">
-              <div className="text-xs font-bold text-gray-400">我的等级之路</div>
+              <div className="text-xs font-bold text-gray-400">{t('growthIdentity.stagePath')}</div>
               <div className="text-lg font-black text-indigo-700 truncate">
                 {getLevelTitle(Number(childData?.level || 1))}
                 <span className="ml-1.5 text-xs font-bold text-gray-400">Lv.{childData?.level || 1}</span>
@@ -446,29 +446,29 @@ export default function ChildMe() {
 
         {levelPathExpanded && (
           <div className="mt-3 space-y-2">
-            {PERK_MILESTONES.map(milestone => {
-              const reached = Number(childData?.level || 1) >= milestone.level;
+            {LEVEL_STAGES.map(stage => {
+              const level = Number(childData?.level || 1);
+              const reached = level >= stage.minLevel;
+              const current = getLevelStage(level).key === stage.key;
               return (
                 <div
-                  key={milestone.level}
-                  className={`flex items-center gap-3 rounded-2xl border p-3 ${reached ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-100'}`}
+                  key={stage.key}
+                  className={`flex items-center gap-3 rounded-2xl border p-3 ${current ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-100'}`}
                 >
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${reached ? 'bg-white shadow-sm' : 'bg-gray-100 grayscale opacity-60'}`}>
-                    {milestone.icon}
+                    {reached ? '✦' : '🔒'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={`text-sm font-black truncate ${reached ? 'text-indigo-900' : 'text-gray-400'}`}>{milestone.title}</div>
-                    <div className={`text-[11px] truncate ${reached ? 'text-indigo-500' : 'text-gray-400'}`}>{milestone.desc}</div>
+                    <div className={`text-sm font-black truncate ${reached ? 'text-indigo-900' : 'text-gray-400'}`}>{t(stage.titleKey)}</div>
+                    <div className={`text-[11px] truncate ${reached ? 'text-indigo-500' : 'text-gray-400'}`}>{t(stage.meaningKey)}</div>
                   </div>
                   <div className="flex-shrink-0">
-                    {milestone.status === 'coming' ? (
-                      <span className="text-[10px] font-black px-2 py-1 rounded-full bg-amber-100 text-amber-600 whitespace-nowrap">
-                        {reached ? '即将到来' : `Lv.${milestone.level} · 即将到来`}
-                      </span>
+                    {current ? (
+                      <span className="text-[10px] font-black px-2 py-1 rounded-full bg-indigo-100 text-indigo-600 whitespace-nowrap">{t('growthIdentity.currentStage')}</span>
                     ) : reached ? (
-                      <span className="text-[10px] font-black px-2 py-1 rounded-full bg-emerald-100 text-emerald-600 whitespace-nowrap">✓ 已解锁</span>
+                      <span className="text-[10px] font-black px-2 py-1 rounded-full bg-emerald-100 text-emerald-600 whitespace-nowrap">{t('growthIdentity.recorded')}</span>
                     ) : (
-                      <span className="text-[10px] font-black text-gray-400 whitespace-nowrap">Lv.{milestone.level} 解锁</span>
+                      <span className="text-[10px] font-black text-gray-400 whitespace-nowrap">Lv.{stage.minLevel}</span>
                     )}
                   </div>
                 </div>

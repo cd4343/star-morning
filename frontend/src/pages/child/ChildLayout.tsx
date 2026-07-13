@@ -31,7 +31,7 @@ export default function ChildLayout() {
   const [showPinChangeReminder, setShowPinChangeReminder] = useState(false);
   const [taskReminders, setTaskReminders] = useState<any[]>([]);
   // R3: 升级庆祝弹窗要展示的新等级（null = 不显示）
-  const [levelUpCelebration, setLevelUpCelebration] = useState<number | null>(null);
+  const [levelUpCelebration, setLevelUpCelebration] = useState<{ level: number; totalXp: number } | null>(null);
   const [screenDetailsExpanded, setScreenDetailsExpanded] = useState(false);
   const retryCount = useRef(0);
   const lastDataErrorAt = useRef(0);
@@ -78,7 +78,7 @@ export default function ChildLayout() {
             localStorage.setItem(levelStorageKey, String(currentLevel));
           } else if (currentLevel > Number(storedLevel)) {
             localStorage.setItem(levelStorageKey, String(currentLevel));
-            setLevelUpCelebration(currentLevel); // 一次跨多级也只弹最新等级
+            setLevelUpCelebration({ level: currentLevel, totalXp: Number(res.data.child.xp) || 0 }); // 一次跨多级也只弹最新等级
           }
         } catch { /* 忽略：本地存储不可用 */ }
       }
@@ -344,7 +344,7 @@ export default function ChildLayout() {
 
       {/* R3: 升级庆祝弹窗（纯展示，不影响任何功能） */}
       {levelUpCelebration !== null && (
-        <LevelUpModal level={levelUpCelebration} onClose={() => setLevelUpCelebration(null)} />
+        <LevelUpModal level={levelUpCelebration.level} totalXp={levelUpCelebration.totalXp} onClose={() => setLevelUpCelebration(null)} />
       )}
 
       {/* 家长 PIN 提示弹窗 - 支持安全区域 */}

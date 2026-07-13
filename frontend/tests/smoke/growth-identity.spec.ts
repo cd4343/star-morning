@@ -77,3 +77,27 @@ test('child sees the same stable system names and icons', async ({ page }) => {
   expect(new Set(childIconMarkup).size).toBe(3);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test('level-up feedback records growth without claiming feature permissions', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'growth-child-token');
+    localStorage.setItem('user', JSON.stringify({ id: 'child-1', name: '孩子', role: 'child', familyId: 'family-1' }));
+    localStorage.setItem('starcoin:lastLevel:child-1', '3');
+  });
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/members') return route.fulfill({ json: [] });
+    if (path === '/api/child/dashboard') return route.fulfill({ json: { child: { id: 'child-1', name: '孩子', xp: 300, level: 4 }, tasks: [], recentReviews: [] } });
+    if (path === '/api/child/screen-time') return route.fulfill({ json: {} });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/child/today');
+  const dialog = page.getByRole('dialog', { name: '成长等级提升' });
+  await expect(dialog).toContainText('稳步行动家');
+  await expect(dialog).toContainText('再积累 100 点成长经验到下一级');
+  await expect(dialog).not.toContainText(/抽奖|转赠|自主任务|权限|资格/);
+  const closeButton = page.getByRole('button', { name: '记住这次成长' });
+  expect((await closeButton.boundingBox())?.height).toBeGreaterThanOrEqual(56);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
