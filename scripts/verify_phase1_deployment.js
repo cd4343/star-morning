@@ -1,5 +1,6 @@
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
@@ -81,12 +82,25 @@ if (childWishesChunk) {
   if (source.includes('谢谢参与')) fail('Child lottery production chunk still contains empty-prize wording');
 }
 
-const requestText = (url) => new Promise((resolve, reject) => {
-  const request = http.get(url, { headers: { 'Cache-Control': 'no-cache' } }, response => {
+const requestText = (url, redirectsRemaining = 5) => new Promise((resolve, reject) => {
+  const parsedUrl = new URL(url);
+  const transport = parsedUrl.protocol === 'https:' ? https : http;
+  const request = transport.get(parsedUrl, { headers: { 'Cache-Control': 'no-cache' } }, response => {
+    const status = response.statusCode || 0;
+    const location = response.headers.location;
+    if ([301, 302, 303, 307, 308].includes(status) && location) {
+      response.resume();
+      if (redirectsRemaining === 0) {
+        reject(new Error(`Too many redirects while requesting ${url}`));
+        return;
+      }
+      resolve(requestText(new URL(location, parsedUrl).toString(), redirectsRemaining - 1));
+      return;
+    }
     let body = '';
     response.setEncoding('utf8');
     response.on('data', chunk => { body += chunk; });
-    response.on('end', () => resolve({ status: response.statusCode || 0, body }));
+    response.on('end', () => resolve({ status, body, url: parsedUrl.toString() }));
   });
   request.setTimeout(8000, () => request.destroy(new Error('request timeout')));
   request.on('error', reject);
@@ -94,15 +108,21 @@ const requestText = (url) => new Promise((resolve, reject) => {
 
 const verifyLive = async () => {
   const entryAsset = entryMatch[1];
-  const page = await requestText('http://127.0.0.1/');
+  const configuredOrigin = (process.env.STARCOIN_LIVE_URL || process.env.CORS_ORIGIN || 'http://127.0.0.1')
+    .split(',')[0]
+    .trim();
+  const liveBaseUrl = new URL(configuredOrigin);
+  if (!['http:', 'https:'].includes(liveBaseUrl.protocol)) throw new Error('Live URL must use HTTP or HTTPS');
+  const page = await requestText(new URL('/', liveBaseUrl).toString());
   if (page.status !== 200) throw new Error(`Nginx returned HTTP ${page.status} for /`);
   if (!page.body.includes(`/assets/${entryAsset}`)) {
     throw new Error(`Nginx is serving another frontend directory. Expected entry asset: ${entryAsset}`);
   }
-  const asset = await requestText(`http://127.0.0.1/assets/${entryAsset}`);
+  const asset = await requestText(new URL(`/assets/${entryAsset}`, page.url).toString());
   if (asset.status !== 200 || asset.body.length < 1000) throw new Error(`Entry asset is unavailable: ${entryAsset}`);
-  const health = await requestText('http://127.0.0.1/api/health');
+  const health = await requestText(new URL('/api/health', page.url).toString());
   if (health.status !== 200) throw new Error(`Backend health check returned HTTP ${health.status}`);
+  console.log(`[OK] Live origin: ${new URL(page.url).origin}`);
   console.log(`[OK] Nginx serves current entry asset: ${entryAsset}`);
   console.log('[OK] Backend health endpoint is reachable through Nginx');
 };
