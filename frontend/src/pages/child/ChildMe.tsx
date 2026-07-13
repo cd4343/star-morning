@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card } from '../../components/Card';
-import { Trophy, Lock, ChevronDown, TrendingUp, Archive, ShieldCheck, Timer } from 'lucide-react';
+import { Trophy, Lock, ChevronDown, Archive, ShieldCheck, Timer } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import api, { isAuthError } from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
@@ -83,12 +83,12 @@ const CHEST_TIME_FILTERS = [
 ] as const;
 
 const CHEST_REWARD_TYPES = [
-  { value: 'all', label: '全部奖励' },
-  { value: 'coins', label: '金币' },
-  { value: 'xp', label: '经验' },
-  { value: 'privilegePoints', label: '特权点' },
-  { value: 'lotteryTicket', label: '游戏票' },
-  { value: 'shopDiscount', label: '兑换折扣' },
+  { value: 'all', labelKey: 'growth.rewardTypeAll' },
+  { value: 'coins', labelKey: 'growth.rewardTypeCoins' },
+  { value: 'xp', labelKey: 'growth.rewardTypeXp' },
+  { value: 'privilegePoints', labelKey: 'growth.rewardTypeRights' },
+  { value: 'lotteryTicket', labelKey: 'growth.rewardTypeTicket' },
+  { value: 'shopDiscount', labelKey: 'growth.rewardTypeDiscount' },
 ] as const;
 
 type ChestTimeFilter = typeof CHEST_TIME_FILTERS[number]['value'];
@@ -116,7 +116,7 @@ const getChestDateParams = (filter: ChestTimeFilter) => {
 
 export default function ChildMe() {
   const context = useOutletContext<any>();
-  const childData = context?.childData || { coins: 0, xp: 0, level: 1, privilegePoints: 0 };
+  const childData = context?.childData || { coins: 0, xp: 0, level: 1, privilegePoints: 0, rewardXpTotal: 0 };
   const toast = useToast();
 
   const [allAchievements, setAllAchievements] = useState<Achievement[]>([]);
@@ -217,7 +217,7 @@ export default function ChildMe() {
     switch (ach.conditionType) {
       case 'task_count': return `完成 ${ach.conditionValue} 个任务`;
       case 'coin_count': return `累计获得 ${ach.conditionValue} 金币`;
-      case 'xp_count': return `累计获得 ${ach.conditionValue} 经验`;
+      case 'xp_count': return t('growth.achievementXpCount', { value: ach.conditionValue });
       case 'level_reach': return `达到 ${ach.conditionValue} 级`;
       case 'category_count': return `完成 ${ach.conditionValue} 个${ach.conditionCategory || ''}任务`;
       case 'streak_days': return `连续 ${ach.conditionValue} 天${ach.conditionCategory ? `完成${ach.conditionCategory}` : '完成任务'}`;
@@ -294,14 +294,11 @@ export default function ChildMe() {
   const xpCurrent = Number(childData?.xp || 0) % Number(childData?.maxXp || 100);
   const xpMax = Number(childData?.maxXp || 100);
   const xpRemaining = Math.max(xpMax - xpCurrent, 0);
+  const rewardXpTotal = Math.max(0, Number(childData?.rewardXpTotal || 0));
+  const rewardXpCurrent = rewardXpTotal % 100;
+  const rewardXpRemaining = rewardXpCurrent === 0 ? 100 : 100 - rewardXpCurrent;
+  const privilegePoints = Math.max(0, Number(childData?.privilegePoints || 0));
   const focusCards = [
-    {
-      label: '升级还差',
-      value: `${xpRemaining} XP`,
-      hint: `当前 Lv.${childData?.level || 1}`,
-      icon: <TrendingUp size={18} />,
-      className: 'bg-sky-50 text-sky-700 border-sky-100',
-    },
     {
       label: '成就完成',
       value: `${achievementPercent}%`,
@@ -347,6 +344,54 @@ export default function ChildMe() {
 
   return (
     <div className="p-4 space-y-4">
+      <div data-testid="child-growth-account" className="rounded-[1.75rem] bg-white border border-indigo-100 p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-black text-indigo-500">{t('growth.accountTitle')}</div>
+            <div className="mt-1 text-xl font-black text-slate-900 truncate">
+              {getLevelTitle(Number(childData?.level || 1))}
+              <span className="ml-2 text-xs font-black text-indigo-500">Lv.{childData?.level || 1}</span>
+            </div>
+          </div>
+          <div className="rounded-2xl bg-indigo-50 px-3 py-2 text-right">
+            <div className="text-lg font-black text-indigo-700">{privilegePoints} {t('growth.pointsUnit')}</div>
+            <div className="text-[10px] font-black text-indigo-400">{t('growth.available')}</div>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <div className="flex items-center justify-between gap-2 text-xs font-black">
+              <span className="text-violet-600">{t('growth.levelXp')}</span>
+              <span className="text-slate-500">{xpCurrent} / {xpMax}</span>
+            </div>
+            <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-violet-50">
+              <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-500" style={{ width: `${Math.min((xpCurrent / Math.max(1, xpMax)) * 100, 100)}%` }} />
+            </div>
+            <div className="mt-1 text-[10px] font-bold text-slate-400">
+              {t('growth.levelXpHint', { remaining: xpRemaining })}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between gap-2 text-xs font-black">
+              <span className="text-blue-600">{t('growth.rightsProgress')}</span>
+              <span className="text-slate-500">{rewardXpCurrent} / 100</span>
+            </div>
+            <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-blue-50">
+              <div className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500" style={{ width: `${rewardXpCurrent}%` }} />
+            </div>
+            <div className="mt-1 text-[10px] font-bold text-slate-400">
+              {t('growth.rightsHint', { remaining: rewardXpRemaining })}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-[11px] font-bold leading-relaxed text-slate-500">
+          {t('growth.accountsExplain')}
+        </div>
+      </div>
+
       <div className="rounded-[1.75rem] bg-white border border-slate-100 p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -360,7 +405,7 @@ export default function ChildMe() {
             <div className="text-[10px] font-black">成就进度</div>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           {focusCards.map(card => (
             <div key={card.label} className={`rounded-2xl border p-2.5 min-h-[64px] ${card.className}`}>
               <div className="flex items-center justify-between gap-1">
@@ -820,7 +865,7 @@ export default function ChildMe() {
                   chestTypeFilter === option.value ? 'bg-amber-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500'
                 }`}
               >
-                {option.label}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>
@@ -841,7 +886,7 @@ export default function ChildMe() {
                       通过任务：{record.taskTitle || '完成任务'}
                     </div>
                     <div className="text-[10px] text-amber-600 font-bold mt-1">
-                      {CHEST_REWARD_TYPES.find(t => t.value === record.rewardType)?.label || record.rewardType}
+                      {t(CHEST_REWARD_TYPES.find(type => type.value === record.rewardType)?.labelKey || record.rewardType)}
                       {record.rewardValue ? ` +${record.rewardValue}` : ''}
                     </div>
                   </div>

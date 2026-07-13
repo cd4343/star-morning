@@ -47,6 +47,9 @@ async function mockApi(page: Page) {
     },
   }));
   await page.route('**/api/child/task-session-reminders', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/screen-time', route => route.fulfill({ json: {
+    dailyBaseMinutes: 15, dailyMaxMinutes: 45, earnedMinutes: 0, todayUsed: 0, allowance: 15, balance: 15,
+  } }));
   await page.route('**/api/child/explore/places', route => route.fulfill({ json: [samplePlace] }));
   await page.route('**/api/child/explore/checkins', route => route.fulfill({ json: [] }));
   await page.route('**/api/child/explore/map-places', route => route.fulfill({ json: [samplePlace] }));

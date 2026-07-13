@@ -1118,7 +1118,7 @@ export default function ChildChallenge() {
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
                 <span className="inline-flex items-center gap-1"><Clock size={13} />{task.durationMinutes || 0} 分钟</span>
                 <span>+{task.coinReward || 0} 金币</span>
-                <span>+{task.xpReward || 0} 经验</span>
+                <span>{t('growth.shortReward', { value: task.xpReward || 0 })}</span>
                 {Number(task.gameTicketPreviewMinutes || 0) > 0 && (
                   <span>{t('challenge.gameTicketBadge', { minutes: Number(task.gameTicketPreviewMinutes) })}</span>
                 )}
@@ -1243,7 +1243,7 @@ export default function ChildChallenge() {
                 disabled={learningSubmitting}
                 className="w-full rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-500 text-white py-3 font-black flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                <Send size={18}/> {learningSubmitting ? '提交中...' : `提交闯关 +${activeQuest.totalCoins || 0}金币 +${activeQuest.totalXp || 0}经验`}
+                <Send size={18}/> {learningSubmitting ? '提交中...' : t('challenge.submitQuestReward', { coins: activeQuest.totalCoins || 0, growth: activeQuest.totalXp || 0 })}
               </button>
             </div>
           )}
@@ -1595,7 +1595,7 @@ export default function ChildChallenge() {
                 <div className="rounded-2xl bg-violet-50 border border-violet-100 p-3 text-center">
                   <Star size={16} className="mx-auto text-violet-500 fill-violet-500" />
                   <div className="mt-1 text-lg font-black text-violet-600">+{selectedTask.xpReward || 0}</div>
-                  <div className="text-[10px] font-bold text-violet-500">经验</div>
+                  <div className="text-[10px] font-bold text-violet-500">{t('growth.shortLabel')}</div>
                 </div>
               </div>
               {Number(selectedTask.gameTicketPreviewMinutes || 0) > 0 && (
@@ -1736,8 +1736,8 @@ export default function ChildChallenge() {
                   +{chestReward.value || 0}
                   <span className="ml-1 text-xl">
                     {chestReward.type === 'coins' ? '金币' :
-                     chestReward.type === 'xp' ? '经验' :
-                     chestReward.type === 'privilegePoints' ? '特权点' :
+                     chestReward.type === 'xp' ? t('growth.shortLabel') :
+                     chestReward.type === 'privilegePoints' ? t('growth.rightsPointUnit') :
                      chestReward.type === 'lotteryTicket' ? '抽奖券' : '奖励'}
                   </span>
                 </div>
@@ -1800,8 +1800,8 @@ export default function ChildChallenge() {
                       <div className="font-black text-slate-800 truncate">{prize.name}</div>
                       <div className="text-xs font-bold text-slate-500 truncate">
                         {prize.type === 'coins' ? `${prize.value} 金币` :
-                         prize.type === 'xp' ? `${prize.value} 经验` :
-                         prize.type === 'privilegePoints' ? `${prize.value} 特权点` :
+                         prize.type === 'xp' ? t('growth.shortReward', { value: prize.value }) :
+                         prize.type === 'privilegePoints' ? `${prize.value} ${t('growth.rightsPointUnit')}` :
                          prize.type === 'lotteryTicket' ? `${prize.value} 张抽奖券` : prize.description || '神秘奖励'}
                       </div>
                     </div>

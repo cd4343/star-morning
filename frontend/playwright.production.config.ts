@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const useExternalServer = process.env.PW_EXTERNAL_SERVER === '1';
+
 export default defineConfig({
   testDir: './tests/production',
   timeout: 45_000,
@@ -9,7 +11,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4180',
     trace: 'retain-on-failure',
   },
-  webServer: {
+  webServer: useExternalServer ? undefined : {
     command: 'npm run preview -- --host 127.0.0.1 --port 4180',
     url: 'http://127.0.0.1:4180',
     reuseExistingServer: false,

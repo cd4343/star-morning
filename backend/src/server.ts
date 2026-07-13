@@ -7310,13 +7310,13 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     if (!priv) return res.status(404).json({ message: '特权不存在' });
 
     const user = await db.get('SELECT privilegePoints FROM users WHERE id = ?', request.user!.id);
-    if ((user.privilegePoints || 0) < priv.cost) return res.status(400).json({ message: '特权点不足' });
+    if ((user.privilegePoints || 0) < priv.cost) return res.status(400).json({ message: '权益点不足' });
 
     try {
         await withTransaction(async () => {
             // 守卫式扣减：特权点是最稀缺货币，绝不允许并发扣成负数
             const deduct = await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ? AND privilegePoints >= ?', priv.cost, request.user!.id, priv.cost);
-            if ((deduct.changes || 0) !== 1) throw Object.assign(new Error('特权点不足'), { statusCode: 400 });
+            if ((deduct.changes || 0) !== 1) throw Object.assign(new Error('权益点不足'), { statusCode: 400 });
             // 特权添加到背包，记录是用特权点兑换的，来源为privilege
             await db.run(`INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
                 randomUUID(), request.user!.id, priv.id, priv.title, priv.icon || '👑', priv.cost, 'privilegePoints', 'privilege');

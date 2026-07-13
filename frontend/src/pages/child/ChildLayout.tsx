@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { CheckSquare, ChevronDown, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle } from 'lucide-react';
+import { CheckSquare, Compass, Gift, HeartPulse, User, ShieldCheck, AlertCircle, Gamepad2 } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputModal } from '../../components/Modal';
@@ -8,8 +8,15 @@ import { useToast } from '../../components/Toast';
 import PullToRefresh from '../../components/PullToRefresh';
 import { GlobalTimerBar } from '../../components/GlobalTimerBar';
 import LevelUpModal from '../../components/LevelUpModal';
-import { getLevelTitle } from '../../utils/levelPerks';
 import { t } from '../../i18n';
+
+type ScreenTimeSummary = {
+  dailyBaseMinutes: number;
+  dailyMaxMinutes: number;
+  earnedMinutes: number;
+  todayUsed: number;
+  balance: number;
+};
 
 export default function ChildLayout() {
   const navigate = useNavigate();
@@ -17,6 +24,7 @@ export default function ChildLayout() {
   const { user, token, login } = useAuth();
   const toast = useToast();
   const [childData, setChildData] = useState<any>(null);
+  const [screenTime, setScreenTime] = useState<ScreenTimeSummary | null>(null);
   const [todayTasks, setTodayTasks] = useState<any[]>([]);
   const [showPinModal, setShowPinModal] = useState(false);
   const [showDefaultPinHint, setShowDefaultPinHint] = useState(false);
@@ -24,10 +32,7 @@ export default function ChildLayout() {
   const [taskReminders, setTaskReminders] = useState<any[]>([]);
   // R3: 升级庆祝弹窗要展示的新等级（null = 不显示）
   const [levelUpCelebration, setLevelUpCelebration] = useState<number | null>(null);
-  // M18: 顶栏进度详情默认收起，展开偏好记在本地
-  const [headerExpanded, setHeaderExpanded] = useState(() => {
-    try { return localStorage.getItem('starcoin:headerExpanded') === '1'; } catch { return false; }
-  });
+  const [screenDetailsExpanded, setScreenDetailsExpanded] = useState(false);
   const retryCount = useRef(0);
   const lastDataErrorAt = useRef(0);
   const previousUserId = useRef<string | null>(null);
@@ -37,7 +42,17 @@ export default function ChildLayout() {
   const fetchData = useCallback(async () => {
     if (!token || !user) return;
     try {
-      const res = await api.get('/child/dashboard');
+      const [dashboardResult, screenTimeResult] = await Promise.allSettled([
+        api.get('/child/dashboard'),
+        api.get('/child/screen-time'),
+      ]);
+      if (dashboardResult.status === 'rejected') throw dashboardResult.reason;
+      const res = dashboardResult.value;
+      if (screenTimeResult.status === 'fulfilled') {
+        setScreenTime(screenTimeResult.value.data || null);
+      } else if (!isAuthError(screenTimeResult.reason)) {
+        console.error('screen time header load failed:', screenTimeResult.reason);
+      }
       // 验证返回的数据是否与当前用户匹配
       if (res.data.child && user && res.data.child.id !== user.id) {
         console.warn('Child data mismatch, refetching...');
@@ -82,7 +97,7 @@ export default function ChildLayout() {
           if (approvedNew.length > 0) {
             const totalCoins = approvedNew.reduce((sum: number, r: any) => sum + (r.earnedCoins || 0), 0);
             const totalXp = approvedNew.reduce((sum: number, r: any) => sum + (r.earnedXp || 0), 0);
-            toast.showToast(`🌟 审核通过！获得 ${totalCoins} 金币 + ${totalXp} 经验`, 'success', 5000);
+            toast.showToast(t('childHeader.reviewApproved', { coins: totalCoins, growth: totalXp }), 'success', 5000);
           }
           // 打回不是失败，是修复机会：告诉孩子原因和下一步
           rejectedNew.slice(0, 2).forEach((r: any) => {
@@ -146,6 +161,7 @@ export default function ChildLayout() {
     if (previousUserId.current !== userId) {
       previousUserId.current = userId;
       setChildData(null);
+      setScreenTime(null);
       setTodayTasks([]);
     }
     retryCount.current = 0;
@@ -159,14 +175,6 @@ export default function ChildLayout() {
     }, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  const toggleHeaderExpanded = () => {
-    setHeaderExpanded(prev => {
-      const next = !prev;
-      try { localStorage.setItem('starcoin:headerExpanded', next ? '1' : '0'); } catch { /* 忽略：本地存储不可用 */ }
-      return next;
-    });
-  };
 
   const handleSwitchUser = () => {
       // 先提示需要家长 PIN，再进入输入弹窗
@@ -220,85 +228,54 @@ export default function ChildLayout() {
       >
           
           {/* Top Bar */}
-          <div className="bg-white p-3 shadow-sm z-10 sticky top-0">
+          <div data-testid="child-reward-header" className="bg-white p-3 shadow-sm z-10 sticky top-0">
             <div className="flex justify-between items-center">
-              <button
-                type="button"
-                onClick={toggleHeaderExpanded}
-                aria-expanded={headerExpanded}
-                aria-label={headerExpanded ? '收起成长进度' : '查看成长进度'}
-                className="flex items-center gap-3 min-h-[40px] text-left rounded-2xl active:bg-gray-50 transition-colors"
-              >
+              <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl border-2 border-white shadow-sm ${childData?.gender === 'girl' ? 'bg-pink-100' : 'bg-green-100'}`}>
                    {childData?.avatar || (childData?.gender === 'girl' ? '👧' : '👦')}
                 </div>
-                <div>
-                  <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
-                    {childData?.name || 'Loading...'}
-                    <span className="text-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-1.5 py-0.5 rounded-full font-bold">
-                      Lv.{childData?.level || 1}
-                    </span>
-                    <span className="text-[10px] text-indigo-400 font-bold whitespace-nowrap">
-                      {getLevelTitle(childData?.level || 1)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500 flex gap-3 font-mono">
-                     <span className="flex items-center gap-0.5"><span className="text-yellow-500">🪙</span><span className="text-yellow-600 font-bold">{childData?.coins || 0}</span><span className="text-[10px] text-gray-400 ml-0.5">金币</span></span>
-                     <span className="flex items-center gap-0.5"><span className="text-blue-500">💎</span><span className="text-blue-600 font-bold">{childData?.privilegePoints || 0}</span><span className="text-[10px] text-gray-400 ml-0.5">特权点</span></span>
-                  </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-gray-800 text-sm truncate">{childData?.name || t('common.loading')}</div>
+                  <div className="text-[10px] font-bold text-gray-400">{t('childHeader.todayFocus')}</div>
                 </div>
-                <ChevronDown size={16} className={`text-gray-300 transition-transform duration-200 ${headerExpanded ? 'rotate-180' : ''}`} />
-              </button>
+              </div>
               <button onClick={handleSwitchUser} className="px-3 py-2 min-h-[40px] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-full text-blue-600 transition-colors flex items-center gap-1.5 text-xs font-bold">
                   <ShieldCheck size={14}/> 家长模式
               </button>
             </div>
-            
-            {headerExpanded && (<>
-            {/* 经验进度条 */}
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-[10px] text-purple-500 font-bold whitespace-nowrap">经验</span>
-              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-purple-400 to-indigo-500 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(((childData?.xp || 0) % (childData?.maxXp || 100)) / (childData?.maxXp || 100) * 100, 100)}%` }}
-                />
-              </div>
-              <span className="text-[10px] text-gray-400 font-medium whitespace-nowrap">
-                {(childData?.xp || 0) % (childData?.maxXp || 100)}/{childData?.maxXp || 100}
-              </span>
-            </div>
 
-            {/* 特权点进度条 */}
-            {(() => {
-              // 任务/学习审核经验每累计 100 点自动兑换 1 个特权点；抽奖经验只用于等级成长。
-              const rewardXpTotal = childData?.rewardXpTotal || 0;
-              const xpInCurrentCycle = rewardXpTotal % 100;
-              const xpNeeded = 100 - xpInCurrentCycle;
-              const progressPercent = Math.min((xpInCurrentCycle / 100) * 100, 100);
-              const privPoints = childData?.privilegePoints || 0;
-              return (
-                <div className="mt-1.5 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-blue-500 font-bold whitespace-nowrap">特权进度</span>
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden" title="任务和学习审核经验每100点=1特权点；抽奖经验只用于等级">
-                      <div
-                        className="h-full bg-gradient-to-r from-blue-400 to-indigo-400 rounded-full transition-all duration-700"
-                        style={{ width: `${progressPercent}%` }}
-                      />
-                    </div>
-                    <span className={`text-[9px] font-bold whitespace-nowrap ${xpInCurrentCycle >= 80 ? 'text-blue-600 animate-pulse' : 'text-gray-500'}`}>
-                      {xpInCurrentCycle}/100
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[9px] text-gray-400 font-medium">
-                    <span>任务/学习经验 100 = 1 特权点</span>
-                    <span>{privPoints} 点 · 还差 {xpNeeded === 100 ? 100 : xpNeeded} 点</span>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div data-testid="child-header-coins" className="min-h-12 rounded-2xl bg-amber-50 border border-amber-100 px-3 py-2 flex items-center gap-2">
+                <span className="text-xl" aria-hidden="true">🪙</span>
+                <div>
+                  <div className="text-[10px] font-black text-amber-600">{t('childHeader.coins')}</div>
+                  <div className="text-lg font-black text-amber-800 leading-none">{childData?.coins ?? 0}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="child-header-screen-time"
+                onClick={() => setScreenDetailsExpanded(value => !value)}
+                aria-expanded={screenDetailsExpanded}
+                className="min-h-12 rounded-2xl bg-emerald-50 border border-emerald-100 px-3 py-2 flex items-center gap-2 text-left active:scale-[0.99]"
+              >
+                <Gamepad2 size={20} className="text-emerald-600" />
+                <div>
+                  <div className="text-[10px] font-black text-emerald-600">{t('childHeader.gameTime')}</div>
+                  <div className="text-lg font-black text-emerald-800 leading-none">
+                    {screenTime ? t('common.minuteValue', { minutes: screenTime.balance }) : '--'}
                   </div>
                 </div>
-              );
-            })()}
-            </>)}
+              </button>
+            </div>
+            {screenDetailsExpanded && (
+              <div className="mt-2 grid grid-cols-4 gap-1 rounded-2xl bg-slate-50 p-2 text-center">
+                <HeaderMinute label={t('childHeader.base')} value={screenTime?.dailyBaseMinutes} />
+                <HeaderMinute label={t('childHeader.earned')} value={screenTime?.earnedMinutes} />
+                <HeaderMinute label={t('childHeader.used')} value={screenTime?.todayUsed} />
+                <HeaderMinute label={t('childHeader.cap')} value={screenTime?.dailyMaxMinutes} />
+              </div>
+            )}
           </div>
 
           {/* Main Content */}
@@ -307,7 +284,7 @@ export default function ChildLayout() {
             onRefresh={refreshChildPage}
             className="flex-1 min-h-0 pb-20 scrollbar-hide"
           >
-            <Outlet context={{ childData, tasks: todayTasks, refresh: fetchData }} />
+            <Outlet context={{ childData, tasks: todayTasks, screenTime, refresh: fetchData }} />
           </PullToRefresh>
 
           <div
@@ -435,4 +412,11 @@ const NavLink = ({ icon, label, active, onClick }: any) => (
     {icon}
     <span>{label}</span>
   </button>
+);
+
+const HeaderMinute = ({ label, value }: { label: string; value?: number }) => (
+  <div className="rounded-xl bg-white px-1 py-1.5">
+    <div className="text-[9px] font-black text-slate-400">{label}</div>
+    <div className="text-xs font-black text-slate-700">{value ?? 0}</div>
+  </div>
 );

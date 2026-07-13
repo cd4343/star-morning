@@ -117,11 +117,26 @@ test('child today prioritizes a running task and shows four primary destinations
   }));
   await page.route('**/api/child/all-achievements', route => route.fulfill({ json: [] }));
   await page.route('**/api/child/task-session-reminders', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/screen-time', route => route.fulfill({ json: {
+    dailyBaseMinutes: 15, dailyMaxMinutes: 45, earnedMinutes: 7, todayUsed: 5, allowance: 22, balance: 17,
+  } }));
   await page.route('**/api/child/morning**', route => route.fulfill({ json: { date: '2026-07-12', items: [], order: null } }));
 
   await page.goto('/child/today');
 
   await expect(page.getByTestId('today-primary-action')).toContainText('正在完成的作业');
+  const rewardHeader = page.getByTestId('child-reward-header');
+  await expect(rewardHeader.getByTestId('child-header-coins')).toContainText('80');
+  await expect(rewardHeader.getByTestId('child-header-screen-time')).toContainText('17');
+  await expect(rewardHeader).not.toContainText('特权点');
+  await expect(rewardHeader).not.toContainText('经验');
+  await expect(rewardHeader).not.toContainText('Lv.');
+  await rewardHeader.getByTestId('child-header-screen-time').click();
+  await expect(rewardHeader).toContainText(/基础\s*15/);
+  await expect(rewardHeader).toContainText(/获得\s*7/);
+  await expect(rewardHeader).toContainText(/已用\s*5/);
+  await expect(rewardHeader).toContainText(/上限\s*45/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const nav = page.getByTestId('child-bottom-nav');
   await expect(nav).toContainText('今天');
   await expect(nav).toContainText('探索');
@@ -132,6 +147,74 @@ test('child today prioritizes a running task and shows four primary destinations
 
   await page.getByRole('button', { name: /继续完成/ }).click();
   await expect(page).toHaveURL(/\/child\/challenge$/);
+});
+
+test('child growth page separates level xp from reward progress', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'phase-two-child-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-phase-two', name: '测试孩子', role: 'child', familyId: 'family-phase-two',
+    }));
+  });
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/child/dashboard') return route.fulfill({ json: {
+      child: { id: 'child-phase-two', name: '测试孩子', coins: 80, xp: 240, maxXp: 300, level: 3, privilegePoints: 2, rewardXpTotal: 165 },
+      tasks: [], recentReviews: [],
+    } });
+    if (path === '/api/child/screen-time') return route.fulfill({ json: { dailyBaseMinutes: 15, dailyMaxMinutes: 45, earnedMinutes: 5, todayUsed: 3, allowance: 20, balance: 17 } });
+    if (path === '/api/child/punishment-stats') return route.fulfill({ json: { totalCount: 0, totalDeducted: 0, weekCount: 0, prevWeekCount: 0, byLevel: [], lastPunishmentDate: null, daysSinceLastPunishment: null } });
+    if (path === '/api/child/focus-stats') return route.fulfill({ json: { thisWeekMinutes: 20, lastWeekMinutes: 10, longestSessionMinutes: 15, sessionsCount: 2 } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/child/me');
+  const growth = page.getByTestId('child-growth-account');
+  await expect(growth).toContainText('成长经验');
+  await expect(growth).toContainText('240 / 300');
+  await expect(growth).toContainText('权益成长进度');
+  await expect(growth).toContainText('65 / 100');
+  await expect(growth).toContainText('还差 35');
+  await expect(growth).toContainText('2 点可用');
+});
+
+test('child rewards keeps coin goods and growth rights in separate wallets', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'phase-two-child-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-phase-two', name: '测试孩子', role: 'child', familyId: 'family-phase-two',
+    }));
+  });
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const path = `${url.pathname}${url.search}`;
+    if (path === '/api/child/dashboard') return route.fulfill({ json: {
+      child: { id: 'child-phase-two', name: '测试孩子', coins: 80, xp: 240, maxXp: 300, level: 3, privilegePoints: 2, rewardXpTotal: 165 },
+      tasks: [], recentReviews: [],
+    } });
+    if (path === '/api/child/wishes?type=shop') return route.fulfill({ json: [
+      { id: 'wish-1', type: 'shop', title: '一本书', icon: '📚', cost: 50, stock: 2, category: '学习', referenceRmb: 12 },
+    ] });
+    if (path === '/api/child/privileges') return route.fulfill({ json: [
+      { id: 'right-1', title: '决定家庭电影', icon: '🎬', cost: 2, level: 'bronze', description: '从家长允许的范围中选择' },
+    ] });
+    if (path === '/api/child/lottery/info') return route.fulfill({ json: { lotteryEnabled: false, prizes: [] } });
+    if (path === '/api/child/screen-time') return route.fulfill({ json: { balance: 17, dailyBaseMinutes: 15, dailyMaxMinutes: 45, earnedMinutes: 5, todayUsed: 3 } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/child/wishes');
+  const wallet = page.getByTestId('child-reward-wallet');
+  await expect(wallet).toContainText('我的金币');
+  await expect(wallet).not.toContainText('权益点');
+  await expect(page.getByText('一本书')).toBeVisible();
+  await expect(page.locator('#root')).not.toContainText('12 元');
+
+  await page.getByRole('button', { name: '权益' }).click();
+  await expect(wallet).toContainText('成长权益点');
+  await expect(wallet).not.toContainText('我的金币');
+  await expect(page.getByText('决定家庭电影')).toBeVisible();
+  await expect(page.getByText('2 权益点')).toBeVisible();
 });
 
 test('child lottery shows the parent-closed state at 375px', async ({ page }) => {

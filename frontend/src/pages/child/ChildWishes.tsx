@@ -374,7 +374,7 @@ export default function ChildWishes() {
   // 撤销兑换
   const handleCancel = async (item: any) => {
       const costType = item.costType || 'coins';
-      const costText = costType === 'privilegePoints' ? `${item.cost} 特权点` : `${item.cost} 金币`;
+      const costText = costType === 'privilegePoints' ? `${item.cost} 权益点` : `${item.cost} 金币`;
       const confirmed = await confirm({
         title: '撤销兑换',
         message: `确定撤销兑换 ${item.title} 吗？${costText}将退回。每个商店商品只有 1 次撤销机会，撤销后这类商品不能再次撤销。`,
@@ -385,7 +385,7 @@ export default function ChildWishes() {
       try {
           await api.post(`/child/inventory/${item.id}/cancel`);
           const message = costType === 'privilegePoints'
-              ? `${item.title} 已撤销，特权点已退回！`
+              ? `${item.title} 已撤销，权益点已退回！`
               : `${item.title} 已撤销，金币已退回！`;
           showTip('已撤销', message, '↩️');
           refresh();
@@ -452,8 +452,8 @@ export default function ChildWishes() {
           if (item.source === 'achievement_reward') {
               const parts = [
                   res.data?.rewardCoins ? `${res.data.rewardCoins} 金币` : '',
-                  res.data?.rewardXp ? `${res.data.rewardXp} 经验` : '',
-                  res.data?.rewardPrivilegePoints ? `${res.data.rewardPrivilegePoints} 特权点` : '',
+                  res.data?.rewardXp ? `成长 +${res.data.rewardXp}` : '',
+                  res.data?.rewardPrivilegePoints ? `权益点 +${res.data.rewardPrivilegePoints}` : '',
               ].filter(Boolean).join('、');
               showTip('成就礼包已打开', parts ? `获得 ${parts}！` : `${item.title} 已打开！`, '🏆');
           } else {
@@ -657,9 +657,9 @@ export default function ChildWishes() {
               } else if (result.isBonusCoins) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！直接获得 ${result.bonusCoins} 金币！`, '💰');
               } else if (result.isBonusXp) {
-                  showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，获得 ${result.bonusXp} 经验。`, '✨');
+                  showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，成长 +${result.bonusXp}。`, '✨');
               } else if (result.isBonusPrivilegePoints) {
-                  showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，获得 ${result.bonusPrivilegePoints} 特权点。`, '💎');
+                  showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，获得 ${result.bonusPrivilegePoints} 权益点。`, '💎');
               } else if (result.isFreeSpin) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！获得一次免费抽奖机会，已放入背包！`, '🎫');
               } else if (result.isDoubleNext) {
@@ -685,7 +685,7 @@ export default function ChildWishes() {
     shop: {
       icon: <ShoppingBag size={22} />,
       title: '奖励商店',
-      description: '用金币兑换家长设置的奖励，屏幕时间会统一走游戏票限制。',
+      description: t('rewards.shopDescription'),
       stat: `${filteredShopItems.length} 个可兑换`,
       className: 'bg-pink-50 border-pink-100 text-pink-700',
     },
@@ -716,25 +716,29 @@ export default function ChildWishes() {
     },
     privileges: {
       icon: <Dna size={22} />,
-      title: '特权兑换',
-      description: '特权点来自任务成长，可以立即使用，也可以先放进背包。',
-      stat: `${privileges.length} 个特权`,
+      title: t('rewards.rightsTitle'),
+      description: t('rewards.rightsDescription'),
+      stat: t('rewards.rightsCount', { count: privileges.length }),
       className: 'bg-yellow-50 border-yellow-100 text-yellow-700',
     },
   }[view];
 
   return (
     <div className={`p-4 space-y-4 min-h-full ${view === 'lottery' ? 'bg-gradient-to-b from-purple-800 to-indigo-900' : ''}`}>
-      {/* 顶部金币和特权点显示 */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-gradient-to-r from-yellow-400 to-orange-400 rounded-xl p-3 text-white text-center">
-          <div className="text-xs opacity-80 font-bold">我的金币</div>
-          <div className="text-2xl font-black leading-tight">{childData.coins} 💰</div>
-        </div>
-        <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-3 text-white text-center">
-          <div className="text-xs opacity-80 font-bold">特权点</div>
-          <div className="text-2xl font-black leading-tight">{childData.privilegePoints || 0} 💎</div>
-        </div>
+      <div data-testid="child-reward-wallet">
+        {view === 'privileges' ? (
+          <div className="bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl p-3 text-white text-center">
+            <div className="text-xs opacity-80 font-bold">{t('rewards.rightsWallet')}</div>
+            <div className="text-2xl font-black leading-tight">{childData.privilegePoints || 0} 💎</div>
+            <div className="mt-1 text-[10px] font-bold text-white/75">{t('rewards.rightsOnly')}</div>
+          </div>
+        ) : (
+          <div className="bg-gradient-to-r from-yellow-400 to-orange-400 rounded-xl p-3 text-white text-center">
+            <div className="text-xs opacity-80 font-bold">{t('rewards.coinWallet')}</div>
+            <div className="text-2xl font-black leading-tight">{childData.coins} 💰</div>
+            <div className="mt-1 text-[10px] font-bold text-white/80">{t('rewards.coinsOnly')}</div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-5 gap-1 bg-white rounded-xl p-1 shadow-sm">
@@ -742,7 +746,7 @@ export default function ChildWishes() {
           <button onClick={()=>setView('bag')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='bag'?'bg-blue-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>背包</button>
           <button onClick={()=>setView('savings')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='savings'?'bg-green-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>储蓄</button>
           <button onClick={()=>setView('lottery')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='lottery'?'bg-purple-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>抽奖</button>
-          <button onClick={()=>setView('privileges')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='privileges'?'bg-yellow-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>特权</button>
+          <button onClick={()=>setView('privileges')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='privileges'?'bg-yellow-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>{t('rewards.rightsTab')}</button>
       </div>
 
       <div className={`rounded-2xl border p-4 flex items-center gap-3 ${viewMeta.className}`}>
@@ -918,7 +922,7 @@ export default function ChildWishes() {
                                       ) : isAchievementReward ? (
                                           <span className="text-yellow-700">🏆 成就礼包{rewardParts ? `：${rewardParts}` : ''}</span>
                                       ) : item.costType === 'privilegePoints' ? (
-                                          <span className="text-purple-600">👑 {item.cost} 特权点兑换</span>
+                                          <span className="text-purple-600">👑 {item.cost} 权益点兑换</span>
                                       ) : (item.cost ?? 0) > 0 ? (
                                           <span className="text-yellow-600">💰 {item.cost} 金币兑换</span>
                                       ) : (
@@ -1269,7 +1273,7 @@ export default function ChildWishes() {
                                                       <div className="text-xs text-gray-600 mt-1">{priv.description}</div>
                                                   )}
                                                   <div className="text-xs text-purple-600 font-bold mt-1">
-                                                      {priv.cost} 特权点
+                                                      {priv.cost} {t('rewards.rightsPointUnit')}
                                                   </div>
                                               </div>
                                           </div>

@@ -200,11 +200,11 @@ POST /api/parent/economy-recalibration/:batchId/rollback
 - Modify: `frontend/src/i18n/locales/zh-CN.ts`
 - Test: `frontend/tests/smoke/product-phase1.spec.ts`
 
-- [ ] **Step 1: 写失败测试**：顶部只能找到金币和今日剩余分钟；特权点、等级经验在“我的”可见；商店无人民币字样。
-- [ ] **Step 2: ChildLayout 主指标改成金币和今日游戏时间**，使用 `/child/screen-time` 的基础、获得、使用、剩余字段。
-- [ ] **Step 3: ChildMe 展示成长经验、权益来源说明和下一次权益进度，不把 `xp` 与 `rewardXpTotal` 合并。**
-- [ ] **Step 4: ChildWishes 将实物商品与权益分区，金币商品不能使用特权点，权益不能使用金币。**
-- [ ] **Step 5: 运行移动端及生产全页面测试，提交 `P2-E6: simplify child reward presentation`。**
+- [x] **Step 1: 写失败测试**：顶部只能找到金币和今日剩余分钟；特权点、等级经验在“我的”可见；商店无人民币字样。
+- [x] **Step 2: ChildLayout 主指标改成金币和今日游戏时间**，使用 `/child/screen-time` 的基础、获得、使用、剩余字段。
+- [x] **Step 3: ChildMe 展示成长经验、权益来源说明和下一次权益进度，不把 `xp` 与 `rewardXpTotal` 合并。**
+- [x] **Step 4: ChildWishes 将实物商品与权益分区，金币商品不能使用特权点，权益不能使用金币。**
+- [x] **Step 5: 运行移动端及生产全页面测试，提交 `P2-E6: simplify child reward presentation`。**
 
 ### Task 7: 清除空奖并完成发布验证
 
