@@ -18,13 +18,13 @@
 - Create: `backend/src/growthCosmeticSchema.test.ts`
 - Modify: `backend/src/database.ts`
 
-- [ ] Write failing tests for two repeated migrations, preserved users, unique `(child_id, cosmetic_key)`, one customization row per child and foreign-key cascades.
-- [ ] Create `user_cosmetic_unlocks(child_id, cosmetic_key, source_type, source_key, unlocked_at)` and `user_profile_customization(child_id, avatar_key, frame_key, theme_key, title_key, featured_achievement_ids, updated_at)` using snake_case.
-- [ ] Define only the approved first release: existing family avatars, neutral star avatars, six stage frames, five category themes, stage/selected achievement titles and three badge slots.
-- [ ] Assert no cosmetic has a coin cost, probability, lottery source or permission flag.
-- [ ] Register the idempotent migration after growth identity schema initialization.
-- [ ] Run focused schema tests, then backend full tests.
-- [ ] Commit: `git commit -m "P4-4: add lightweight cosmetic storage"`
+- [x] Write failing tests for two repeated migrations, preserved users, unique `(child_id, cosmetic_key)`, one customization row per child and foreign-key cascades.
+- [x] Create `user_cosmetic_unlocks(child_id, cosmetic_key, source_type, source_key, unlocked_at)` and `user_profile_customization(child_id, avatar_key, frame_key, theme_key, title_key, featured_achievement_ids, updated_at)` using snake_case.
+- [x] Define only the approved first release: existing family avatars, neutral star avatars, six stage frames, five category themes, stage/selected achievement titles and three badge slots.
+- [x] Assert no cosmetic has a coin cost, probability, lottery source or permission flag.
+- [x] Register the idempotent migration after growth identity schema initialization.
+- [x] Run focused schema tests, then backend full tests.
+- [x] Commit: `git commit -m "P4-4: add lightweight cosmetic storage"`
 
 ## Task 2: Implement server-authoritative unlock and selection rules
 

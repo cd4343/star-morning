@@ -7,6 +7,7 @@ import { ensureLotterySafetyTables } from './lotteryRules';
 import { ensureEconomySchema } from './economySchema';
 import { ensureTaskSettlementSchema } from './taskSettlement';
 import { ensureGrowthIdentitySchema } from './growthIdentitySchema';
+import { ensureGrowthCosmeticSchema } from './growthCosmeticSchema';
 
 let db: Database;
 
@@ -507,6 +508,7 @@ export const initializeDatabase = async () => {
 
   // Phase 4: run after every legacy achievement seed/backfill so the first restart classifies them too.
   await ensureGrowthIdentitySchema(db);
+  await ensureGrowthCosmeticSchema(db);
 
   return db;
 };
