@@ -17,11 +17,11 @@
 - Create: `backend/src/growthIdentityCatalog.test.ts`
 - Reference: `docs/superpowers/specs/2026-07-13-growth-identity-system-design.md` sections 4 and 5.3
 
-- [ ] Write a failing test that asserts exactly 92 entries; unique `systemKey`, Chinese title and `iconKey`; non-empty `displayTitleKey`, `displayDescriptionKey`, category and legacy matcher; and complete icon registration.
-- [ ] Define `SystemAchievementDefinition` and transcribe every approved row in spec order. Use stable keys such as `task.count.1`, `streak.all.3`, `life.count.1`, and `explore.checkin.1`; never derive identity from title.
-- [ ] Export read-only maps by `systemKey` and legacy signature. Throw during module initialization on any duplicate or missing field.
-- [ ] Run `npm test -- growthIdentityCatalog.test.ts` from `backend`; expect all catalog tests to pass.
-- [ ] Commit: `git commit -m "P4-1: establish system achievement catalog"`
+- [x] Write a failing test that asserts exactly 92 entries; unique `systemKey`, Chinese title and `iconKey`; non-empty `displayTitleKey`, `displayDescriptionKey`, category and legacy matcher; and complete icon registration.
+- [x] Define `SystemAchievementDefinition` and transcribe every approved row in spec order. Use stable keys such as `task.count.1`, `streak.all.3`, `life.count.1`, and `explore.checkin.1`; never derive identity from title.
+- [x] Export read-only maps by `systemKey` and legacy signature. Throw during module initialization on any duplicate or missing field.
+- [x] Run `npm test -- growthIdentityCatalog.test.ts` from `backend`; expect all catalog tests to pass.
+- [x] Commit: `git commit -m "P4-1: establish system achievement catalog"`
 
 ## Task 2: Add an idempotent, conservative identity migration
 
