@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card } from '../../components/Card';
 import { Trophy, Lock, ChevronDown, Archive, ShieldCheck, Timer } from 'lucide-react';
 import { Modal } from '../../components/Modal';
-import api, { isAuthError } from '../../services/api';
+import api, { getChildGrowthIdentity, isAuthError, updateChildProfileCustomization } from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useOutletContext } from 'react-router-dom';
 import { useToast } from '../../components/Toast';
@@ -11,6 +11,10 @@ import {
 } from '../../utils/achievementDisplay';
 import { getLevelStage, getLevelTitle, LEVEL_STAGES } from '../../utils/levelPerks';
 import { GrowthIcon } from '../../components/GrowthIcon';
+import { GrowthIdentityCard } from '../../components/GrowthIdentityCard';
+import { CosmeticCloset } from '../../components/CosmeticCloset';
+import { useConfirmDialog } from '../../components/ConfirmDialog';
+import type { GrowthIdentity, GrowthProfileUpdate } from '../../types/growthIdentity';
 
 interface Achievement {
   id: string;
@@ -122,12 +126,18 @@ export default function ChildMe() {
   const context = useOutletContext<any>();
   const childData = context?.childData || { coins: 0, xp: 0, level: 1, privilegePoints: 0, rewardXpTotal: 0 };
   const toast = useToast();
+  const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
 
   const [allAchievements, setAllAchievements] = useState<Achievement[]>([]);
   const [punishmentRecords, setPunishmentRecords] = useState<PunishmentRecord[]>([]);
   const [chestRecords, setChestRecords] = useState<ChestRecord[]>([]);
   const [punishmentStats, setPunishmentStats] = useState<PunishmentStats | null>(null);
   const [focusStats, setFocusStats] = useState<FocusStats | null>(null);
+  const [growthIdentity, setGrowthIdentity] = useState<GrowthIdentity | null>(null);
+  const [growthIdentityLoading, setGrowthIdentityLoading] = useState(true);
+  const [growthIdentityUnavailable, setGrowthIdentityUnavailable] = useState(false);
+  const [closetOpen, setClosetOpen] = useState(false);
+  const [savingCosmetics, setSavingCosmetics] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expandedRecords, setExpandedRecords] = useState(false);
   // M19b: 时间筛选只留「最近30天 / 全部」，列表固定按时间倒序
@@ -145,6 +155,20 @@ export default function ChildMe() {
   const fetchAchievements = useCallback(async () => {
     const achRes = await api.get('/child/all-achievements');
     setAllAchievements(achRes.data || []);
+  }, []);
+
+  const fetchGrowthIdentity = useCallback(async () => {
+    setGrowthIdentityLoading(true);
+    setGrowthIdentityUnavailable(false);
+    try {
+      setGrowthIdentity(await getChildGrowthIdentity());
+    } catch (error) {
+      if (isAuthError(error)) return;
+      setGrowthIdentity(null);
+      setGrowthIdentityUnavailable(true);
+    } finally {
+      setGrowthIdentityLoading(false);
+    }
   }, []);
 
   const fetchPunishmentRecords = useCallback(async (limit?: number) => {
@@ -212,6 +236,10 @@ export default function ChildMe() {
   useEffect(() => {
     fetchPunishmentRecords();
   }, [fetchPunishmentRecords]);
+
+  useEffect(() => {
+    fetchGrowthIdentity();
+  }, [fetchGrowthIdentity]);
 
   useEffect(() => {
     fetchChestRecords();
@@ -295,12 +323,7 @@ export default function ChildMe() {
 
   const trendMessage = getTrendMessage();
   const achievementPercent = allAchievements.length ? Math.round((unlockedCount / allAchievements.length) * 100) : 0;
-  const xpCurrent = Number(childData?.xp || 0) % Number(childData?.maxXp || 100);
-  const xpMax = Number(childData?.maxXp || 100);
-  const xpRemaining = Math.max(xpMax - xpCurrent, 0);
   const rewardXpTotal = Math.max(0, Number(childData?.rewardXpTotal || 0));
-  const rewardXpCurrent = rewardXpTotal % 100;
-  const rewardXpRemaining = rewardXpCurrent === 0 ? 100 : 100 - rewardXpCurrent;
   const privilegePoints = Math.max(0, Number(childData?.privilegePoints || 0));
   const focusCards = [
     {
@@ -346,55 +369,42 @@ export default function ChildMe() {
     setActivePanel(panel);
   };
 
+  const saveCosmetics = async (selection: GrowthProfileUpdate) => {
+    const accepted = await confirm({
+      title: t('growthIdentity.confirmTitle'),
+      message: t('growthIdentity.confirmMessage'),
+      confirmText: t('growthIdentity.confirmSave'),
+      cancelText: t('growthIdentity.cancel'),
+      type: 'info',
+    });
+    if (!accepted) return;
+
+    setSavingCosmetics(true);
+    try {
+      const savedIdentity = await updateChildProfileCustomization(selection);
+      setGrowthIdentity(savedIdentity);
+      setClosetOpen(false);
+      toast.success(t('growthIdentity.saveSuccess'));
+    } catch (error) {
+      if (isAuthError(error)) return;
+      setClosetOpen(false);
+      toast.error(t('growthIdentity.saveError'));
+    } finally {
+      setSavingCosmetics(false);
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <div data-testid="child-growth-account" className="rounded-[1.75rem] bg-white border border-indigo-100 p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs font-black text-indigo-500">{t('growth.accountTitle')}</div>
-            <div className="mt-1 text-xl font-black text-slate-900 truncate">
-              {getLevelTitle(Number(childData?.level || 1))}
-              <span className="ml-2 text-xs font-black text-indigo-500">Lv.{childData?.level || 1}</span>
-            </div>
-          </div>
-          <div className="rounded-2xl bg-indigo-50 px-3 py-2 text-right">
-            <div className="text-lg font-black text-indigo-700">{privilegePoints} {t('growth.pointsUnit')}</div>
-            <div className="text-[10px] font-black text-indigo-400">{t('growth.available')}</div>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-4">
-          <div>
-            <div className="flex items-center justify-between gap-2 text-xs font-black">
-              <span className="text-violet-600">{t('growth.levelXp')}</span>
-              <span className="text-slate-500">{xpCurrent} / {xpMax}</span>
-            </div>
-            <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-violet-50">
-              <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-500" style={{ width: `${Math.min((xpCurrent / Math.max(1, xpMax)) * 100, 100)}%` }} />
-            </div>
-            <div className="mt-1 text-[10px] font-bold text-slate-400">
-              {t('growth.levelXpHint', { remaining: xpRemaining })}
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between gap-2 text-xs font-black">
-              <span className="text-blue-600">{t('growth.rightsProgress')}</span>
-              <span className="text-slate-500">{rewardXpCurrent} / 100</span>
-            </div>
-            <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-blue-50">
-              <div className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500" style={{ width: `${rewardXpCurrent}%` }} />
-            </div>
-            <div className="mt-1 text-[10px] font-bold text-slate-400">
-              {t('growth.rightsHint', { remaining: rewardXpRemaining })}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-[11px] font-bold leading-relaxed text-slate-500">
-          {t('growth.accountsExplain')}
-        </div>
-      </div>
+      <GrowthIdentityCard
+        identity={growthIdentity}
+        loading={growthIdentityLoading}
+        unavailable={growthIdentityUnavailable}
+        fallback={childData}
+        privilegePoints={privilegePoints}
+        rewardXpTotal={rewardXpTotal}
+        onOpenCloset={() => setClosetOpen(true)}
+      />
 
       <div className="rounded-[1.75rem] bg-white border border-slate-100 p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
@@ -843,6 +853,18 @@ export default function ChildMe() {
           </div>
         )}
       </Modal>
+
+      {growthIdentity ? (
+        <CosmeticCloset
+          isOpen={closetOpen}
+          identity={growthIdentity}
+          saving={savingCosmetics}
+          onClose={() => setClosetOpen(false)}
+          onSave={saveCosmetics}
+        />
+      ) : null}
+
+      <ConfirmDialog />
 
       {/* 宝箱记录 */}
       {activePanel === 'chest' && (

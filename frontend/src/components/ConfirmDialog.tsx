@@ -107,7 +107,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           </div>
           <button
             onClick={onCancel}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full transition-colors active:bg-gray-100"
             aria-label="关闭"
           >
             <X size={20} className="text-gray-400" aria-hidden="true" />

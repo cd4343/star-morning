@@ -79,7 +79,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           <h3 id={titleId} className="font-bold text-lg">{title}</h3>
           <button 
             onClick={onClose}
-            className="p-2 -mr-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="-mr-2 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full transition-colors active:bg-gray-100"
             aria-label="关闭"
           >
             <X size={20} className="text-gray-500" aria-hidden="true" />

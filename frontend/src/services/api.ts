@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import { isGrowthIdentity, type GrowthIdentity, type GrowthProfileUpdate } from '../types/growthIdentity';
 
 export interface ApiErrorResponse {
   message: string;
@@ -111,6 +112,18 @@ export const getErrorMessage = (error: unknown): string => {
 
 export const isAuthError = (error: unknown): boolean => {
   return axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403);
+};
+
+export const getChildGrowthIdentity = async (): Promise<GrowthIdentity> => {
+  const response = await api.get<GrowthIdentity>('/child/growth-identity');
+  if (!isGrowthIdentity(response.data)) throw new Error('Invalid growth identity response');
+  return response.data;
+};
+
+export const updateChildProfileCustomization = async (selection: GrowthProfileUpdate): Promise<GrowthIdentity> => {
+  const response = await api.put<GrowthIdentity>('/child/profile-customization', selection);
+  if (!isGrowthIdentity(response.data)) throw new Error('Invalid growth identity response');
+  return response.data;
 };
 
 export default api;

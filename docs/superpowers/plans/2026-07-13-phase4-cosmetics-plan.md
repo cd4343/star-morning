@@ -54,16 +54,16 @@
 - Modify: `frontend/src/i18n/locales/zh-CN.ts`
 - Modify: `frontend/tests/smoke/product-phase2.spec.ts`
 
-- [ ] Mock the new read model and write failing smoke coverage for loading, empty, locked, selected, save-error and safe-fallback states.
-- [ ] Add typed API calls and render one current-identity card above achievement history.
-- [ ] Keep the closet collapsed by default, one primary action at a time, 44px controls, no hover dependency and safe-area bottom padding.
-- [ ] Save only after explicit confirmation; on HTTP failure restore the last server state and show a translated error toast.
-- [ ] Allow zero to three unlocked achievement badges; prevent duplicates client-side and revalidate server-side.
-- [ ] Run frontend build and focused smoke tests at 375px.
-- [ ] Commit: `git commit -m "P4-5: add child growth identity and closet"`
+- [x] Mock the new read model and write failing smoke coverage for loading, empty, locked, selected, save-error and safe-fallback states.
+- [x] Add typed API calls and render one current-identity card above achievement history.
+- [x] Keep the closet collapsed by default, one primary action at a time, 44px controls, no hover dependency and safe-area bottom padding.
+- [x] Save only after explicit confirmation; on HTTP failure restore the last server state and show a translated error toast.
+- [x] Allow zero to three unlocked achievement badges; prevent duplicates client-side and revalidate server-side.
+- [x] Run frontend build and focused smoke tests at 375px.
+- [x] Commit: `git commit -m "P4-5: add child growth identity and closet"`
 
 ## Task 4: Cosmetics checkpoint
 
-- [ ] Confirm no route, task, shop, lottery, backpack or exploration permission imports the cosmetic service.
-- [ ] Confirm no database update touches `coins`, `xp`, `rewardXpTotal` or `privilegePoints` when selecting cosmetics.
-- [ ] Run backend full tests and frontend build before release packaging.
+- [x] Confirm no route, task, shop, lottery, backpack or exploration permission imports the cosmetic service.
+- [x] Confirm no database update touches `coins`, `xp`, `rewardXpTotal` or `privilegePoints` when selecting cosmetics.
+- [x] Run backend full tests and frontend build before release packaging.
