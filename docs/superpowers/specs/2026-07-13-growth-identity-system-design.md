@@ -53,16 +53,21 @@ Phase 4 要让孩子一眼看懂“我完成了什么、我成长到哪里、我
 | 全部任务连续 | 3 / 7 / 21 / 30 / 60 / 100天 | 三日不断线 / 一周守约 / 习惯发芽 / 月度稳行 / 双月有恒 / 百日长成 |
 | 生活任务累计 | 1 / 10 / 30 / 60 / 100 | 生活初上手 / 自理小帮手 / 日常整理家 / 家务小担当 / 生活小管家 |
 | 生活任务连续 | 3 / 7 / 21天 | 三日小当家 / 整洁一周星 / 日常有序者 |
+| 生活高光 | 手动2项 | 独立完成第一步 / 主动加一步 |
 | 学习任务累计 | 1 / 10 / 30 / 60 / 100 | 学习启动星 / 专注小苗 / 作业小闯将 / 学海拾贝者 / 求知小灯塔 |
 | 学习任务连续 | 3 / 7 / 21天 | 三日书声 / 七日勤学星 / 书声常伴 |
+| 学习高光 | 手动2项 | 发现错误小侦探 / 分享知识小老师 |
 | 运动任务累计 | 1 / 10 / 30 / 60 / 100 | 活力初启动 / 运动小火苗 / 活力小健将 / 体能守护者 / 强健领跑星 |
 | 运动任务连续 | 3 / 7 / 21天 | 连动三天 / 活力七日行 / 元气常在者 |
+| 运动高光 | 手动1项 | 坚持到底小健将 |
 | 活动任务累计 | 1 / 10 / 30 / 60 / 100 | 兴趣初发现 / 灵感练习生 / 创意小工匠 / 小小创作者 / 创意满格家 |
 | 活动任务连续 | 7 / 21天 | 兴趣七日行 / 艺海拾光者 |
 | 情绪成长 | 手动3项 | 听见心声 / 冷静有方法 / 求助真勇敢 |
 | 品格成长 | 手动3项 | 礼貌表达星 / 热心小帮手 / 诚实守约者 |
+| 家庭成长 | 手动3项 | 家庭搭把手 / 同心合作星 / 约定守护者 |
 | 金币累计 | 100 / 500 / 1000 / 3000 / 5000 / 10000 | 百币小储蓄家 / 五百聚沙者 / 千币小金库 / 三千规划家 / 五千梦想仓 / 万币目标家 |
 | 个人等级 | Lv.2 / 5 / 10 / 20 / 30 | 微光启程 / 星芽成长 / 星路进阶 / 恒星闪耀 / 星河领航 |
+| 成长勇气 | 手动1项 | 再试一次小勇士 |
 | 探索次数 | 1 / 5 / 10 / 25 / 50 | 初次出发 / 五站见闻 / 十次行走 / 探索足迹家 / 城市远行者 |
 | 博物馆探索 | 1 / 3 / 5处 | 博物初见 / 博物馆常客 / 博物小达人 |
 | 自然与城市 | 自然3处 / 城市3处 | 自然观察员 / 城市发现家 |
@@ -97,6 +102,7 @@ Phase 4 要让孩子一眼看懂“我完成了什么、我成长到哪里、我
 | 活动 | 品红色 | 画笔、音符、调色盘、舞台 |
 | 情绪 | 玫瑰色 | 心形、呼吸、对话、援手 |
 | 品格 | 青绿色 | 握手、盾牌、对话、诚实之心 |
+| 家庭 | 暖橙色 | 房屋、家人、合作、约定 |
 | 金币 | 金黄色 | 储蓄罐、目标罐、计划板，不使用皇冠表示财富高低 |
 | 成长等级 | 紫色 | 星芽、星轨、恒星、领航标记 |
 | 探索 | 青蓝色 | 罗盘、地图、场馆、相机、麦克风 |
@@ -113,16 +119,21 @@ Phase 4 要让孩子一眼看懂“我完成了什么、我成长到哪里、我
 | 全部任务连续 | `streak.three`日历勾 / `streak.week`周历 / `streak.twenty-one`新芽 / `streak.month`月历 / `streak.sixty`恒火 / `streak.hundred`纪念章 |
 | 生活任务累计 | `life.first`伸手 / `life.ten`床铺 / `life.thirty`清单 / `life.sixty`收纳篮 / `life.hundred`房屋 |
 | 生活任务连续 | `life.streak-three`房屋勾 / `life.streak-week`家庭周历 / `life.streak-twenty-one`循环清单 |
+| 生活高光 | `life.independent`独立手印 / `life.extra-step`加一步 |
 | 学习任务累计 | `study.first`打开书 / `study.ten`铅笔 / `study.thirty`作业本勾 / `study.sixty`书架 / `study.hundred`灯塔 |
 | 学习任务连续 | `study.streak-three`三页书 / `study.streak-week`学习周历 / `study.streak-twenty-one`连续书页 |
+| 学习高光 | `study.self-correct`放大镜勾 / `study.teach`分享讲台 |
 | 运动任务累计 | `sport.first`启动步 / `sport.ten`活力火苗 / `sport.thirty`运动章 / `sport.sixty`心率盾 / `sport.hundred`强健星 |
 | 运动任务连续 | `sport.streak-three`三段动线 / `sport.streak-week`活力周历 / `sport.streak-twenty-one`元气仪表 |
+| 运动高光 | `sport.finish`终点旗 |
 | 活动任务累计 | `activity.first`灵感点 / `activity.ten`音符 / `activity.thirty`画笔 / `activity.sixty`作品架 / `activity.hundred`创意光束 |
 | 活动任务连续 | `activity.streak-week`兴趣周历 / `activity.streak-twenty-one`连续灵感浪 |
 | 情绪成长 | `emotion.voice`心形对话 / `emotion.calm`呼吸波 / `emotion.help`援手 |
 | 品格成长 | `character.polite`温和对话 / `character.helpful`握手 / `character.honest`盾牌勾 |
+| 家庭成长 | `family.helper`房屋援手 / `family.cooperate`同心人物 / `family.promise`约定盾牌 |
 | 金币累计 | `saving.hundred`储蓄罐 / `saving.five-hundred`聚币盘 / `saving.thousand`小金库 / `saving.three-thousand`计划板 / `saving.five-thousand`梦想仓 / `saving.ten-thousand`目标旗 |
 | 个人等级 | `level.two`微光芽 / `level.five`成长星 / `level.ten`星轨 / `level.twenty`恒星 / `level.thirty`领航标 |
+| 成长勇气 | `growth.try-again`彩虹回转箭头 |
 | 探索次数 | `explore.first`罗盘 / `explore.five`五点地图 / `explore.ten`足迹路线 / `explore.twenty-five`足迹册 / `explore.fifty`远行地图 |
 | 博物馆探索 | `explore.museum-one`场馆门 / `explore.museum-three`展柜 / `explore.museum-five`博物徽章 |
 | 自然与城市 | `explore.nature-three`叶片放大镜 / `explore.city-three`城市地图 |
