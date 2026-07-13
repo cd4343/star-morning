@@ -35,13 +35,13 @@
 - Create: `backend/src/growthIdentityRoutes.test.ts`
 - Modify: `backend/src/server.ts`
 
-- [ ] Test level-boundary unlocks, achievement-source unlocks, idempotent writes, unavailable-resource fallback, invalid key rejection, cross-child rejection and cross-family rejection.
-- [ ] Implement `getGrowthIdentity(db, childId, familyId)` as a read model combining user XP, stage, unlock catalog, selected profile and verified featured achievements.
-- [ ] Implement `updateProfileCustomization` as a transaction. Reject any locked key with HTTP 409 code `cosmetic_not_unlocked`; reject non-owned achievement IDs with 403.
-- [ ] Register authenticated kebab-case routes `GET /api/child/growth-identity` and `PUT /api/child/profile-customization`, both child-only.
-- [ ] Keep default/fallback cosmetics usable without inserting redundant unlock rows.
-- [ ] Run focused service and HTTP tests, then backend full tests.
-- [ ] Commit: `git commit -m "P4-4: secure growth identity APIs"`
+- [x] Test level-boundary unlocks, achievement-source unlocks, idempotent writes, unavailable-resource fallback, invalid key rejection, cross-child rejection and cross-family rejection.
+- [x] Implement `getGrowthIdentity(db, childId, familyId)` as a read model combining user XP, stage, unlock catalog, selected profile and verified featured achievements.
+- [x] Implement `updateProfileCustomization` as a transaction. Reject any locked key with HTTP 409 code `cosmetic_not_unlocked`; reject non-owned achievement IDs with 403.
+- [x] Register authenticated kebab-case routes `GET /api/child/growth-identity` and `PUT /api/child/profile-customization`, both child-only.
+- [x] Keep default/fallback cosmetics usable without inserting redundant unlock rows.
+- [x] Run focused service and HTTP tests, then backend full tests.
+- [x] Commit: `git commit -m "P4-4: secure growth identity APIs"`
 
 ## Task 3: Build the 375px identity card and closet
 

@@ -34,6 +34,7 @@ import { normalizeShopReferenceRmb, toChildWish, toParentWish } from './wishEcon
 import { settleTaskEntry, syncTaskSettlementCoinAdjustment, TaskSettlementError } from './taskSettlement';
 import { buildAchievementDisplayFields, hasSystemAchievementIdentityChanged } from './achievementDisplay';
 import { getSystemAchievementsByLegacySignature } from './growthIdentityCatalog';
+import { registerGrowthIdentityRoutes } from './growthIdentityRoutes';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -1730,6 +1731,7 @@ registerParentInboxRoutes(app, protect);
 registerEconomyRoutes(app, protect, requireParent);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
+registerGrowthIdentityRoutes(app, protect, requireChild);
 
 // Parent Family Management
 app.post('/api/parent/set-pin', protect, async (req: any, res) => {
