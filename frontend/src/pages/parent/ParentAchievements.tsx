@@ -14,6 +14,8 @@ import {
   getAchievementDisplay as getSharedAchievementDisplay,
   getAchievementRank as getSharedAchievementRank,
 } from '../../utils/achievementDisplay';
+import { GrowthIcon } from '../../components/GrowthIcon';
+import { t } from '../../i18n';
 
 // 成就图标库 - 按类别分组，统一 emoji 风格
 const ACHIEVEMENT_ICON_CATEGORIES = {
@@ -457,8 +459,8 @@ export default function ParentAchievements() {
   // 打开编辑
   const openEdit = (item: any) => {
     setEditingAchievement(item);
-    setTitle(item.title);
-    setDesc(item.description || '');
+    setTitle(item.isSystem ? (item.displayTitle || item.title) : item.title);
+    setDesc(item.isSystem ? (item.displayDescription || item.description || '') : (item.description || ''));
     setIcon(item.icon);
     setConditionType(item.conditionType);
     setConditionValue(item.conditionValue?.toString() || '');
@@ -475,7 +477,13 @@ export default function ParentAchievements() {
     if (!editingAchievement) return;
     if (!title) return toast.warning('请输入标题');
 
-    await api.put(`/parent/achievements/${editingAchievement.id}`, {
+    const rewardPayload = {
+      rewardCoins: +rewardCoins || 0,
+      rewardXp: +rewardXp || 0,
+      rewardPrivilegePoints: +rewardPrivilegePoints || 0,
+      rewardDelivery,
+    };
+    await api.put(`/parent/achievements/${editingAchievement.id}`, editingAchievement.isSystem ? rewardPayload : {
       title,
       description: desc,
       icon,
@@ -483,10 +491,7 @@ export default function ParentAchievements() {
       conditionValue: +conditionValue || 0,
       conditionCategory: conditionCategory || null,
       category: achievementCategory || '其他',
-      rewardCoins: +rewardCoins || 0,
-      rewardXp: +rewardXp || 0,
-      rewardPrivilegePoints: +rewardPrivilegePoints || 0,
-      rewardDelivery
+      ...rewardPayload,
     });
 
     setEditingAchievement(null);
@@ -538,21 +543,34 @@ export default function ParentAchievements() {
   // 渲染表单（新建和编辑共用）
   const renderForm = (_isEdit: boolean) => {
     const condConfig = CONDITION_TYPES.find(c => c.value === conditionType);
+    const isSystemEdit = _isEdit && Boolean(editingAchievement?.isSystem);
 
     return (
       <div className="space-y-3">
+        {isSystemEdit && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs font-bold leading-relaxed text-blue-700">
+            {t('achievement.systemManagedHint')}
+          </div>
+        )}
         <div className="flex gap-2">
           <div className="relative">
             <label className="text-xs text-gray-500 font-bold">图标</label>
             <button
-              onClick={() => setShowIconPicker(!showIconPicker)}
-              className="w-14 h-10 rounded border bg-white text-2xl flex items-center justify-center hover:bg-gray-50"
+              onClick={() => !isSystemEdit && setShowIconPicker(!showIconPicker)}
+              disabled={isSystemEdit}
+              className="w-14 min-h-[44px] rounded border bg-white text-2xl flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {icon}
+              {isSystemEdit ? (
+                <GrowthIcon
+                  iconKey={editingAchievement?.iconKey}
+                  fallback={editingAchievement?.displayIcon || icon}
+                  label={title}
+                />
+              ) : icon}
             </button>
 
             {/* 图标选择器 */}
-            {showIconPicker && (
+            {showIconPicker && !isSystemEdit && (
               <div className="absolute top-full left-0 mt-1 p-2 bg-white rounded-xl shadow-xl border z-50 w-72">
                 {/* 类别 tabs */}
                 <div className="flex overflow-x-auto gap-1 mb-2 pb-1 border-b">
@@ -588,18 +606,18 @@ export default function ParentAchievements() {
           </div>
           <div className="flex-1">
             <label className="text-xs text-gray-500 font-bold">成就名称</label>
-            <input className="w-full p-2 rounded-lg border" placeholder="例如：运动健将" value={title} onChange={e => setTitle(e.target.value)} />
+            <input disabled={isSystemEdit} className="w-full min-h-[44px] p-2 rounded-lg border disabled:bg-gray-50" placeholder="例如：运动健将" value={title} onChange={e => setTitle(e.target.value)} />
           </div>
         </div>
 
         <div>
           <label className="text-xs text-gray-500 font-bold">描述 (孩子看到的鼓励语)</label>
-          <input className="w-full p-2 rounded-lg border" placeholder="例如：坚持运动锻炼身体" value={desc} onChange={e => setDesc(e.target.value)} />
+          <input disabled={isSystemEdit} className="w-full min-h-[44px] p-2 rounded-lg border disabled:bg-gray-50" placeholder="例如：坚持运动锻炼身体" value={desc} onChange={e => setDesc(e.target.value)} />
         </div>
 
         <div>
           <label className="text-xs text-gray-500 font-bold">成就分类</label>
-          <select className="w-full p-2 rounded-lg border bg-white" value={achievementCategory} onChange={e => setAchievementCategory(e.target.value)}>
+          <select disabled={isSystemEdit} className="w-full min-h-[44px] p-2 rounded-lg border bg-white disabled:bg-gray-50" value={achievementCategory} onChange={e => setAchievementCategory(e.target.value)}>
             {ACHIEVEMENT_CATEGORIES.map(cat => (
               <option key={cat} value={cat}>{cat}</option>
             ))}
@@ -611,7 +629,7 @@ export default function ParentAchievements() {
 
         <div>
           <label className="text-xs text-gray-500 font-bold">解锁条件</label>
-          <select className="w-full p-2 rounded-lg border bg-white" value={conditionType} onChange={e => setConditionType(e.target.value)}>
+          <select disabled={isSystemEdit} className="w-full min-h-[44px] p-2 rounded-lg border bg-white disabled:bg-gray-50" value={conditionType} onChange={e => setConditionType(e.target.value)}>
             {CONDITION_TYPES.map(ct => (
               <option key={ct.value} value={ct.value}>{ct.label}</option>
             ))}
@@ -622,7 +640,7 @@ export default function ParentAchievements() {
         {condConfig?.needCategory && (
           <div>
             <label className="text-xs text-gray-500 font-bold">任务类别</label>
-            <select className="w-full p-2 rounded-lg border bg-white" value={conditionCategory} onChange={e => setConditionCategory(e.target.value)}>
+            <select disabled={isSystemEdit} className="w-full min-h-[44px] p-2 rounded-lg border bg-white disabled:bg-gray-50" value={conditionCategory} onChange={e => setConditionCategory(e.target.value)}>
               <option value="">请选择类别</option>
               {TASK_CATEGORIES.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
@@ -643,6 +661,7 @@ export default function ParentAchievements() {
               type="number"
               placeholder={conditionType === 'streak_days' ? '7' : '10'}
               value={conditionValue}
+              disabled={isSystemEdit}
               onChange={e => setConditionValue(e.target.value)}
             />
           </div>
@@ -995,12 +1014,13 @@ export default function ParentAchievements() {
               return (
                 <Card key={item.id} className="flex justify-between items-center hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-12 h-12 bg-gradient-to-br from-yellow-100 to-orange-100 rounded-xl flex items-center justify-center text-2xl shadow-sm flex-shrink-0">
-                      {displayIcon}
-                    </div>
+                    <GrowthIcon iconKey={display.iconKey} fallback={displayIcon} label={displayTitle} className="shadow-sm" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="font-bold text-gray-800 truncate">{displayTitle}</div>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black whitespace-nowrap ${item.isSystem ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
+                          {item.isSystem ? t('achievement.systemBadge') : t('achievement.customBadge')}
+                        </span>
                         {rank.label && (
                           <span className="px-1.5 py-0.5 rounded-full bg-slate-50 text-slate-500 text-[9px] font-black whitespace-nowrap">
                             {rank.icon || displayIcon} {rank.label}
@@ -1037,12 +1057,14 @@ export default function ParentAchievements() {
                         颁发
                       </button>
                     )}
-                    <button onClick={() => openEdit(item)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                    <button onClick={() => openEdit(item)} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" aria-label={t('achievement.editAction', { title: displayTitle })}>
                       <Pen size={16}/>
                     </button>
-                    <button onClick={() => handleDelete(item.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                      <Trash2 size={16}/>
-                    </button>
+                    {!item.isSystem && (
+                      <button onClick={() => handleDelete(item.id)} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" aria-label={t('achievement.deleteAction', { title: displayTitle })}>
+                        <Trash2 size={16}/>
+                      </button>
+                    )}
                   </div>
                 </Card>
               );

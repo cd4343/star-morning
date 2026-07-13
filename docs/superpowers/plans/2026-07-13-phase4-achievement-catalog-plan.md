@@ -63,13 +63,13 @@
 - Modify: `frontend/src/i18n/locales/zh-CN.ts`
 - Modify: `frontend/tests/smoke/product-phase2.spec.ts`
 
-- [ ] Add a failing smoke assertion that life, study and sport three-day achievements have different names and icons in both roles.
-- [ ] Reduce `getAchievementDisplay` to server-field rendering plus safe custom fallback; delete `THEMES` and client rank-based title inference.
-- [ ] Map all approved `iconKey` values to Lucide components or bundled local SVGs. `GrowthIcon` must have an accessible label and use the legacy emoji only as fallback.
-- [ ] Show `系统成就`/`家庭自定义` on the parent page and disable identity inputs for system rows while leaving reward controls enabled.
-- [ ] Move every newly visible string behind `t('achievement.*')` keys and keep 44px touch targets at 375px.
-- [ ] Run `npm run build` and `npm run test:smoke -- product-phase2.spec.ts` from `frontend`; expect zero errors and no horizontal scroll.
-- [ ] Commit: `git commit -m "P4-2: render unique achievements consistently"`
+- [x] Add a failing smoke assertion that life, study and sport three-day achievements have different names and icons in both roles.
+- [x] Reduce `getAchievementDisplay` to server-field rendering plus safe custom fallback; delete `THEMES` and client rank-based title inference.
+- [x] Map all approved `iconKey` values to Lucide components or bundled local SVGs. `GrowthIcon` must have an accessible label and use the legacy emoji only as fallback.
+- [x] Show `系统成就`/`家庭自定义` on the parent page and disable identity inputs for system rows while leaving reward controls enabled.
+- [x] Move every newly visible string behind `t('achievement.*')` keys and keep 44px touch targets at 375px.
+- [x] Run `npm run build` and `npm run test:smoke -- product-phase2.spec.ts` from `frontend`; expect zero errors and no horizontal scroll.
+- [x] Commit: `git commit -m "P4-2: render unique achievements consistently"`
 
 ## Task 5: Catalog release checkpoint
 

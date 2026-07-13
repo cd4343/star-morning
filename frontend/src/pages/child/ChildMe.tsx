@@ -10,6 +10,7 @@ import {
   getAchievementDisplay as getSharedAchievementDisplay,
 } from '../../utils/achievementDisplay';
 import { getLevelTitle, PERK_MILESTONES } from '../../utils/levelPerks';
+import { GrowthIcon } from '../../components/GrowthIcon';
 
 interface Achievement {
   id: string;
@@ -19,6 +20,9 @@ interface Achievement {
   displayTitle?: string;
   displayDescription?: string;
   displayIcon?: string;
+  systemKey?: string | null;
+  isSystem?: boolean;
+  iconKey?: string | null;
   rankLabel?: string;
   rankIcon?: string;
   conditionType: string;
@@ -579,9 +583,13 @@ export default function ChildMe() {
               return (
                 <div key={ach.id || index} className={`rounded-2xl border p-3 ${isUnlocked ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}>
                   <div className="flex items-center gap-3">
-                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${isUnlocked ? 'bg-white shadow-sm' : 'bg-slate-50 grayscale opacity-60'}`}>
-                      {display.icon}
-                    </div>
+                    <GrowthIcon
+                      iconKey={display.iconKey}
+                      fallback={display.icon}
+                      label={display.title}
+                      locked={!isUnlocked}
+                      className={isUnlocked ? 'shadow-sm' : ''}
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-black text-gray-900 truncate">{display.title}</span>
@@ -907,83 +915,6 @@ export default function ChildMe() {
       </div>
       )}
 
-      {/* 成就墙 - 显示所有成就（含未解锁） */}
-      <div className="hidden">
-        <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg flex items-center gap-2">
-                <Trophy className="text-yellow-500" size={20}/>
-                成就殿堂
-            </h2>
-            <div className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-bold">
-                {unlockedCount} / {allAchievements.length} 已解锁
-            </div>
-        </div>
-
-        {allAchievements.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 rounded-xl border-2 border-dashed text-gray-400">
-                <div className="text-4xl mb-2">🏅</div>
-                <div>暂无成就，等待家长设置</div>
-            </div>
-        ) : (
-            <div className="grid grid-cols-3 gap-3">
-                {allAchievements.map((ach, index) => {
-                    const isUnlocked = ach.unlocked;
-                    const progressPercent = getProgressPercent(ach);
-                    const display = getAchievementDisplay(ach);
-
-                    return (
-                        <div
-                            key={ach.id || index}
-                            className={`relative aspect-square rounded-2xl flex flex-col items-center justify-center p-2 transition-all duration-300 overflow-hidden group
-                                ${isUnlocked
-                                    ? 'bg-gradient-to-br from-yellow-50 to-orange-100 border-2 border-yellow-300 shadow-md hover:scale-105 hover:shadow-lg'
-                                    : 'bg-gray-100 border-2 border-gray-200 hover:border-gray-300'
-                                }`}
-                        >
-                            {/* 进度条背景 (未解锁时显示) */}
-                            {!isUnlocked && progressPercent > 0 && (
-                                <div
-                                    className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-blue-200/50 to-transparent transition-all"
-                                    style={{ height: `${progressPercent}%` }}
-                                />
-                            )}
-
-                            {/* 图标 */}
-                            <div className={`text-3xl mb-1 transition-all ${isUnlocked ? 'drop-shadow-md' : 'grayscale opacity-40'}`}>
-                                {display.icon}
-                            </div>
-
-                            {/* 标题 */}
-                            <div className={`text-[10px] font-bold text-center leading-tight ${isUnlocked ? 'text-gray-800' : 'text-gray-400'}`}>
-                                {display.title}
-                            </div>
-
-                            {/* 锁定图标或进度 */}
-                            {!isUnlocked && (
-                                <div className="absolute top-1 right-1">
-                                    <Lock size={12} className="text-gray-300" />
-                                </div>
-                            )}
-
-                            {/* 悬停提示 */}
-                            <div className="absolute inset-0 bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2 rounded-2xl">
-                                <div className="text-lg mb-1">{display.icon}</div>
-                                <div className="text-[10px] font-bold text-center">{display.title}</div>
-                                <div className="text-[8px] text-gray-300 text-center mt-1 leading-tight">
-                                    {isUnlocked ? '✅ 已解锁' : getConditionText(ach)}
-                                </div>
-                                {!isUnlocked && progressPercent > 0 && (
-                                    <div className="text-[8px] text-blue-300 mt-1">
-                                        进度: {progressPercent}%
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        )}
-      </div>
     </div>
   );
 }
