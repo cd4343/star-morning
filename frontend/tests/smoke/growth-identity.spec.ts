@@ -59,6 +59,7 @@ const mockChildMe = async (page: Page, options: {
   identity?: GrowthIdentity;
   identityStatus?: number;
   identityDelayMs?: number;
+  identityGate?: Promise<void>;
   onSave?: (body: GrowthProfileUpdate) => void;
   saveStatus?: number;
 } = {}) => {
@@ -73,6 +74,7 @@ const mockChildMe = async (page: Page, options: {
     if (path === '/api/child/screen-time') return route.fulfill({ json: {} });
     if (path === '/api/child/all-achievements') return route.fulfill({ json: achievements });
     if (path === '/api/child/growth-identity') {
+      if (options.identityGate) await options.identityGate;
       if (options.identityDelayMs) await new Promise(resolve => setTimeout(resolve, options.identityDelayMs));
       if (options.identityStatus) return route.fulfill({ status: options.identityStatus, json: { message: 'load failed' } });
       return route.fulfill({ json: options.identity || growthIdentity });
@@ -166,10 +168,17 @@ test('level-up feedback records growth without claiming feature permissions', as
 });
 
 test('child identity card shows a non-blocking loading state', async ({ page }) => {
-  await mockChildMe(page, { identityDelayMs: 500 });
-  await page.goto('/child/me');
-  await expect(page.getByTestId('child-growth-account')).toBeVisible();
-  await expect(page.getByText('正在整理你的成长身份，其他记录仍可正常查看。')).toBeVisible();
+  let releaseIdentity = () => {};
+  const identityGate = new Promise<void>(resolve => { releaseIdentity = resolve; });
+  await mockChildMe(page, { identityGate });
+  try {
+    await page.goto('/child/me');
+    await expect(page.getByTestId('child-growth-account')).toBeVisible();
+    await expect(page.getByText('正在整理你的成长身份，其他记录仍可正常查看。')).toBeVisible();
+    await expect(page.getByText('我的记录中心')).toBeVisible();
+  } finally {
+    releaseIdentity();
+  }
   await expect(page.getByRole('button', { name: '调整我的展示' })).toBeVisible();
 });
 
