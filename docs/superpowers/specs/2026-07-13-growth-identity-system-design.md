@@ -1,6 +1,6 @@
 # Phase 4 统一成长身份系统设计
 
-状态：待产品确认
+状态：已批准（2026-07-13）
 
 范围：系统成就名称与图标、个人等级、称号、轻量装扮、历史数据兼容
 
@@ -195,7 +195,7 @@ Phase 4 要让孩子一眼看懂“我完成了什么、我成长到哪里、我
 
 ## 8. 成就身份与历史兼容
 
-`achievement_defs` 追加 `systemKey TEXT` 和 `isSystem INTEGER DEFAULT 0`。新家庭的系统成就直接写入稳定键。
+`achievement_defs` 追加数据库字段 `system_key TEXT` 和 `is_system INTEGER DEFAULT 0`；API 继续使用 camelCase 的 `systemKey`、`isSystem`。新家庭的系统成就直接写入稳定键。
 
 老家庭回填时使用“条件类型 + 条件值 + 条件分类 + 已知旧标题集合”识别系统成就。只有满足已知系统特征的记录才标记为系统成就；家长改过名称或自行创建的记录保持自定义。
 
