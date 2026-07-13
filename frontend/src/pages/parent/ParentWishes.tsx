@@ -106,8 +106,8 @@ type LotteryEffectType = 'normal' | 'draw_again' | 'bonus_coins' | 'bonus_xp' | 
 const LOTTERY_EFFECT_OPTIONS: Array<{ value: LotteryEffectType; label: string; hint: string; icon: string }> = [
   { value: 'normal', label: '放入背包', hint: '实物、服务或家庭约定，孩子之后再兑现。', icon: '🎁' },
   { value: 'bonus_coins', label: '金币到账', hint: '抽中后立刻增加金币。', icon: '🪙' },
-  { value: 'bonus_xp', label: '经验到账', hint: '抽中后增加等级经验，不折算特权点。', icon: '✨' },
-  { value: 'bonus_privilege', label: '特权点到账', hint: '抽中后直接增加特权点，建议低频。', icon: '💎' },
+  { value: 'bonus_xp', label: '成长到账', hint: '抽中后增加等级成长，不折算权益点。', icon: '✨' },
+  { value: 'bonus_privilege', label: '权益点到账', hint: '抽中后直接增加权益点，建议低频。', icon: '💎' },
 ];
 
 const LOTTERY_RARITY_WEIGHT_FACTOR: Record<RarityType, number> = {
@@ -156,7 +156,7 @@ const LOTTERY_TEMPLATES = [
   { title: '贴纸一张', icon: '🏷️', weight: 60, rarity: 'common' as RarityType },
   { title: '自选今天一首歌', icon: '🎵', weight: 60, rarity: 'common' as RarityType },
   { title: '10金币', icon: '🪙', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
-  { title: '10经验', icon: '✨', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
+  { title: '10成长', icon: '✨', cost: 10, weight: 60, rarity: 'common' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
   // 优秀（uncommon）
   { title: '屏幕10分钟×2次券', icon: '🎟️', weight: 28, rarity: 'uncommon' as RarityType },
   { title: '中份零食', icon: '🍩', weight: 28, rarity: 'uncommon' as RarityType },
@@ -167,12 +167,12 @@ const LOTTERY_TEMPLATES = [
   { title: '一本小书', icon: '📚', weight: 12, rarity: 'rare' as RarityType },
   { title: '免做家务卡', icon: '🧹', weight: 12, rarity: 'rare' as RarityType },
   { title: '20金币', icon: '🪙', cost: 20, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_coins' as LotteryEffectType },
-  { title: '25经验', icon: '✨', cost: 25, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
+  { title: '25成长', icon: '✨', cost: 25, weight: 12, rarity: 'rare' as RarityType, effectType: 'bonus_xp' as LotteryEffectType },
   // 史诗（epic）
   { title: '一次小出游', icon: '🚗', weight: 4, rarity: 'epic' as RarityType },
   { title: '一个小心愿', icon: '⭐', weight: 4, rarity: 'epic' as RarityType },
   { title: '特别活动券', icon: '🎪', weight: 4, rarity: 'epic' as RarityType },
-  { title: '1特权点', icon: '💎', cost: 1, weight: 4, rarity: 'epic' as RarityType, effectType: 'bonus_privilege' as LotteryEffectType },
+  { title: '1权益点', icon: '💎', cost: 1, weight: 4, rarity: 'epic' as RarityType, effectType: 'bonus_privilege' as LotteryEffectType },
   // 传说（legendary）
   { title: '一个大心愿达成', icon: '🌠', weight: 1, rarity: 'legendary' as RarityType },
   { title: '一次特别家庭日', icon: '🎉', weight: 1, rarity: 'legendary' as RarityType },
@@ -197,7 +197,7 @@ const CHEST_RECOMMENDATIONS = [
   { name: '特权碎片', icon: '💎', type: 'privilegePoints', value: 1, weight: 4, rarity: 'epic', desc: '高抗拒/困难任务的稀有反馈。' },
   { name: '大额金币', icon: '💰', type: 'coins', value: 30, weight: 4, rarity: 'epic', desc: '低频大金币惊喜。' },
   // 传说（legendary）
-  { name: '特权点大奖', icon: '👑', type: 'privilegePoints', value: 2, weight: 1, rarity: 'legendary', desc: '极低频，重大坚持的顶级反馈。' },
+  { name: '权益点大奖', icon: '👑', type: 'privilegePoints', value: 2, weight: 1, rarity: 'legendary', desc: '极低频，重大坚持的顶级反馈。' },
 ] as const;
 
 // 根据类型获取图标分类
@@ -1086,7 +1086,7 @@ export default function ParentWishes() {
               {['bonus_coins', 'bonus_xp', 'bonus_privilege'].includes(effectType) && (
                 <div>
                   <label className="text-xs text-gray-500 font-bold block mb-1">
-                    {effectType === 'bonus_coins' ? '到账金币' : effectType === 'bonus_xp' ? '到账经验' : '到账特权点'}
+                    {effectType === 'bonus_coins' ? '到账金币' : effectType === 'bonus_xp' ? '到账成长' : '到账权益点'}
                   </label>
                   <input
                     className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none"
@@ -1096,7 +1096,7 @@ export default function ParentWishes() {
                     value={cost}
                     onChange={e => setCost(e.target.value)}
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">抽奖经验只用于等级成长，不会折算为特权点；特权点奖品建议低频设置。</p>
+                  <p className="text-[11px] text-gray-400 mt-1">抽奖成长只用于等级成长，不会折算为权益点；权益点奖品建议低频设置。</p>
                 </div>
               )}
             </div>
@@ -1113,8 +1113,8 @@ export default function ParentWishes() {
                     onChange={e => setRewardType(e.target.value as typeof rewardType)}
                   >
                     <option value="coins">金币</option>
-                    <option value="xp">经验</option>
-                    <option value="privilegePoints">特权点</option>
+                    <option value="xp">成长</option>
+                    <option value="privilegePoints">权益点</option>
                     <option value="lotteryTicket">抽奖券</option>
                     <option value="shopDiscount">折扣券</option>
                   </select>
@@ -1146,7 +1146,7 @@ export default function ParentWishes() {
               </div>
               <div className="p-3 rounded-xl border border-amber-100 bg-amber-50 text-xs text-amber-800">
                 <div className="font-bold mb-2">奖项设置推荐</div>
-                <div className="mb-2 leading-relaxed">简单任务优先小金币/经验，中等任务可放抽奖券，困难或高抗拒任务再放特权点。宝箱每次完成任务都会出现，所以奖品数值宜小、层级清楚。</div>
+                <div className="mb-2 leading-relaxed">简单任务优先小金币/成长，中等任务可放抽奖券，困难或高抗拒任务再放权益点。宝箱每次完成任务都会出现，所以奖品数值宜小、层级清楚。</div>
                 <div className="grid grid-cols-2 gap-2">
                   {CHEST_RECOMMENDATIONS.map(item => (
                     <button
@@ -1225,7 +1225,7 @@ export default function ParentWishes() {
                     {[
                       { label: '简单', text: '小金币/经验', cls: 'bg-green-50 text-green-700 border-green-100' },
                       { label: '中等', text: '抽奖券/中值', cls: 'bg-blue-50 text-blue-700 border-blue-100' },
-                      { label: '困难', text: '稀有/特权点', cls: 'bg-purple-50 text-purple-700 border-purple-100' },
+                      { label: '困难', text: '稀有/权益点', cls: 'bg-purple-50 text-purple-700 border-purple-100' },
                     ].map(item => (
                       <div key={item.label} className={`rounded-xl border p-2 ${item.cls}`}>
                         <div className="text-xs font-black">{item.label}</div>
@@ -1279,7 +1279,7 @@ export default function ParentWishes() {
                                 {rarityConfig.label}
                               </span>
                               <span className="text-[10px] text-gray-500 font-medium">
-                                {pool.type === 'coins' ? '金币' : pool.type === 'xp' ? '经验' : pool.type === 'privilegePoints' ? '特权点' : pool.type === 'lotteryTicket' ? '抽奖券' : '折扣'} {pool.value}
+                                {pool.type === 'coins' ? '金币' : pool.type === 'xp' ? '成长' : pool.type === 'privilegePoints' ? '权益点' : pool.type === 'lotteryTicket' ? '抽奖券' : '折扣'} {pool.value}
                               </span>
                               <span className="text-[10px] text-gray-400 font-medium">权重: {pool.weight}</span>
                             </div>
@@ -1816,7 +1816,7 @@ export default function ParentWishes() {
                   <select className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none" value={poolForm.type} onChange={e => setPoolForm(f => ({ ...f, type: e.target.value as typeof f.type }))}>
                     <option value="coins">金币</option>
                     <option value="xp">经验</option>
-                    <option value="privilegePoints">特权点</option>
+                    <option value="privilegePoints">权益点</option>
                     <option value="lotteryTicket">抽奖券</option>
                     <option value="shopDiscount">折扣券</option>
                   </select>
@@ -2089,7 +2089,7 @@ export default function ParentWishes() {
                   {['bonus_coins', 'bonus_xp', 'bonus_privilege'].includes(editEffectType) && (
                     <div>
                       <label className="text-xs text-gray-500 font-bold block mb-1">
-                        {editEffectType === 'bonus_coins' ? '到账金币' : editEffectType === 'bonus_xp' ? '到账经验' : '到账特权点'}
+                        {editEffectType === 'bonus_coins' ? '到账金币' : editEffectType === 'bonus_xp' ? '到账成长' : '到账权益点'}
                       </label>
                       <input
                         className="w-full p-2 rounded-lg border mt-1"
@@ -2098,7 +2098,7 @@ export default function ParentWishes() {
                         value={editCost}
                         onChange={e => setEditCost(e.target.value)}
                       />
-                      <p className="text-[10px] text-gray-400 mt-1">抽奖经验只用于等级，不计入特权进度。</p>
+                      <p className="text-[10px] text-gray-400 mt-1">抽奖成长只用于等级，不计入权益进度。</p>
                     </div>
                   )}
                 </div>

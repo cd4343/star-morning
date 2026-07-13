@@ -429,11 +429,7 @@ export default function ChildWishes() {
       }
 
       if (result && !result.isDrawAgain) {
-        if (result.isNothing) {
-          showTip('谢谢参与', `这次没有中奖，下次再来试试运气吧~`, '😊');
-        } else {
-          showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！已放入背包，快去查看吧~`, '🎊');
-        }
+        showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！已放入背包，快去查看吧~`, '🎊');
       }
 
       refresh();
@@ -652,9 +648,7 @@ export default function ChildWishes() {
 
           // 最终展示中奖结果
           if (result && !result.isDrawAgain) {
-              if (result.isNothing) {
-                  showTip('谢谢参与', `这次没有中奖，下次再来试试运气吧~`, '😊');
-              } else if (result.isBonusCoins) {
+              if (result.isBonusCoins) {
                   showTip('🎉 恭喜中奖！', `你抽中了：${prizeTitle(result.winner)}！直接获得 ${result.bonusCoins} 金币！`, '💰');
               } else if (result.isBonusXp) {
                   showTip('恭喜中奖', `抽中了 ${prizeTitle(result.winner)}，成长 +${result.bonusXp}。`, '✨');

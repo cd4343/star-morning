@@ -11,6 +11,10 @@ const requiredFiles = [
   'backend/dist/economySchema.js',
   'backend/dist/wishEconomy.js',
   'backend/dist/taskSettlement.js',
+  'backend/dist/lotteryRules.js',
+  'backend/dist/rewardSystem.js',
+  'backend/src/lotteryRules.ts',
+  'backend/src/rewardSystem.ts',
   'backend/src/taskSettlement.ts',
   'frontend/src/pages/child/ChildLayout.tsx',
   'frontend/src/pages/child/ChildToday.tsx',
@@ -64,6 +68,12 @@ for (const prefix of ['ChildLayout-', 'ChildToday-', 'ChildChallenge-', 'ChildWi
   if (!assetNames.some(name => name.startsWith(prefix) && name.endsWith('.js'))) {
     fail(`Missing required page chunk: frontend/dist/assets/${prefix}*.js`);
   }
+}
+
+const childWishesChunk = assetNames.find(name => name.startsWith('ChildWishes-') && name.endsWith('.js'));
+if (childWishesChunk) {
+  const source = fs.readFileSync(path.join(assetsRoot, childWishesChunk), 'utf8');
+  if (source.includes('谢谢参与')) fail('Child lottery production chunk still contains empty-prize wording');
 }
 
 const requestText = (url) => new Promise((resolve, reject) => {

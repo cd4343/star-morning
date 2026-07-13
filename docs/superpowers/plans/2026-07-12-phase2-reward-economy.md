@@ -37,7 +37,7 @@
 - Create: `backend/src/economyPolicy.ts`
 - Create: `backend/src/economyPolicy.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -59,12 +59,12 @@ describe('economy policy', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `cd backend && npm test -- economyPolicy.test.ts`  
 Expected: FAIL，提示 `economyPolicy` 不存在。
 
-- [ ] **Step 3: 实现最小纯函数**
+- [x] **Step 3: 实现最小纯函数**
 
 ```ts
 export const ECONOMY_PRESETS = { fast: 5, standard: 10, longTerm: 20 } as const;
@@ -88,7 +88,7 @@ export const daysToRedeem = (coins: number, dailyCoins: number) =>
   Math.max(1, Math.ceil(Math.max(0, Math.round(coins)) / Math.max(1, Math.round(dailyCoins))));
 ```
 
-- [ ] **Step 4: 验证并提交**
+- [x] **Step 4: 验证并提交**
 
 Run: `cd backend && npm test -- economyPolicy.test.ts && npm run build`  
 Expected: PASS，TypeScript 零错误。  
@@ -100,9 +100,9 @@ Commit: `git commit -m "P2-E1: freeze reward economy policy"`
 - Modify: `backend/src/database.ts`
 - Test: `backend/src/economyRoutes.test.ts`
 
-- [ ] **Step 1: 写迁移测试**：在临时 SQLite 中连续初始化两次，断言 `families.eco_daily_coin_target`、`wishes.reference_rmb` 只存在一次，两个变更表及索引存在。
-- [ ] **Step 2: 运行测试确认失败**：`cd backend && npm test -- economyRoutes.test.ts`，Expected: FAIL，缺少列或表。
-- [ ] **Step 3: 使用 `PRAGMA table_info` 幂等加列**，并创建：
+- [x] **Step 1: 写迁移测试**：在临时 SQLite 中连续初始化两次，断言 `families.eco_daily_coin_target`、`wishes.reference_rmb` 只存在一次，两个变更表及索引存在。
+- [x] **Step 2: 运行测试确认失败**：`cd backend && npm test -- economyRoutes.test.ts`，Expected: FAIL，缺少列或表。
+- [x] **Step 3: 使用 `PRAGMA table_info` 幂等加列**，并创建：
 
 ```sql
 CREATE TABLE IF NOT EXISTS economy_change_batches (
@@ -118,8 +118,8 @@ CREATE TABLE IF NOT EXISTS economy_change_items (
 );
 ```
 
-- [ ] **Step 4: 验证数据库兼容**：运行测试、后端构建，并在复制的临时数据库上执行初始化；禁止对根目录 `stellar.db` 运行写测试。
-- [ ] **Step 5: 提交**：`git commit -m "P2-E2: add reversible economy migrations"`
+- [x] **Step 4: 验证数据库兼容**：运行测试、后端构建，并在复制的临时数据库上执行初始化；禁止对根目录 `stellar.db` 运行写测试。
+- [x] **Step 5: 提交**：`git commit -m "P2-E2: add reversible economy migrations"`
 
 ### Task 3: 建立只读经济审计与配置接口
 
@@ -128,9 +128,9 @@ CREATE TABLE IF NOT EXISTS economy_change_items (
 - Modify: `backend/src/server.ts`
 - Test: `backend/src/economyRoutes.test.ts`
 
-- [ ] **Step 1: 写接口测试**：覆盖默认 10/30、家庭隔离、近14天实际日均、无数据回退到 `eco_daily_coin_target`、商品偏差和非法比例 400。
-- [ ] **Step 2: 运行测试确认失败**。
-- [ ] **Step 3: 注册保持兼容的接口**：
+- [x] **Step 1: 写接口测试**：覆盖默认 10/30、家庭隔离、近14天实际日均、无数据回退到 `eco_daily_coin_target`、商品偏差和非法比例 400。
+- [x] **Step 2: 运行测试确认失败**。
+- [x] **Step 3: 注册保持兼容的接口**：
 
 ```text
 GET  /api/parent/economy-settings
@@ -148,8 +148,8 @@ POST /api/parent/economy-recalibration/:batchId/rollback
   catalog: { total, aligned, underpriced, overpriced, items }, warnings: string[] }
 ```
 
-- [ ] **Step 4: 删除 `calculateSmartPricing` 对完成率涨价/降价的调用**，保留旧导出兼容但返回稳定锚点建议，并增加弃用测试。
-- [ ] **Step 5: 验证并提交**：`npm test -- economyPolicy.test.ts economyRoutes.test.ts && npm run build`；提交 `P2-E3: add economy audit and settings APIs`。
+- [x] **Step 4: 删除 `calculateSmartPricing` 对完成率涨价/降价的调用**，保留旧导出兼容但返回稳定锚点建议，并增加弃用测试。
+- [x] **Step 5: 验证并提交**：`npm test -- economyPolicy.test.ts economyRoutes.test.ts && npm run build`；提交 `P2-E3: add economy audit and settings APIs`。
 
 ### Task 4: 家长一键设置、预览与回滚
 
@@ -161,11 +161,11 @@ POST /api/parent/economy-recalibration/:batchId/rollback
 - Modify: `frontend/src/i18n/locales/zh-CN.ts`
 - Test: `frontend/tests/smoke/product-phase1.spec.ts`
 
-- [ ] **Step 1: 写 Playwright 失败测试**：模拟接口，选择标准模式后断言显示“10金币≈1元”；变更为长期模式后必须先看到逐项旧值/新值，未确认前不能发送 apply。
-- [ ] **Step 2: 实现受控组件**：预设 5/10/20、自定义折叠、每日目标 20/30/50、审计警告、预览确认、回滚最近批次。
-- [ ] **Step 3: 商品表单增加 API 字段 `referenceRmb`（数据库 `reference_rmb`）**，孩子端接口不得返回该字段；商品卡只显示金币和预计积累天数。
-- [ ] **Step 4: 验证 375px 触控目标与失败态**：接口 500 时显示重试，不能显示“保存成功”。
-- [ ] **Step 5: 运行 `npm run build && npm run test:smoke` 并提交 `P2-E4: add parent economy setup and preview`。
+- [x] **Step 1: 写 Playwright 失败测试**：模拟接口，选择标准模式后断言显示“10金币≈1元”；变更为长期模式后必须先看到逐项旧值/新值，未确认前不能发送 apply。
+- [x] **Step 2: 实现受控组件**：预设 5/10/20、自定义折叠、每日目标 20/30/50、审计警告、预览确认、回滚最近批次。
+- [x] **Step 3: 商品表单增加 API 字段 `referenceRmb`（数据库 `reference_rmb`）**，孩子端接口不得返回该字段；商品卡只显示金币和预计积累天数。
+- [x] **Step 4: 验证 375px 触控目标与失败态**：接口 500 时显示重试，不能显示“保存成功”。
+- [x] **Step 5: 运行 `npm run build && npm run test:smoke` 并提交 `P2-E4: add parent economy setup and preview`。
 
 ### Task 5: 校准任务产出并统一到账口径
 
@@ -215,9 +215,9 @@ POST /api/parent/economy-recalibration/:batchId/rollback
 - Modify: `frontend/tests/production/all-pages.spec.ts`
 - Create: `docs/更新记录/2026-07-12-phase2-reward-economy.md`
 
-- [ ] **Step 1: 测试禁止 `effectType=none`、标题含“谢谢参与”或数值型零奖励进入有效奖池；历史遗留空奖配置若仍被抽中，则转换为确定的最低金币补偿并记录真实到账值，不改写历史开奖记录。**
-- [ ] **Step 2: 服务端校验奖池，不依赖前端；抽奖写入、API 响应和背包记录使用同一个归一化结果。**
-- [ ] **Step 3: 运行完整验证**：
+- [x] **Step 1: 测试禁止 `effectType=none`、标题含“谢谢参与”或数值型零奖励进入有效奖池；历史遗留空奖配置若仍被抽中，则转换为确定的最低金币补偿并记录真实到账值，不改写历史开奖记录。**
+- [x] **Step 2: 服务端校验奖池，不依赖前端；抽奖写入、API 响应和背包记录使用同一个归一化结果。**
+- [x] **Step 3: 运行完整验证**：
 
 ```powershell
 cd backend; npm test; npm run build
@@ -227,9 +227,9 @@ node ..\scripts\verify_phase1_deployment.js
 
 Expected: 所有测试零跳过、两个构建零错误、生产页面无白屏、关键分包完整。
 
-- [ ] **Step 4: 新建时间戳增量包**：仅复制本阶段改动源码和完整 `backend/dist`、`frontend/dist`；包含 `REPLACE_FILES.md`、验证记录和回滚说明；排除 `stellar.db`、环境文件、上传、日志、备份和 `node_modules`。
-- [ ] **Step 5: 验证 ZIP 根目录无额外外层目录，模拟安装后数据库哈希不变。**
-- [ ] **Step 6: 提交 `P2-E7: release unified reward economy`，推送 `codex/product-phase-2-economy`；不合并 main。**
+- [x] **Step 4: 新建时间戳增量包**：仅复制本阶段改动源码和完整 `backend/dist`、`frontend/dist`；包含 `REPLACE_FILES.md`、验证记录和回滚说明；排除 `stellar.db`、环境文件、上传、日志、备份和 `node_modules`。
+- [x] **Step 5: 验证 ZIP 根目录无额外外层目录，模拟安装后数据库哈希不变。**
+- [x] **Step 6: 提交 `P2-E7: release unified reward economy`，推送 `codex/product-phase-2-economy`；不合并 main。**
 
 ## 执行检查点
 

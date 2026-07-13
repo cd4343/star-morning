@@ -61,8 +61,14 @@ type LotteryPrizeLike = {
 
 const LOTTERY_AMOUNT_UNITS: Record<LotteryAmountEffect, string> = {
   bonus_coins: '金币',
-  bonus_xp: '经验',
-  bonus_privilege: '特权点',
+  bonus_xp: '成长',
+  bonus_privilege: '权益点',
+};
+
+const LOTTERY_LEGACY_AMOUNT_UNITS: Record<LotteryAmountEffect, string[]> = {
+  bonus_coins: ['金币'],
+  bonus_xp: ['成长', '经验'],
+  bonus_privilege: ['权益点', '特权点'],
 };
 
 const HIDDEN_LOTTERY_INVENTORY_EFFECTS = new Set([
@@ -108,6 +114,10 @@ const isAmountEffect = (value: unknown): value is LotteryAmountEffect => (
   value === 'bonus_coins' || value === 'bonus_xp' || value === 'bonus_privilege'
 );
 
+const isEmptyLotteryPrize = (prize: LotteryPrizeLike): boolean => (
+  prize.effectType === 'none' || String(prize.title || '').includes('谢谢参与')
+);
+
 const parseLegacyTitleAmount = (title: unknown, unit: string): number | null => {
   const match = String(title || '').trim().match(new RegExp(`^(\\d+)\\s*${unit}$`));
   if (!match) return null;
@@ -128,8 +138,10 @@ export const resolveLotteryRewardAmount = (prize: LotteryPrizeLike): number => {
   const canUseLegacyTitle = prize.cost === null || prize.cost === undefined || prize.cost === ''
     || (Number.isFinite(configuredAmount) && configuredAmount <= 0);
   if (canUseLegacyTitle) {
-    const legacyAmount = parseLegacyTitleAmount(prize.title, LOTTERY_AMOUNT_UNITS[prize.effectType]);
-    if (legacyAmount !== null) return legacyAmount;
+    for (const unit of LOTTERY_LEGACY_AMOUNT_UNITS[prize.effectType]) {
+      const legacyAmount = parseLegacyTitleAmount(prize.title, unit);
+      if (legacyAmount !== null) return legacyAmount;
+    }
   }
 
   const title = String(prize.title || '未命名奖品');
@@ -147,8 +159,7 @@ export const normalizeLotteryPrize = <T extends LotteryPrizeLike>(prize: T): T =
 };
 
 export const normalizeLotteryOutcome = <T extends LotteryPrizeLike>(prize: T): T => {
-  const isEmpty = prize.effectType === 'none' || String(prize.title || '').includes('谢谢参与');
-  if (!isEmpty) return normalizeLotteryPrize(prize);
+  if (!isEmptyLotteryPrize(prize)) return normalizeLotteryPrize(prize);
   return {
     ...prize,
     title: `${LOTTERY_EMPTY_REWARD_COINS}金币`,
@@ -159,6 +170,9 @@ export const normalizeLotteryOutcome = <T extends LotteryPrizeLike>(prize: T): T
 };
 
 export const normalizeLotteryPrizeInput = <T extends LotteryPrizeLike>(input: T): T => {
+  if (isEmptyLotteryPrize(input)) {
+    throw new LotteryConfigurationError('抽奖不能设置“谢谢参与”或其他空奖，请配置真实奖品');
+  }
   if (!isAmountEffect(input.effectType)) return input;
   const amount = Number(input.cost);
   if (!Number.isSafeInteger(amount) || amount <= 0) {

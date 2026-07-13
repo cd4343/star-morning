@@ -16,6 +16,22 @@ const installApiFallbacks = async (page: Page) => {
     if (pathname === '/api/child/all-achievements' || pathname === '/api/child/task-session-reminders') {
       return route.fulfill({ json: [] });
     }
+    if (pathname === '/api/child/screen-time') {
+      return route.fulfill({ json: { base: 15, earned: 5, used: 3, balance: 17, dailyCap: 45 } });
+    }
+    if (pathname === '/api/child/lottery/info') {
+      return route.fulfill({
+        json: {
+          todayDrawCount: 0,
+          currentCost: 15,
+          nextCost: 15,
+          lotteryEnabled: true,
+          dailyLimit: 2,
+          remainingDraws: 2,
+          prizes: [{ id: 'legacy-empty-normalized', title: '5金币', cost: 5, icon: '🪙', effectType: 'bonus_coins', rarity: 'common' }],
+        },
+      });
+    }
     return route.fulfill({ status: 500, json: { message: 'production smoke fallback' } });
   });
 };
@@ -86,4 +102,21 @@ test('missing lazy page chunk shows recovery UI instead of a white screen', asyn
   await expect(page.getByRole('button', { name: '重新加载' })).toBeVisible();
   const content = await page.locator('#root').innerText();
   expect(content.trim().length).toBeGreaterThan(20);
+});
+
+test('production lottery shows the normalized guaranteed reward without empty-prize wording', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'production-child-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-production', name: '测试孩子', role: 'child', familyId: 'family-production', coins: 80, xp: 120, level: 2, privilegePoints: 1,
+    }));
+  });
+  await installApiFallbacks(page);
+
+  await page.goto('/child/wishes');
+  await page.getByRole('button', { name: '抽奖', exact: true }).first().click();
+
+  await expect(page.getByText('5金币').first()).toBeVisible();
+  await expect(page.getByText('谢谢参与', { exact: false })).toHaveCount(0);
+  await expect(page.locator('#root')).not.toBeEmpty();
 });

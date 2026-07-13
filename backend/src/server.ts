@@ -21,6 +21,7 @@ import {
   assertPaidLotteryDrawAllowed,
   getLotterySafetySettings,
   isLotteryInventoryVisible,
+  normalizeLotteryOutcome,
   normalizeLotteryPrize,
   normalizeLotteryPrizeInput,
   setLotteryEnabled,
@@ -5910,7 +5911,7 @@ app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) =
         return res.status(400).json({ message: '所选奖品不存在或不属于当前家庭，请刷新后重新选择' });
     }
     try {
-        selectedPrizes.forEach(normalizeLotteryPrize);
+        selectedPrizes.forEach(normalizeLotteryPrizeInput);
     } catch (err: any) {
         return res.status(400).json({ message: err.message });
     }
@@ -6782,7 +6783,7 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
 
     let displayPrizes;
     try {
-        displayPrizes = prizes.map(normalizeLotteryPrize);
+        displayPrizes = prizes.map(normalizeLotteryOutcome);
     } catch (err: any) {
         return res.status(400).json({ message: err.message });
     }
@@ -6906,7 +6907,6 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             bonusPrivilegePoints: result.bonusPrivilegePoints,
             isFreeSpin: result.isFreeSpin,
             isDoubleNext: result.isDoubleNext,
-            isNothing: result.isNothing,
             pityTriggered: result.pityTriggered,
             pity: pityInfo
         });
@@ -6966,7 +6966,6 @@ app.post('/api/child/lottery/redraw', protect, async (req: any, res) => {
             bonusPrivilegePoints: result.bonusPrivilegePoints,
             isFreeSpin: result.isFreeSpin,
             isDoubleNext: result.isDoubleNext,
-            isNothing: result.isNothing,
             pityTriggered: result.pityTriggered,
             pity: pityInfo,
             message: '再抽一次成功！'
