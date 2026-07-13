@@ -302,6 +302,9 @@ echo Next step:
 echo   scripts\start_backend_only.bat
 echo Then verify Nginx is serving this exact build:
 echo   scripts\verify_live_frontend.bat
+echo.
+echo For later code updates, use the safe one-click workflow:
+echo   scripts\deploy_server_production.bat
 echo ========================================
 pause
 exit /b 0

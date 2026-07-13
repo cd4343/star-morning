@@ -3,16 +3,13 @@ const http = require('http');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
+const backendDistRoot = process.env.STARCOIN_VERIFY_BACKEND_DIST
+  ? path.resolve(process.env.STARCOIN_VERIFY_BACKEND_DIST)
+  : path.join(root, 'backend', 'dist');
+const frontendDistRoot = process.env.STARCOIN_VERIFY_FRONTEND_DIST
+  ? path.resolve(process.env.STARCOIN_VERIFY_FRONTEND_DIST)
+  : path.join(root, 'frontend', 'dist');
 const requiredFiles = [
-  'backend/dist/server.js',
-  'backend/dist/productConfig.js',
-  'backend/dist/parentInbox.js',
-  'backend/dist/economyRoutes.js',
-  'backend/dist/economySchema.js',
-  'backend/dist/wishEconomy.js',
-  'backend/dist/taskSettlement.js',
-  'backend/dist/lotteryRules.js',
-  'backend/dist/rewardSystem.js',
   'backend/src/lotteryRules.ts',
   'backend/src/rewardSystem.ts',
   'backend/src/taskSettlement.ts',
@@ -25,7 +22,11 @@ const requiredFiles = [
   'frontend/src/pages/parent/ParentWishes.tsx',
   'frontend/src/pages/parent/ParentTasks.tsx',
   'frontend/src/components/EconomySettingsPanel.tsx',
-  'frontend/dist/index.html',
+];
+const requiredBackendBuildFiles = [
+  'server.js', 'productConfig.js', 'parentInbox.js', 'economyRoutes.js',
+  'economySchema.js', 'wishEconomy.js', 'taskSettlement.js', 'lotteryRules.js',
+  'rewardSystem.js',
 ];
 
 const fail = (message) => {
@@ -36,10 +37,14 @@ const fail = (message) => {
 for (const relative of requiredFiles) {
   if (!fs.existsSync(path.join(root, relative))) fail(`Missing required file: ${relative}`);
 }
+for (const relative of requiredBackendBuildFiles) {
+  if (!fs.existsSync(path.join(backendDistRoot, relative))) fail(`Missing backend build file: ${relative}`);
+}
+if (!fs.existsSync(path.join(frontendDistRoot, 'index.html'))) fail('Missing frontend build file: index.html');
 
 if (process.exitCode) process.exit(process.exitCode);
 
-const distRoot = path.join(root, 'frontend', 'dist');
+const distRoot = frontendDistRoot;
 const assetsRoot = path.join(distRoot, 'assets');
 const indexHtml = fs.readFileSync(path.join(distRoot, 'index.html'), 'utf8');
 const entryMatch = indexHtml.match(/<script[^>]+src="\/assets\/([^"?]+)"/i);
@@ -60,7 +65,7 @@ if (fs.existsSync(assetsRoot)) {
 }
 
 for (const relative of referenced) {
-  if (!fs.existsSync(path.join(distRoot, relative))) fail(`Missing built asset: frontend/dist/${relative}`);
+  if (!fs.existsSync(path.join(distRoot, relative))) fail(`Missing built asset: ${relative}`);
 }
 
 const assetNames = fs.existsSync(assetsRoot) ? fs.readdirSync(assetsRoot) : [];
@@ -104,6 +109,8 @@ const verifyLive = async () => {
 
 if (!process.exitCode) {
   console.log(`[OK] Project root: ${root}`);
+  console.log(`[OK] Backend build: ${backendDistRoot}`);
+  console.log(`[OK] Frontend build: ${frontendDistRoot}`);
   console.log(`[OK] Entry asset: ${entryMatch[1]}`);
   console.log(`[OK] Checked ${referenced.size} referenced frontend assets`);
   console.log('[OK] Phase 1 and Phase 2 source/page chunks are complete');

@@ -1,78 +1,59 @@
-# 部署说明
+# 生产部署说明
 
-## 生产服务器部署流程
+Star Coin 当前采用 Windows Nginx（80 端口）提供前端与 API 代理，Node.js 后端监听 3001 端口。生产数据库始终使用服务器已有的 `stellar.db`，更新包不得携带或覆盖该文件。
 
-### 1. 本地开发环境构建前端
+## 首次部署
 
-在本地开发电脑上：
+1. 将完整项目复制到服务器项目根目录。
+2. 运行 `scripts\setup_server_production.bat`，完成环境配置、依赖安装、构建和数据库检查。
+3. 按 `scripts\nginx\README.md` 配置 Nginx，确认 `root` 指向当前项目的 `frontend/dist`。
+4. 运行 `scripts\start_backend_only.bat`，再运行 `scripts\verify_live_frontend.bat`。
 
-```bash
-cd frontend
-npm run build
+`scripts/production_env.local.bat` 包含服务器密钥与路径，只保留在服务器，不上传 GitHub 或更新包。
+
+## 后续安全更新
+
+上传并覆盖最新的累积增量包后，以管理员身份运行：
+
+```bat
+scripts\deploy_server_production.bat
 ```
 
-构建完成后，会在 `frontend/dist` 目录生成生产版本的文件。
+该脚本会按顺序执行：
 
-### 2. 将构建文件复制到生产服务器
+1. 检查生产配置、Node.js、npm 和必要源码。
+2. 在 `.tmp/` 隔离目录安装、构建并验证前后端，不触碰当前运行产物。
+3. 停止 3001 端口旧后端。
+4. 将数据库及当前 `backend/dist`、`frontend/dist` 备份到 `backups/releases/<时间戳>/`。
+5. 发布新后端；前端先复制带哈希资源，最后替换 `index.html`，降低资源版本不一致造成的白屏风险。
+6. 执行幂等数据库迁移、`integrity_check` 和外键检查。
+7. 启动后端，并验证后端健康接口、构建资源和 Nginx 实际服务目录。
 
-将以下内容复制到生产服务器：
+任何发布后检查失败，脚本会自动恢复上一个前后端构建并重启旧后端。数据库备份只用于人工灾难恢复，脚本不会自动覆盖真实数据库。
 
-**必需文件/目录：**
-- `frontend/dist/` - 整个目录（包含所有构建后的静态文件）
-- `backend/` - 整个后端目录
-- `scripts/` - 整个脚本目录（包含 server.py 和启动脚本）
-- `stellar.db` - 数据库文件（如果已有数据，位于项目根目录）
+## 无破坏预检
 
-**可选文件：**
-- `README.md` - 项目说明
-- `.gitignore` - Git 配置
+在本地或服务器上只验证部署脚本、构建与产物完整性，不停止服务、不读取或修改数据库：
 
-### 3. 在生产服务器上启动
-
-在生产服务器上：
-
-1. 确保已安装：
-   - Python 3.x
-   - Node.js (用于运行后端)
-
-2. 运行启动脚本：
-   ```bash
-   scripts\start_app_production.bat
-   ```
-
-3. 脚本会自动：
-   - 检查环境（Python、Node.js）
-   - 检查构建文件（`frontend/dist/index.html`）
-   - 安装后端依赖（如果需要）
-   - 启动后端服务器（端口 3001）
-   - 启动前端静态服务器（端口 80）
-
-### 4. 访问应用
-
-- 前端：http://starcoin.h5-online.com/ 或 http://localhost/
-- 后端 API：http://localhost:3001/api
-
-## 注意事项
-
-1. **端口 80 需要管理员权限**：确保以管理员身份运行启动脚本
-2. **防火墙设置**：确保端口 80 和 3001 未被防火墙阻止
-3. **数据库文件**：首次部署时，数据库会自动创建。如需保留数据，请备份 `stellar.db` 文件
-4. **更新部署**：更新时只需替换 `frontend/dist` 目录和 `backend` 目录即可
-
-### 更新时建议替换的文件（保持数据一致）
-- **前端**：`frontend/dist/` 整个目录（先本地 `npm run build`）
-- **后端**：`backend/src/` 下所有 TS 文件及 `backend/package.json` 等；服务器上执行 `npm install` 后重启 Node 进程。若使用编译产物，则替换 `backend/dist/` 或对应运行目录。
-- **数据库**：不替换 `stellar.db` 可保留数据；若表结构有迁移（如惩罚自定义、再抽一次），首次启动新版本时会自动执行迁移。
-
-## 快速部署命令（本地）
-
-如果需要快速将构建文件打包：
-
-```bash
-# Windows PowerShell
-Compress-Archive -Path frontend\dist -DestinationPath dist.zip
-Compress-Archive -Path backend -DestinationPath backend.zip
+```bat
+scripts\deploy_server_production.bat -ValidateOnly -SkipInstall
 ```
 
-然后将这些 zip 文件传输到服务器并解压。
+只有依赖已经安装时才能使用 `-SkipInstall`。正式部署默认不应跳过依赖安装和 Nginx 检查。
 
+## 验收与回滚
+
+部署成功后至少验证：
+
+- 家长端、孩子端均可登录，刷新深层页面不会白屏。
+- “今天”、任务提交与审核、金币结算、商店、抽奖记录正常。
+- `http://127.0.0.1/api/health` 返回 `status: ok`。
+- 浏览器加载的入口资源名称与 `frontend/dist/index.html` 一致。
+
+若自动回滚也失败，控制台会明确输出错误。此时不要替换 `stellar.db`；先查看 `logs/backend-*.error.log`，再从本次 `backups/releases/<时间戳>/` 恢复运行产物。数据库恢复必须在确认后端已停止后人工执行。
+
+## Nginx 缓存规则
+
+- `/assets/` 是带内容哈希的构建资源，可长期缓存并标记 `immutable`。
+- `/index.html` 必须使用 `no-store, no-cache, must-revalidate`。
+- Nginx `root` 必须指向当前项目的 `frontend/dist`，否则线上可能继续展示旧版本。
