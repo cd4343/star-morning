@@ -454,6 +454,48 @@ export const startExploreFeedScheduler = () => {
   scheduleNext();
 };
 
+export const getParentExploreFeedSettings = async (
+  db: ReturnType<typeof getDb>,
+  familyId: string,
+  poiEnabled: boolean
+) => {
+  const family = await db.get(
+    'SELECT exploreCity, exploreFeedDailyLimit, exploreFeedCategories FROM families WHERE id = ?',
+    familyId
+  );
+  const sources = await db.all(
+    'SELECT id, url, label, lastFetchedAt, createdAt FROM explore_feed_sources WHERE familyId = ? AND isActive = 1 ORDER BY createdAt DESC',
+    familyId
+  );
+  const pendingReview = await db.all(
+    `SELECT id, type, title, summary, imageUrl, sourceUrl, category, venue, district,
+            feedCategory, ageMin, ageMax, activityStart, activityEnd, signupDeadline,
+            price, bookingMethod, officialUrl, recommendReason, notes, verifyStatus,
+            recommendScore, city, recommendDate, createdAt
+       FROM explore_feed_items
+      WHERE familyId = ? AND status = 'pending_review'
+      ORDER BY createdAt DESC
+      LIMIT 50`,
+    familyId
+  );
+  let categories: string[] | null = null;
+  try {
+    const parsed = JSON.parse(String(family?.exploreFeedCategories || ''));
+    if (Array.isArray(parsed)) {
+      const list = parsed.map((item: unknown) => trimText(item, 20)).filter(Boolean);
+      if (list.length > 0) categories = list;
+    }
+  } catch { /* 未配置或非法 JSON 一律按 null 返回 */ }
+  return {
+    exploreCity: family?.exploreCity || '',
+    exploreFeedDailyLimit: clampDailyLimit(family?.exploreFeedDailyLimit ?? 3),
+    exploreFeedCategories: categories,
+    poiEnabled,
+    sources,
+    pendingReview,
+  };
+};
+
 // ==================== B. 路由 ====================
 
 export const registerExploreFeedRoutes = (app: Express, protect: any, requireParent?: any, requireChild?: any) => {
@@ -565,37 +607,12 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
   // 家长端：发现推送设置（城市/条数/分类 + 关注源 + 待审核队列）
   app.get('/api/parent/explore/feed-settings', ...parentGuards, async (req: any, res: any) => {
     const request = req as AuthRequest;
-    const db = getDb();
-    const family = await db.get(
-      'SELECT exploreCity, exploreFeedDailyLimit, exploreFeedCategories FROM families WHERE id = ?',
-      request.user!.familyId
+    const settings = await getParentExploreFeedSettings(
+      getDb(),
+      request.user!.familyId,
+      !!process.env.AMAP_WEB_SERVICE_KEY
     );
-    const sources = await db.all(
-      'SELECT id, url, label, lastFetchedAt, createdAt FROM explore_feed_sources WHERE familyId = ? AND isActive = 1 ORDER BY createdAt DESC',
-      request.user!.familyId
-    );
-    const pendingReview = await db.all(
-      `SELECT id, type, title, summary, sourceUrl, category, recommendDate, createdAt
-       FROM explore_feed_items WHERE familyId = ? AND status = 'pending_review'
-       ORDER BY createdAt DESC LIMIT 50`,
-      request.user!.familyId
-    );
-    let categories: string[] | null = null;
-    try {
-      const parsed = JSON.parse(String(family?.exploreFeedCategories || ''));
-      if (Array.isArray(parsed)) {
-        const list = parsed.map((item: unknown) => trimText(item, 20)).filter(Boolean);
-        if (list.length > 0) categories = list;
-      }
-    } catch { /* 未配置或非法 JSON 一律按 null 返回 */ }
-    res.json({
-      exploreCity: family?.exploreCity || '',
-      exploreFeedDailyLimit: clampDailyLimit(family?.exploreFeedDailyLimit ?? 3),
-      exploreFeedCategories: categories,
-      poiEnabled: !!process.env.AMAP_WEB_SERVICE_KEY,
-      sources,
-      pendingReview,
-    });
+    res.json(settings);
   });
 
   app.put('/api/parent/explore/feed-settings', ...parentGuards, async (req: any, res: any) => {
