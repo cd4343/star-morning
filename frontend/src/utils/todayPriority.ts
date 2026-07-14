@@ -5,7 +5,15 @@ export interface TodayTask {
   status?: string;
   icon?: string;
   coinReward?: number;
+  xpReward?: number;
   durationMinutes?: number;
+  taskType?: string;
+  completionMode?: string;
+  targetValue?: number | string | null;
+  targetUnit?: string | null;
+  reviewFocus?: string | null;
+  gameTicketPreviewMinutes?: number;
+  gameTicketEarnBySpeed?: boolean;
 }
 
 const isActionable = (task: TodayTask) => ['running', 'todo', 'rejected', ''].includes(String(task.status || ''));

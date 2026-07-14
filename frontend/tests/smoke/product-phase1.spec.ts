@@ -104,19 +104,30 @@ test('child today prioritizes a running task and shows four primary destinations
   });
 
   await page.route('**/api/auth/members', route => route.fulfill({ json: [] }));
-  await page.route('**/api/child/dashboard', route => route.fulfill({
-    json: {
+  let dashboardRequests = 0;
+  let runningTaskCompleted = false;
+  await page.route('**/api/child/dashboard', route => {
+    dashboardRequests += 1;
+    return route.fulfill({
+      json: {
       child: { id: 'child-phase-one', name: '测试孩子', coins: 80, xp: 120, level: 2, privilegePoints: 1 },
       tasks: [
         { id: 'task-later', title: '整理书包', category: '生活', status: 'todo', icon: '🎒', coinReward: 8, durationMinutes: 8 },
         { id: 'task-morning', title: '晨间小行动', category: '早晨启动', status: 'todo', icon: '🌤️', coinReward: 4, durationMinutes: 5 },
-        { id: 'task-running', title: '正在完成的作业', category: '学习', status: 'running', icon: '📚', coinReward: 15, durationMinutes: 20 },
+        ...(!runningTaskCompleted ? [{
+          id: 'task-running', title: '正在完成的作业', category: '学习', status: 'running', icon: '📚',
+          coinReward: 15, xpReward: 12, durationMinutes: 20, completionMode: 'timer', targetValue: 20,
+          targetUnit: '分钟', reviewFocus: '专注投入、认真完成', gameTicketPreviewMinutes: 5,
+        }] : []),
       ],
       recentReviews: [],
-    },
-  }));
+      },
+    });
+  });
   await page.route('**/api/child/all-achievements', route => route.fulfill({ json: [] }));
   await page.route('**/api/child/task-session-reminders', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/learning-quests', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/weekly-report/latest', route => route.fulfill({ json: {} }));
   await page.route('**/api/child/screen-time', route => route.fulfill({ json: {
     dailyBaseMinutes: 15, dailyMaxMinutes: 45, earnedMinutes: 7, todayUsed: 5, allowance: 22, balance: 17,
   } }));
@@ -145,8 +156,54 @@ test('child today prioritizes a running task and shows four primary destinations
   await expect(nav).not.toContainText('早餐');
   expect(await nav.locator('button').count()).toBe(4);
 
-  await page.getByRole('button', { name: /继续完成/ }).click();
-  await expect(page).toHaveURL(/\/child\/challenge$/);
+  const requestsBeforeDetails = dashboardRequests;
+  await page.getByRole('button', { name: /查看任务详情/ }).click();
+  await expect(page).toHaveURL(/\/child\/today$/);
+  const taskDetails = page.getByRole('dialog');
+  await expect(taskDetails).toContainText('正在完成的作业');
+  await expect(taskDetails).toContainText('20分钟');
+  await expect(taskDetails).toContainText('+15');
+  await expect(taskDetails).toContainText('+12');
+  await expect(taskDetails).toContainText('5 分钟游戏票');
+
+  await taskDetails.getByRole('button', { name: /继续计时/ }).click();
+  await expect(page).toHaveURL(/\/child\/challenge\?tab=today&taskId=task-running&from=today$/);
+  await expect(page.getByTestId('challenge-back-today')).toBeVisible();
+  const runningTimer = page.getByRole('dialog');
+  await expect(runningTimer).toContainText('正在挑战：正在完成的作业');
+
+  runningTaskCompleted = true;
+  await runningTimer.getByRole('button', { name: '关闭' }).click();
+  await page.getByTestId('challenge-back-today-floating').click();
+  await expect(page).toHaveURL(/\/child\/today$/);
+  await expect(page.getByTestId('today-primary-action')).not.toContainText('正在完成的作业');
+  expect(dashboardRequests).toBeGreaterThan(requestsBeforeDetails);
+});
+
+test('child challenge rejects a stale Today task id instead of opening another task', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'phase-five-child-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-phase-five', name: '测试孩子', role: 'child', familyId: 'family-phase-five', coins: 20,
+    }));
+  });
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/child/dashboard') return route.fulfill({ json: {
+      child: { id: 'child-phase-five', name: '测试孩子', coins: 20 },
+      tasks: [{ id: 'task-safe', title: '真正可做的任务', category: '生活', status: 'todo', coinReward: 5, durationMinutes: 5 }],
+      recentReviews: [],
+    } });
+    if (path === '/api/child/screen-time') return route.fulfill({ json: { balance: 10 } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/child/challenge?tab=today&taskId=task-stale&from=today');
+
+  await expect(page.getByText('这个任务已经完成、过期或不存在，请从“今天”重新选择。')).toBeVisible();
+  await expect(page).toHaveURL(/\/child\/challenge\?tab=today&from=today$/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByText('真正可做的任务').first()).toBeVisible();
 });
 
 test('child growth page separates level xp from reward progress', async ({ page }) => {

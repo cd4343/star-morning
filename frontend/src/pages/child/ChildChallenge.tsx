@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Play, Send, Sparkles, Star, Users, X, Zap } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Play, Send, Sparkles, Star, Users, X, Zap } from 'lucide-react';
 import api, { isAuthError } from '../../services/api';
 import { t } from '../../i18n';
 import { useToast } from '../../components/Toast';
@@ -410,8 +410,10 @@ export default function ChildChallenge() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [weeklyReport, setWeeklyReport] = useState<{ weekStart: string; childStory: string } | null>(null);
   const [weeklyExpanded, setWeeklyExpanded] = useState(false);
+  const [freshDashboardReady, setFreshDashboardReady] = useState(false);
   const timerDragRef = useRef({ dragging: false, moved: false, offsetX: 0, offsetY: 0, startX: 0, startY: 0, lastPos: null as { x: number; y: number } | null });
   const focusRequestNonceRef = useRef(0);
+  const handledTargetRef = useRef('');
   const wakeLockRef = useRef<any>(null);
   const wakeVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -477,6 +479,7 @@ export default function ChildChallenge() {
     if (dashboardRes.status === 'rejected' && !isAuthError(dashboardRes.reason)) {
       toast.error('挑战中心加载失败，请稍后重试');
     }
+    setFreshDashboardReady(true);
     setLoading(false);
   };
 
@@ -771,7 +774,7 @@ export default function ChildChallenge() {
     }, 2200);
   };
 
-  const focusTaskCard = (task: Task, tab = getTaskTab(task)) => {
+  const focusTaskCard = (task: Task, tab = getTaskTab(task), announce = true) => {
     const nonce = focusRequestNonceRef.current + 1;
     focusRequestNonceRef.current = nonce;
     setActiveTab(tab);
@@ -780,7 +783,7 @@ export default function ChildChallenge() {
     setSelectedTaskCategory('全部');
     setHighlightTaskId(task.id);
     setFocusRequest({ taskId: task.id, tab, nonce });
-    toast.info('已帮你定位到推荐任务，准备好后再点任务卡开始');
+    if (announce) toast.info('已帮你定位到推荐任务，准备好后再点任务卡开始');
 
     window.setTimeout(() => {
       setHighlightTaskId(current => (current === task.id ? null : current));
@@ -802,6 +805,30 @@ export default function ChildChallenge() {
       timers.forEach(timer => window.clearTimeout(timer));
     };
   }, [focusRequest, activeTab, tasks.length]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const targetTaskId = String(params.get('taskId') || '').trim();
+    if (!freshDashboardReady || !targetTaskId) return;
+    const intentKey = `${location.key}:${targetTaskId}`;
+    if (handledTargetRef.current === intentKey) return;
+    handledTargetRef.current = intentKey;
+
+    const targetTask = tasks.find(task => task.id === targetTaskId);
+    if (!targetTask || isDone(targetTask.status)) {
+      toast.error(t('challenge.targetUnavailable'));
+      params.delete('taskId');
+      navigate({ pathname: location.pathname, search: params.toString() }, { replace: true, state: location.state });
+      return;
+    }
+
+    if (isTaskRunning(targetTask)) {
+      focusRunningTaskCard(targetTask, true);
+      return;
+    }
+    focusTaskCard(targetTask, getTaskTab(targetTask), false);
+    setSelectedTask(targetTask);
+  }, [freshDashboardReady, location.key, location.pathname, location.search, tasks]);
 
   useEffect(() => {
     if (!runningTask || tasks.length === 0) return;
@@ -1004,9 +1031,24 @@ export default function ChildChallenge() {
       onPointerCancel={handleTimerBarPointerUp}
     >
       <div className="rounded-2xl bg-slate-950 text-white shadow-2xl shadow-slate-900/30 cursor-grab active:cursor-grabbing overflow-hidden">
-        <div className="flex items-center justify-between px-3 pt-2 pb-1 text-[10px] font-black text-white/50">
+        <div className="flex items-center justify-between gap-2 px-2 pt-1 text-[10px] font-black text-white/50">
           <span>{activeTimerTasks.length > 1 ? `${activeTimerTasks.length} 个挑战进行中` : '挑战进行中'}</span>
-          <span>点按定位 · 可拖动</span>
+          {new URLSearchParams(location.search).get('from') === 'today' ? (
+            <button
+              type="button"
+              data-testid="challenge-back-today-floating"
+              onPointerDown={event => event.stopPropagation()}
+              onClick={event => {
+                event.stopPropagation();
+                navigate('/child/today', { state: { refreshChildData: true } });
+              }}
+              className="min-h-11 rounded-xl px-2 text-xs font-black text-sky-200"
+            >
+              {t('challenge.backToToday')}
+            </button>
+          ) : (
+            <span>点按定位 · 可拖动</span>
+          )}
         </div>
         <div className="space-y-1 p-1.5 pt-0">
           {activeTimerTasks.map(task => (
@@ -1421,6 +1463,16 @@ export default function ChildChallenge() {
   return (
     <div className="min-h-full pb-24 bg-gradient-to-b from-violet-50 via-white to-cyan-50">
       <div className="p-4">
+        {new URLSearchParams(location.search).get('from') === 'today' && (
+          <button
+            type="button"
+            data-testid="challenge-back-today"
+            onClick={() => navigate('/child/today', { state: { refreshChildData: true } })}
+            className="relative z-[70] mb-3 flex min-h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm active:scale-[0.99]"
+          >
+            <ArrowLeft size={18} /> {t('challenge.backToToday')}
+          </button>
+        )}
         {lowEnergyToday ? renderLowEnergyDay() : (<>
         {weeklyReport && (
           <div className="mb-3 rounded-[1.35rem] bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 p-3.5 shadow-sm">

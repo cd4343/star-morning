@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CheckCircle2, Clock, Coins, Utensils } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, Coins, Gamepad2, Sparkles, Star, Utensils } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
+import { BottomSheet } from '../../components/BottomSheet';
 import { t } from '../../i18n';
 import api from '../../services/api';
+import { getTaskCategoryInfo } from '../../utils/taskCategories';
+import { getTaskCompletionSummary } from '../../utils/taskCompletion';
 import { selectPrimaryTodayTask, sortTodayTasks, type TodayTask } from '../../utils/todayPriority';
 
 type TodayContext = {
@@ -12,8 +15,23 @@ type TodayContext = {
 
 export default function ChildToday() {
   const navigate = useNavigate();
-  const { tasks = [] } = useOutletContext<TodayContext>();
+  const { tasks = [], refresh } = useOutletContext<TodayContext>();
   const [breakfastOrdered, setBreakfastOrdered] = useState<boolean | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TodayTask | null>(null);
+
+  useEffect(() => {
+    const refreshToday = () => { void refresh?.().catch(() => undefined); };
+    refreshToday();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshToday();
+    };
+    window.addEventListener('focus', refreshToday);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', refreshToday);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     let active = true;
@@ -28,8 +46,16 @@ export default function ChildToday() {
   const laterTasks = primary ? sortedTasks.filter(task => task.id !== primary.id).slice(0, 2) : [];
 
   const openPrimary = () => {
-    if (primary) navigate('/child/challenge');
+    if (primary) setSelectedTask(primary);
     else if (breakfastOrdered === false) navigate('/child/morning');
+  };
+
+  const openChallenge = (task: TodayTask) => {
+    const params = new URLSearchParams();
+    params.set('tab', task.taskType === 'family' ? 'family' : 'today');
+    params.set('taskId', task.id);
+    params.set('from', 'today');
+    navigate(`/child/challenge?${params.toString()}`, { state: { fromToday: true } });
   };
 
   const hasPrimaryAction = Boolean(primary || breakfastOrdered === false);
@@ -68,7 +94,7 @@ export default function ChildToday() {
             onClick={openPrimary}
             className="mt-5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-gray-900 px-4 font-black text-white active:scale-[0.99]"
           >
-            {primary?.status === 'running' ? t('today.continueAction') : t('today.beginAction')}
+            {primary ? t('today.detailsAction') : t('today.beginAction')}
             <ArrowRight size={18} className="ml-2" />
           </button>
         </section>
@@ -103,17 +129,91 @@ export default function ChildToday() {
               <button
                 type="button"
                 key={task.id}
-                onClick={() => navigate('/child/challenge')}
+                onClick={() => setSelectedTask(task)}
                 className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 text-left"
               >
                 <span className="text-2xl">{task.icon || '📋'}</span>
-                <span className="min-w-0 flex-1 truncate font-bold text-gray-800">{task.title}</span>
+                <span className="min-w-0 flex-1 line-clamp-2 font-bold text-gray-800">{task.title}</span>
                 <ArrowRight size={17} className="text-gray-300" />
               </button>
             ))}
           </div>
         </section>
       )}
+
+      <BottomSheet
+        isOpen={Boolean(selectedTask)}
+        onClose={() => setSelectedTask(null)}
+        title={selectedTask ? `${selectedTask.icon || '✅'} ${selectedTask.title}` : t('today.detailTitle')}
+        footer={selectedTask ? (
+          <button
+            type="button"
+            onClick={() => openChallenge(selectedTask)}
+            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 font-black text-white active:scale-[0.99]"
+          >
+            <ArrowRight size={18} />
+            {selectedTask.status === 'running' ? t('today.continueTimer') : t('today.startChallenge')}
+          </button>
+        ) : undefined}
+      >
+        {selectedTask && (() => {
+          const completion = getTaskCompletionSummary(selectedTask);
+          const category = getTaskCategoryInfo(selectedTask.category);
+          return (
+            <div className="space-y-4" data-testid="today-task-details">
+              <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">
+                    {selectedTask.icon || '✅'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 text-lg font-black text-slate-900">{selectedTask.title}</div>
+                    <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs font-black text-slate-500">
+                      {category.icon} {category.label}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center">
+                  <Clock size={17} className="mx-auto text-slate-400" />
+                  <div className="mt-1 font-black text-slate-800">{completion.targetText}</div>
+                  <div className="text-[10px] font-bold text-slate-400">{completion.label}</div>
+                </div>
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-center">
+                  <Coins size={17} className="mx-auto text-amber-500" />
+                  <div className="mt-1 font-black text-amber-700">+{selectedTask.coinReward || 0}</div>
+                  <div className="text-[10px] font-bold text-amber-500">{t('today.coinLabel')}</div>
+                </div>
+                <div className="rounded-2xl border border-violet-100 bg-violet-50 p-3 text-center">
+                  <Star size={17} className="mx-auto fill-violet-500 text-violet-500" />
+                  <div className="mt-1 font-black text-violet-700">+{selectedTask.xpReward || 0}</div>
+                  <div className="text-[10px] font-bold text-violet-500">{t('today.growthLabel')}</div>
+                </div>
+              </div>
+              {Number(selectedTask.gameTicketPreviewMinutes || 0) > 0 && (
+                <div className="flex items-start gap-2 rounded-2xl border border-sky-100 bg-sky-50 p-3 text-sm font-bold text-sky-700">
+                  <Gamepad2 size={18} className="mt-0.5 shrink-0" />
+                  {t('today.gameTicket', { minutes: Number(selectedTask.gameTicketPreviewMinutes) })}
+                </div>
+              )}
+              {Boolean(selectedTask.gameTicketEarnBySpeed) && (
+                <div className="flex items-start gap-2 rounded-2xl border border-sky-100 bg-sky-50 p-3 text-sm font-bold text-sky-700">
+                  <Gamepad2 size={18} className="mt-0.5 shrink-0" />
+                  {t('today.gameTicketSpeed')}
+                </div>
+              )}
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-sm font-bold leading-relaxed text-blue-700">
+                <Sparkles size={17} className="mr-1 inline" />
+                {completion.childHint}
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-sm font-bold leading-relaxed text-emerald-700">
+                {t('today.reviewFocus', { focus: String(selectedTask.reviewFocus || completion.reviewFocus) })}
+              </div>
+            </div>
+          );
+        })()}
+      </BottomSheet>
     </div>
   );
 }
