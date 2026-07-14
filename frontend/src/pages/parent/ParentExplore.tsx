@@ -73,7 +73,8 @@ const getSupportedMimeType = (): string | null => {
 export default function ParentExplore() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [tab, setTab] = useState<'places' | 'search' | 'checkins' | 'settings' | 'memories'>('places');
+  const [tab, setTab] = useState<'discover' | 'plan' | 'records' | 'settings'>('plan');
+  const [recordView, setRecordView] = useState<'checkins' | 'memories'>('checkins');
   const [places, setPlaces] = useState<ExplorePlace[]>([]);
   const [checkins, setCheckins] = useState<ExploreCheckin[]>([]);
   const [query, setQuery] = useState('');
@@ -126,9 +127,34 @@ export default function ParentExplore() {
   // P1b：观察统计按孩子筛选（''=全家）+ 孩子列表（孩子选择器）
   const [statsChildId, setStatsChildId] = useState<string>('');
   const [statsChildren, setStatsChildren] = useState<{ id: string; name: string }[]>([]);
+  const [dataError, setDataError] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
+  const [feedLoadError, setFeedLoadError] = useState(false);
+  const [discoveryAge, setDiscoveryAge] = useState('');
+  const [discoveryCategory, setDiscoveryCategory] = useState('');
+  const [showManualSearch, setShowManualSearch] = useState(false);
 
   const activePlaces = useMemo(() => places.filter(place => place.status !== 'archived'), [places]);
   const pendingCheckins = useMemo(() => checkins.filter(item => !item.parentConfirmed).length, [checkins]);
+  const planCount = useMemo(() => activePlaces.filter(place => place.status === 'planned' || place.status === 'wishlist').length, [activePlaces]);
+  const latestFeedback = useMemo(() => [...checkins].sort((a, b) => new Date(b.checkedInAt).getTime() - new Date(a.checkedInAt).getTime())[0], [checkins]);
+  const placeGroups = useMemo(() => ([
+    { status: 'planned', label: t('explore.planPlanned') },
+    { status: 'wishlist', label: t('explore.planWishlist') },
+    { status: 'visited', label: t('explore.planVisited') }
+  ]).map(group => ({ ...group, places: activePlaces.filter(place => place.status === group.status) })), [activePlaces]);
+  const filteredRecommendations = useMemo(() => {
+    const age = Number(discoveryAge);
+    return (feedSettings?.pendingReview || []).filter(item => {
+      const category = item.feedCategory || item.category || '';
+      if (discoveryCategory && category && category !== discoveryCategory) return false;
+      if (discoveryAge && Number.isFinite(age)) {
+        if (item.ageMin != null && age < item.ageMin) return false;
+        if (item.ageMax != null && age > item.ageMax) return false;
+      }
+      return true;
+    });
+  }, [discoveryAge, discoveryCategory, feedSettings]);
   // P1b：去过的地点按规范类型归类罗列（按 EXPLORE_CATEGORIES 顺序，仅显示有数据的类型）
   const visitedByCategory = useMemo(() => {
     const groups: Record<string, ExploreVisitedPlace[]> = {};
@@ -161,36 +187,48 @@ export default function ParentExplore() {
   };
 
   const loadData = async () => {
-    const [placeRes, checkinRes] = await Promise.all([
-      api.get('/parent/explore/places'),
-      api.get('/parent/explore/checkins')
-    ]);
-    setPlaces(placeRes.data || []);
-    setCheckins(checkinRes.data || []);
+    setLoadingData(true);
+    setDataError(false);
+    try {
+      const [placeRes, checkinRes] = await Promise.all([
+        api.get('/parent/explore/places'),
+        api.get('/parent/explore/checkins')
+      ]);
+      setPlaces(placeRes.data || []);
+      setCheckins(checkinRes.data || []);
+    } catch (error) {
+      setDataError(true);
+      throw error;
+    } finally {
+      setLoadingData(false);
+    }
   };
 
   useEffect(() => {
-    loadData().catch(() => toast.error('探索数据加载失败'));
+    loadData().catch(() => toast.error(t('explore.loadFailed')));
   }, []);
 
   // 探索二期：发现推送设置（城市/条数/关注源/待审核）
   const loadFeedSettings = async () => {
+    setFeedLoadError(false);
     try {
       const res = await api.get('/parent/explore/feed-settings');
       setFeedSettings(res.data);
       setFeedCity(res.data?.exploreCity || '');
       setFeedLimit(res.data?.exploreFeedDailyLimit || 3);
-    } catch { /* 静默：设置区其余部分仍可用 */ }
+    } catch {
+      setFeedLoadError(true);
+    }
   };
 
   useEffect(() => {
+    if (tab === 'discover' || tab === 'settings') loadFeedSettings();
     if (tab === 'settings') {
       api.get('/parent/explore/quota').then(res => setQuota(res.data)).catch(() => {});
       api.get('/parent/explore/settings').then(res => {
         setRequirePhoto(!!res.data?.exploreRequirePhoto);
         setGeoVerify(!!res.data?.exploreGeoVerify);
       }).catch(() => {});
-      loadFeedSettings();
       if (sourceSuggestions.length === 0) {
         api.get('/parent/explore/feed-sources/suggestions')
           .then(res => setSourceSuggestions(res.data?.suggestions || []))
@@ -203,10 +241,10 @@ export default function ParentExplore() {
           .catch(() => {});
       }
     }
-    if (tab === 'memories' && timeline === null) {
+    if (tab === 'records' && recordView === 'memories' && timeline === null) {
       api.get('/parent/explore/timeline').then(res => setTimeline(res.data || [])).catch(() => toast.error('回忆加载失败'));
     }
-  }, [tab]);
+  }, [tab, recordView]);
 
   // P1b：观察统计——进入设置页或切换孩子时按孩子拉取（''=全家）
   useEffect(() => {
@@ -239,14 +277,14 @@ export default function ParentExplore() {
     setEditing(place || null);
     setForm(place ? { ...emptyForm, ...place } : emptyForm);
     setShowForm(true);
-    setTab('places');
+    setTab('plan');
   };
 
   const addSearchResult = (place: ExplorePlace) => {
     setEditing(null);
     setForm({ ...emptyForm, ...place, status: 'planned' });
     setShowForm(true);
-    setTab('places');
+    setTab('plan');
   };
 
   const savePlace = async () => {
@@ -438,6 +476,7 @@ export default function ParentExplore() {
   const generateFeedNow = async () => {
     setGeneratingNow(true);
     try {
+      await api.put('/parent/explore/feed-settings', { exploreCity: feedCity.trim(), exploreFeedDailyLimit: feedLimit });
       const res = await api.post('/parent/explore/feed/generate-now');
       toast.success(t('explore.generateNowSuccess', { count: res.data?.insertedCount ?? 0 }));
       await loadFeedSettings();
@@ -536,19 +575,57 @@ export default function ParentExplore() {
             <Compass size={18} />
             读万卷书，行万里路
           </div>
-          <h2 className="mt-3 text-2xl font-black">给孩子准备真实世界的任务地图</h2>
+          <h2 className="mt-3 text-2xl font-black">{t('explore.workbenchHero')}</h2>
+          <p className="mt-2 text-sm font-bold text-white/80">{t('explore.workbenchHeroDesc')}</p>
         </section>
 
-        <div className="grid grid-cols-5 gap-1 rounded-2xl bg-white p-1.5 shadow-sm border border-slate-100">
-          <TabButton label="地点" active={tab === 'places'} onClick={() => setTab('places')} />
-          <TabButton label="搜索" active={tab === 'search'} onClick={() => setTab('search')} />
-          <TabButton label={`待确认${pendingCheckins ? ` ${pendingCheckins}` : ''}`} active={tab === 'checkins'} onClick={() => setTab('checkins')} />
-          <TabButton label={t('explore.tabSettings')} active={tab === 'settings'} onClick={() => setTab('settings')} />
-          <TabButton label={t('explore.tabMemories')} active={tab === 'memories'} onClick={() => setTab('memories')} />
+        <section data-testid="explore-summary" className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <SummaryItem value={String(pendingCheckins)} label={t('explore.summaryPending')} />
+            <SummaryItem value={String(planCount)} label={t('explore.summaryPlan')} />
+            <SummaryItem value={latestFeedback?.mood || '—'} label={t('explore.summaryLatest')} />
+          </div>
+          {latestFeedback?.note && <p className="line-clamp-2 text-xs font-bold text-slate-500">{latestFeedback.note}</p>}
+          <button data-testid="explore-primary-action" type="button" onClick={() => setTab('discover')} className="min-h-[48px] w-full rounded-2xl bg-sky-600 px-4 text-sm font-black text-white shadow-sm">
+            {t('explore.primaryFindPlace')}
+          </button>
+        </section>
+
+        <div className="grid grid-cols-[1fr_1fr_1fr_44px] gap-1 rounded-2xl bg-white p-1.5 shadow-sm border border-slate-100">
+          <TabButton testId="explore-stage-discover" label={t('explore.stageDiscover')} active={tab === 'discover'} onClick={() => setTab('discover')} />
+          <TabButton testId="explore-stage-plan" label={t('explore.stagePlan')} active={tab === 'plan'} onClick={() => setTab('plan')} />
+          <TabButton testId="explore-stage-records" label={t('explore.stageRecords')} active={tab === 'records'} onClick={() => setTab('records')} />
+          <button type="button" aria-label={t('explore.tabSettings')} onClick={() => setTab('settings')} className={`min-h-[44px] rounded-xl text-lg ${tab === 'settings' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>⚙</button>
         </div>
 
-        {tab === 'search' && (
-          <section className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-4">
+        {dataError && (
+          <section data-testid="explore-load-error" className="rounded-3xl border border-rose-100 bg-rose-50 p-5 text-center space-y-3">
+            <p className="text-sm font-black text-rose-700">{t('explore.loadFailed')}</p>
+            <button type="button" onClick={() => loadData().catch(() => {})} className="min-h-[44px] rounded-2xl bg-rose-600 px-5 text-sm font-black text-white">{t('explore.retry')}</button>
+          </section>
+        )}
+        {loadingData && !dataError && <div className="rounded-3xl bg-white p-8 text-center text-sm font-bold text-slate-400">{t('common.loading')}</div>}
+
+        {!loadingData && !dataError && tab === 'discover' && (
+          <section data-testid="explore-discover" className="space-y-4">
+            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 text-lg font-black text-slate-900"><Sparkles size={20} className="text-violet-500" />{t('explore.discoverTitle')}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs font-bold text-slate-500">{t('explore.childAge')}<input aria-label={t('explore.childAge')} type="number" min="1" max="18" value={discoveryAge} onChange={event => setDiscoveryAge(event.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900" /></label>
+                <label className="text-xs font-bold text-slate-500">{t('explore.interest')}<select aria-label={t('explore.interest')} value={discoveryCategory} onChange={event => setDiscoveryCategory(event.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900"><option value="">{t('explore.interestAny')}</option><option value="户外">{t('explore.interestOutdoor')}</option><option value="科普">{t('explore.interestScience')}</option><option value="文博">{t('explore.interestCulture')}</option></select></label>
+              </div>
+              <div className="grid grid-cols-[1fr_5rem] gap-2"><input value={feedCity} onChange={event => setFeedCity(event.target.value)} placeholder={t('explore.cityPlaceholder')} className="min-h-[44px] rounded-xl border border-slate-200 px-3 text-sm font-bold" /><button type="button" onClick={generateFeedNow} disabled={generatingNow || !feedCity.trim()} className="min-h-[44px] rounded-xl bg-slate-900 text-xs font-black text-white disabled:opacity-40">{generatingNow ? t('common.loading') : t('explore.findNow')}</button></div>
+              <p className="text-xs font-bold leading-relaxed text-slate-400">{t('explore.filterTruthHint')}</p>
+              {feedLoadError ? <button type="button" onClick={loadFeedSettings} className="min-h-[44px] w-full rounded-xl border border-rose-200 text-sm font-black text-rose-600">{t('explore.retryRecommendations')}</button> : filteredRecommendations.length === 0 ? <div className="rounded-2xl bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">{t('explore.noMatchingRecommendations')}</div> : filteredRecommendations.map(item => (
+                <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+                  <div className="font-black text-slate-900">{item.title}</div>
+                  <div className="flex flex-wrap gap-1 text-[11px] font-bold text-slate-500"><span>{item.feedCategory || item.category || t('explore.infoUnverified')}</span><span>·</span><span>{item.ageMin != null || item.ageMax != null ? `${item.ageMin ?? 0}-${item.ageMax ?? 18}${t('explore.ageSuffix')}` : t('explore.infoUnverified')}</span><span>·</span><span>{item.price || t('explore.infoUnverified')}</span></div>
+                  <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => reviewFeedItem(item.id, 'reject')} className="min-h-[44px] rounded-xl border border-slate-200 text-sm font-black text-slate-500">{t('explore.feedReject')}</button><button type="button" onClick={() => reviewFeedItem(item.id, 'approve')} className="min-h-[44px] rounded-xl bg-emerald-500 text-sm font-black text-white">{t('explore.feedApprove')}</button></div>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setShowManualSearch(value => !value)} className="min-h-[44px] w-full rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-600">{t('explore.manualSearchToggle')}</button>
+            {showManualSearch && <section className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-4">
             <div className="flex items-center gap-2 text-lg font-black text-slate-900">
               <Search size={20} className="text-sky-500" />
               找一个可以去的地方
@@ -583,10 +660,11 @@ export default function ParentExplore() {
                 </div>
               ))}
             </div>
+            </section>}
           </section>
         )}
 
-        {tab === 'places' && (
+        {!loadingData && !dataError && tab === 'plan' && (
           <section className="space-y-4">
             <button type="button" onClick={() => openForm()} className="w-full rounded-3xl bg-white border-2 border-dashed border-sky-200 p-4 text-sky-700 font-black flex items-center justify-center gap-2">
               <Plus size={18} />
@@ -597,8 +675,10 @@ export default function ParentExplore() {
               <PlaceForm form={form} setForm={setForm} onSave={savePlace} onCancel={() => { setEditing(null); setForm(emptyForm); setShowForm(false); }} />
             )}
 
-            <div className="space-y-3">
-              {activePlaces.map(place => (
+            <div className="space-y-5">
+              {placeGroups.map(group => group.places.length > 0 && <section key={group.status} className="space-y-2">
+                <h3 className="px-1 text-sm font-black text-slate-600">{group.label} · {group.places.length}</h3>
+                {group.places.map(place => (
                 <div key={place.id} className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm">
                   <div className="flex gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-teal-50 flex items-center justify-center text-2xl">
@@ -625,12 +705,20 @@ export default function ParentExplore() {
                     </div>
                   </div>
                 </div>
-              ))}
+                ))}
+              </section>)}
             </div>
           </section>
         )}
 
-        {tab === 'checkins' && (
+        {!loadingData && !dataError && tab === 'records' && (
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white p-1.5 border border-slate-100">
+            <button type="button" onClick={() => setRecordView('checkins')} className={`min-h-[44px] rounded-xl text-sm font-black ${recordView === 'checkins' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{t('explore.recordCheckins')}</button>
+            <button type="button" onClick={() => setRecordView('memories')} className={`min-h-[44px] rounded-xl text-sm font-black ${recordView === 'memories' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{t('explore.recordMemories')}</button>
+          </div>
+        )}
+
+        {!loadingData && !dataError && tab === 'records' && recordView === 'checkins' && (
           <section className="space-y-3">
             {checkins.length === 0 ? (
               <div className="rounded-3xl bg-white border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-500">
@@ -766,7 +854,7 @@ export default function ParentExplore() {
           </section>
         )}
 
-        {tab === 'settings' && (
+        {!loadingData && !dataError && tab === 'settings' && (
           <section className="space-y-3">
             {/* 探索改版②：配额可视化 */}
             <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
@@ -932,42 +1020,6 @@ export default function ParentExplore() {
               <Button fullWidth onClick={addFeedSource} loading={addingSource} disabled={!sourceUrl.trim()} className="bg-sky-600 hover:bg-sky-700">
                 {t('explore.feedSourceAdd')}
               </Button>
-            </div>
-
-            {/* 探索二期：待审核队列（关注源抓取结果） */}
-            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
-              <div className="font-black text-slate-900 flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-amber-500" />
-                {t('explore.feedPendingTitle')}{feedSettings && feedSettings.pendingReview.length > 0 ? `（${feedSettings.pendingReview.length}）` : ''}
-              </div>
-              {!feedSettings || feedSettings.pendingReview.length === 0 ? (
-                <div className="rounded-2xl bg-slate-50 px-3 py-3 text-xs font-bold text-slate-400">{t('explore.feedPendingEmpty')}</div>
-              ) : feedSettings.pendingReview.map(item => (
-                <div key={item.id} className="rounded-2xl bg-slate-50 border border-slate-100 p-3 space-y-2">
-                  <div className="text-sm font-black text-slate-800 leading-snug">{item.title}</div>
-                  {item.sourceUrl && (
-                    <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="block text-xs font-bold text-sky-600 truncate">
-                      {t('explore.feedViewSource')}：{item.sourceUrl}
-                    </a>
-                  )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => reviewFeedItem(item.id, 'reject')}
-                      className="min-h-[44px] rounded-2xl bg-white border border-slate-200 text-slate-500 text-sm font-black"
-                    >
-                      {t('explore.feedReject')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => reviewFeedItem(item.id, 'approve')}
-                      className="min-h-[44px] rounded-2xl bg-emerald-500 text-white text-sm font-black"
-                    >
-                      {t('explore.feedApprove')}
-                    </button>
-                  </div>
-                </div>
-              ))}
             </div>
 
             {/* 探索二期：推荐给孩子（粘贴链接预览或手填） */}
@@ -1166,7 +1218,7 @@ export default function ParentExplore() {
           </section>
         )}
 
-        {tab === 'memories' && (
+        {!loadingData && !dataError && tab === 'records' && recordView === 'memories' && (
           <section className="space-y-3">
             {timeline === null ? (
               <div className="rounded-3xl bg-white border border-slate-100 p-8 text-center text-sm font-bold text-slate-400">
@@ -1234,16 +1286,21 @@ export default function ParentExplore() {
   );
 }
 
-function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function TabButton({ label, active, onClick, testId }: { label: string; active: boolean; onClick: () => void; testId?: string }) {
   return (
     <button
+      data-testid={testId}
       type="button"
       onClick={onClick}
-      className={`rounded-xl py-2.5 text-xs font-black transition-all ${active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
+      className={`min-h-[44px] rounded-xl py-2.5 text-xs font-black transition-all ${active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
     >
       {label}
     </button>
   );
+}
+
+function SummaryItem({ value, label }: { value: string; label: string }) {
+  return <div className="min-w-0 rounded-2xl bg-slate-50 px-2 py-3"><div className="truncate text-xl font-black text-slate-900">{value}</div><div className="mt-1 text-[11px] font-bold text-slate-500">{label}</div></div>;
 }
 
 // 探索二期：观察统计数字卡
