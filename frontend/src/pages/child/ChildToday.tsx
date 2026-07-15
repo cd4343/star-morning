@@ -1,22 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CheckCircle2, Clock, Coins, Gamepad2, Sparkles, Star, Utensils } from 'lucide-react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { ArrowRight, CheckCircle2, CheckSquare, Clock, Coins, Gamepad2, Sparkles, Star, Utensils } from 'lucide-react';
+import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { BottomSheet } from '../../components/BottomSheet';
 import { t } from '../../i18n';
-import api from '../../services/api';
 import { getTaskCategoryInfo } from '../../utils/taskCategories';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
-import { selectPrimaryTodayTask, sortTodayTasks, type TodayTask } from '../../utils/todayPriority';
+import type { TodayTask } from '../../utils/todayPriority';
+import { BreakfastKitchenContent } from './ChildMorning';
 
 type TodayContext = {
   tasks?: TodayTask[];
   refresh?: () => Promise<void>;
 };
 
+type TodayTab = 'tasks' | 'breakfast';
+type TodayFilter = 'all' | 'todo' | 'pending' | 'completed';
+
+const getTaskGroup = (task: TodayTask): Exclude<TodayFilter, 'all'> => {
+  if (task.status === 'pending') return 'pending';
+  if (task.status === 'approved' || task.status === 'completed') return 'completed';
+  return 'todo';
+};
+
+const getTaskStatus = (task: TodayTask) => {
+  if (task.status === 'running') return { label: t('today.statusRunning'), badge: 'bg-blue-100 text-blue-700' };
+  if (task.status === 'pending') return { label: t('today.statusPending'), badge: 'bg-amber-100 text-amber-700' };
+  if (task.status === 'approved' || task.status === 'completed') return { label: t('today.statusCompleted'), badge: 'bg-emerald-100 text-emerald-700' };
+  if (task.status === 'rejected') return { label: t('today.statusRejected'), badge: 'bg-rose-100 text-rose-700' };
+  return { label: t('today.statusTodo'), badge: 'bg-slate-100 text-slate-600' };
+};
+
+const isTaskActionable = (task: TodayTask) => !['pending', 'approved', 'completed'].includes(String(task.status || ''));
+
 export default function ChildToday() {
   const navigate = useNavigate();
   const { tasks = [], refresh } = useOutletContext<TodayContext>();
-  const [breakfastOrdered, setBreakfastOrdered] = useState<boolean | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: TodayTab = searchParams.get('tab') === 'breakfast' ? 'breakfast' : 'tasks';
+  const [filter, setFilter] = useState<TodayFilter>('all');
   const [selectedTask, setSelectedTask] = useState<TodayTask | null>(null);
 
   useEffect(() => {
@@ -33,21 +54,34 @@ export default function ChildToday() {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    let active = true;
-    api.get('/child/morning')
-      .then(response => { if (active) setBreakfastOrdered(Boolean(response.data?.order)); })
-      .catch(() => { if (active) setBreakfastOrdered(null); });
-    return () => { active = false; };
-  }, []);
+  const sortedTasks = useMemo(() => tasks
+    .map((task, index) => ({ task, index }))
+    .sort((left, right) => {
+      const groupRank = { todo: 0, pending: 1, completed: 2 };
+      const groupDiff = groupRank[getTaskGroup(left.task)] - groupRank[getTaskGroup(right.task)];
+      if (groupDiff !== 0) return groupDiff;
+      if (left.task.status === 'running' && right.task.status !== 'running') return -1;
+      if (right.task.status === 'running' && left.task.status !== 'running') return 1;
+      return left.index - right.index;
+    })
+    .map(item => item.task), [tasks]);
 
-  const sortedTasks = useMemo(() => sortTodayTasks(tasks), [tasks]);
-  const primary = useMemo(() => selectPrimaryTodayTask(tasks), [tasks]);
-  const laterTasks = primary ? sortedTasks.filter(task => task.id !== primary.id).slice(0, 2) : [];
+  const counts = useMemo(() => ({
+    all: sortedTasks.length,
+    todo: sortedTasks.filter(task => getTaskGroup(task) === 'todo').length,
+    pending: sortedTasks.filter(task => getTaskGroup(task) === 'pending').length,
+    completed: sortedTasks.filter(task => getTaskGroup(task) === 'completed').length,
+  }), [sortedTasks]);
 
-  const openPrimary = () => {
-    if (primary) setSelectedTask(primary);
-    else if (breakfastOrdered === false) navigate('/child/morning');
+  const visibleTasks = useMemo(
+    () => filter === 'all' ? sortedTasks : sortedTasks.filter(task => getTaskGroup(task) === filter),
+    [filter, sortedTasks],
+  );
+
+  const switchTab = (nextTab: TodayTab) => {
+    setSelectedTask(null);
+    if (nextTab === 'tasks') setFilter('all');
+    setSearchParams(nextTab === 'breakfast' ? { tab: 'breakfast' } : {}, { replace: true });
   };
 
   const openChallenge = (task: TodayTask) => {
@@ -58,94 +92,94 @@ export default function ChildToday() {
     navigate(`/child/challenge?${params.toString()}`, { state: { fromToday: true } });
   };
 
-  const hasPrimaryAction = Boolean(primary || breakfastOrdered === false);
-
   return (
     <div className="min-h-full space-y-4 bg-gradient-to-b from-blue-50 via-white to-amber-50 p-4 pb-28" data-testid="child-today">
-      <section className="rounded-3xl bg-gradient-to-br from-blue-600 to-indigo-600 p-5 text-white shadow-lg shadow-blue-100">
-        <p className="text-sm font-bold text-blue-100">{t('today.eyebrow')}</p>
-        <h1 className="mt-1 text-2xl font-black">{t('today.title')}</h1>
-        <p className="mt-2 text-sm font-medium leading-6 text-blue-100">{t('today.description')}</p>
+      <section className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm" aria-label={t('today.sectionTabs')}>
+        <button
+          type="button"
+          data-testid="today-tab-tasks"
+          aria-pressed={activeTab === 'tasks'}
+          onClick={() => switchTab('tasks')}
+          className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-black ${activeTab === 'tasks' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500'}`}
+        >
+          <CheckSquare size={18} /> {t('today.tasksTab')}
+        </button>
+        <button
+          type="button"
+          data-testid="today-tab-breakfast"
+          aria-pressed={activeTab === 'breakfast'}
+          onClick={() => switchTab('breakfast')}
+          className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-black ${activeTab === 'breakfast' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500'}`}
+        >
+          <Utensils size={18} /> {t('today.breakfastTab')}
+        </button>
       </section>
 
-      {hasPrimaryAction ? (
-        <section className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm" data-testid="today-primary-action">
-          <p className="text-xs font-black uppercase tracking-wider text-blue-500">
-            {primary?.status === 'running' ? t('today.continueNow') : t('today.startNow')}
-          </p>
-          <div className="mt-3 flex items-start gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
-              {primary?.icon || (breakfastOrdered === false ? '🍽️' : '✨')}
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-xl font-black text-gray-900">
-                {primary?.title || t('today.chooseBreakfast')}
-              </h2>
-              {primary && (
-                <div className="mt-2 flex flex-wrap gap-3 text-xs font-bold text-gray-500">
-                  <span className="flex items-center gap-1"><Clock size={14} /> {t('today.minutes', { minutes: primary.durationMinutes || 1 })}</span>
-                  <span className="flex items-center gap-1"><Coins size={14} /> {t('today.coins', { coins: primary.coinReward || 0 })}</span>
-                </div>
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={openPrimary}
-            className="mt-5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-gray-900 px-4 font-black text-white active:scale-[0.99]"
-          >
-            {primary ? t('today.detailsAction') : t('today.beginAction')}
-            <ArrowRight size={18} className="ml-2" />
-          </button>
-        </section>
-      ) : (
-        <section className="rounded-3xl border border-emerald-100 bg-emerald-50 p-6 text-center" data-testid="today-empty">
-          <CheckCircle2 size={42} className="mx-auto text-emerald-500" />
-          <h2 className="mt-3 text-xl font-black text-emerald-900">{t('today.doneTitle')}</h2>
-          <p className="mt-2 text-sm text-emerald-700">{t('today.doneDescription')}</p>
-        </section>
-      )}
-
-      <button
-        type="button"
-        onClick={() => navigate('/child/morning')}
-        className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-amber-100 bg-white px-4 text-left shadow-sm"
-      >
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><Utensils size={22} /></span>
-        <span className="min-w-0 flex-1">
-          <span className="block font-black text-gray-900">{t('today.breakfastTitle')}</span>
-          <span className="block text-xs font-medium text-gray-500">
-            {breakfastOrdered ? t('today.breakfastReady') : t('today.breakfastPending')}
-          </span>
-        </span>
-        <ArrowRight size={18} className="text-gray-400" />
-      </button>
-
-      {laterTasks.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-sm font-black text-gray-700">{t('today.laterTitle')}</h2>
-          <div className="space-y-2">
-            {laterTasks.map(task => (
+      {activeTab === 'tasks' ? (
+        <>
+          <section className="grid grid-cols-4 gap-2" aria-label={t('today.statusFilters')}>
+            {(['all', 'todo', 'pending', 'completed'] as TodayFilter[]).map(key => (
               <button
                 type="button"
-                key={task.id}
-                onClick={() => setSelectedTask(task)}
-                className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 text-left"
+                key={key}
+                data-testid={`today-filter-${key}`}
+                aria-pressed={filter === key}
+                onClick={() => { setFilter(key); setSelectedTask(null); }}
+                className={`min-h-12 rounded-2xl px-1 text-xs font-black ${filter === key ? 'bg-slate-900 text-white shadow-sm' : 'border border-slate-100 bg-white text-slate-600'}`}
               >
-                <span className="text-2xl">{task.icon || '📋'}</span>
-                <span className="min-w-0 flex-1 line-clamp-2 font-bold text-gray-800">{task.title}</span>
-                <ArrowRight size={17} className="text-gray-300" />
+                <span className="block">{t(`today.filter.${key}`)}</span>
+                <span className={`mt-0.5 block text-[10px] ${filter === key ? 'text-white/70' : 'text-slate-400'}`}>{counts[key]}</span>
               </button>
             ))}
-          </div>
-        </section>
+          </section>
+
+          {visibleTasks.length > 0 ? (
+            <section className="space-y-3" data-testid="today-task-list">
+              {visibleTasks.map(task => {
+                const category = getTaskCategoryInfo(task.category);
+                const status = getTaskStatus(task);
+                return (
+                  <button
+                    type="button"
+                    key={task.id}
+                    data-testid={`today-task-${task.id}`}
+                    onClick={() => setSelectedTask(task)}
+                    className="flex min-h-[92px] w-full items-center gap-3 rounded-3xl border border-slate-100 bg-white p-4 text-left shadow-sm active:scale-[0.99]"
+                  >
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-3xl">{task.icon || '📋'}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="line-clamp-2 font-black leading-5 text-slate-900">{task.title}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${status.badge}`}>{status.label}</span>
+                      </span>
+                      <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-slate-500">
+                        <span>{category.icon} {category.label}</span>
+                        <span><Clock size={12} className="mr-1 inline" />{t('today.minutes', { minutes: task.durationMinutes || 1 })}</span>
+                        <span className="text-amber-600"><Coins size={12} className="mr-1 inline" />+{task.coinReward || 0}</span>
+                      </span>
+                    </span>
+                    <ArrowRight size={18} className="shrink-0 text-slate-300" />
+                  </button>
+                );
+              })}
+            </section>
+          ) : (
+            <section className="rounded-3xl border border-slate-100 bg-white p-7 text-center" data-testid="today-empty">
+              <CheckCircle2 size={38} className="mx-auto text-emerald-500" />
+              <h2 className="mt-3 font-black text-slate-800">{t('today.emptyFilterTitle')}</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">{t('today.emptyFilterDescription')}</p>
+            </section>
+          )}
+        </>
+      ) : (
+        <BreakfastKitchenContent embedded />
       )}
 
       <BottomSheet
         isOpen={Boolean(selectedTask)}
         onClose={() => setSelectedTask(null)}
         title={selectedTask ? `${selectedTask.icon || '✅'} ${selectedTask.title}` : t('today.detailTitle')}
-        footer={selectedTask ? (
+        footer={selectedTask && isTaskActionable(selectedTask) ? (
           <button
             type="button"
             onClick={() => openChallenge(selectedTask)}
