@@ -155,6 +155,18 @@ test('task management previews daily output without rewriting existing rewards',
       { id: 'task-1', title: '晨间小行动', category: '早晨启动', coinReward: 8, xpReward: 8, durationMinutes: 5, taskType: 'daily', isEnabled: 1 },
       { id: 'task-2', title: '作业一小步', category: '学习', coinReward: 22, xpReward: 20, durationMinutes: 20, taskType: 'daily', isEnabled: 1 },
     ] });
+    if (path === '/api/parent/tasks/today-preview') return route.fulfill({ json: {
+      date: '2026-07-16',
+      configuredTaskCount: 2,
+      schedules: [{
+        childId: 'child-phase-two',
+        childName: '小晨',
+        tasks: [
+          { id: 'task-1', title: '晨间小行动', category: '早晨启动', icon: '🌤️', coinReward: 8, xpReward: 8, durationMinutes: 5, status: 'todo', taskType: 'daily', isEnabled: 1 },
+          { id: 'task-2', title: '作业一小步', category: '学习', icon: '📚', coinReward: 22, xpReward: 20, durationMinutes: 20, status: 'pending', taskType: 'daily', isEnabled: 1 },
+        ],
+      }],
+    } });
     if (path === '/api/parent/economy-audit') return route.fulfill({ json: {
       settings: { settings: { preset: 'standard', coinPerRmb: 10, dailyCoinTarget: 30 } },
       catalog: { items: [{ id: 'wish-1', title: '一本书', currentCoins: 120, referenceRmb: 12, suggestedCoins: 120, alignment: 'aligned', daysToRedeem: 4 }] },
@@ -164,9 +176,17 @@ test('task management previews daily output without rewriting existing rewards',
   });
 
   await page.goto('/parent/tasks');
+  await expect(page.getByTestId('parent-today-tasks')).toContainText('今天会看到这些任务');
+  await expect(page.getByTestId('parent-today-tasks')).toContainText('晨间小行动');
+  await expect(page.getByTestId('parent-today-tasks')).toContainText('审核中');
+  await page.getByTestId('parent-tasks-tab-all').click();
+  await expect(page).toHaveURL(/view=all/);
   await expect(page.getByText('每日固定任务预计 30 金币 · 家庭目标 30 金币')).toBeVisible();
   await expect(page.getByText(/最近的商品约需积累 4 天/)).toBeVisible();
   await page.getByRole('button', { name: '📋 新建任务' }).click();
   await expect(page.getByRole('heading', { name: '📋 新建任务' })).toBeVisible();
+  await page.getByRole('button', { name: '取消' }).click();
+  await page.getByTestId('parent-tasks-tab-family').click();
+  await expect(page.getByText('合作任务适合全家一起完成的大目标')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

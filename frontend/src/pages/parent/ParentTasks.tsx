@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
@@ -31,6 +31,9 @@ import {
 import { getSuggestedTaskReward } from '../../utils/taskRewards';
 import { t } from '../../i18n';
 import type { EconomyAuditResponse } from '../../types/economy';
+import { ParentTasksTabs } from './tasks/ParentTasksTabs';
+import { ParentTodayTasksTab } from './tasks/ParentTodayTasksTab';
+import type { ParentTaskView } from './tasks/types';
 
 // 预设任务模板
 const TASK_TEMPLATES = [
@@ -74,6 +77,7 @@ const TASK_TEMPLATES = [
 
 export default function ParentTasks() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [tasks, setTasks] = useState<any[]>([]);
@@ -219,8 +223,16 @@ export default function ParentTasks() {
     </div>
   );
 
-  // Tab切换
-  const [activeTab, setActiveTab] = useState<'normal' | 'coop'>('normal');
+  const requestedView = searchParams.get('view');
+  const activeTab: ParentTaskView = requestedView === 'all' || requestedView === 'family'
+    ? requestedView
+    : 'today';
+  const setActiveTab = (view: ParentTaskView) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('view', view);
+    setSearchParams(nextParams, { replace: true });
+  };
+  const [todayRefreshKey, setTodayRefreshKey] = useState(0);
 
   // 合作任务（家庭任务）状态
   const [familyMissions, setFamilyMissions] = useState<any[]>([]);
@@ -238,7 +250,7 @@ export default function ParentTasks() {
       .then(response => setEconomyAudit(response.data))
       .catch(error => console.error('加载金币目标失败:', error));
   }, []);
-  useEffect(() => { if (activeTab === 'coop') fetchFamilyMissions(); }, [activeTab]);
+  useEffect(() => { if (activeTab === 'family') fetchFamilyMissions(); }, [activeTab]);
 
   const fetchTasks = async () => {
     try {
@@ -249,6 +261,10 @@ export default function ParentTasks() {
       setTasks([]);
       toast.error('任务列表暂时无法加载，请稍后重试');
     }
+  };
+  const refreshTaskViews = async () => {
+    await fetchTasks();
+    setTodayRefreshKey(value => value + 1);
   };
   const fetchFamilyMissions = async () => {
     try {
@@ -309,7 +325,7 @@ export default function ParentTasks() {
         ...completionPayload()
       });
       cancelEdit();
-      fetchTasks();
+      refreshTaskViews();
     } catch {
       toast.error('保存失败');
     }
@@ -324,7 +340,7 @@ export default function ParentTasks() {
     });
     setShowAdd(false); setTitle(''); setIcon('📋');
     setTaskType('daily'); setCustomDays([1, 2, 3, 4, 5]); setIsParallel(false); applyCompletionDefaults('生活');
-    fetchTasks();
+    refreshTaskViews();
   };
 
   const handleDelete = async (id: string) => {
@@ -340,7 +356,7 @@ export default function ParentTasks() {
       const data = res.data as { message: string; preservedRecords?: number; note?: string };
       if (data.note) toast.info(data.note);
       toast.success('删除成功');
-      fetchTasks();
+      refreshTaskViews();
     } catch {
       toast.error('删除失败，请重试');
     }
@@ -379,7 +395,7 @@ export default function ParentTasks() {
       closeTemplates();
       setTemplateTaskType('daily');
       setTemplateCustomDays([1, 2, 3, 4, 5]);
-      fetchTasks();
+      refreshTaskViews();
     } catch {
       toast.error('添加失败');
     }
@@ -474,16 +490,18 @@ export default function ParentTasks() {
   return (
     <Layout>
       <Header title="任务管理" showBack onBack={() => navigate('/parent/dashboard')} />
-      <div className={`mx-4 mt-3 rounded-2xl border p-3 ${outputTone}`}>
-        <div className="text-sm font-black">
-          {t('tasks.dailyOutput', { current: expectedDailyCoins, target: dailyTarget })}
+      {activeTab === 'all' && (
+        <div className={`mx-4 mt-3 rounded-2xl border p-3 ${outputTone}`}>
+          <div className="text-sm font-black">
+            {t('tasks.dailyOutput', { current: expectedDailyCoins, target: dailyTarget })}
+          </div>
+          <div className="mt-1 text-xs font-bold opacity-80">
+            {nearestProductDays
+              ? t('tasks.nearestProductDays', { days: nearestProductDays })
+              : t('tasks.existingPreviewOnly')}
+          </div>
         </div>
-        <div className="mt-1 text-xs font-bold opacity-80">
-          {nearestProductDays
-            ? t('tasks.nearestProductDays', { days: nearestProductDays })
-            : t('tasks.existingPreviewOnly')}
-        </div>
-      </div>
+      )}
 
       {/* 新建任务 - 底部抽屉 */}
       <BottomSheet
@@ -679,31 +697,18 @@ export default function ParentTasks() {
       </BottomSheet>
 
       <div className="p-4 space-y-3 overflow-y-auto flex-1">
-        {/* Tab 切换 */}
-        <div className="flex gap-2 mb-2">
-          <button
-            onClick={() => setActiveTab('normal')}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-              activeTab === 'normal'
-                ? 'bg-blue-500 text-white shadow-md'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            普通任务
-          </button>
-          <button
-            onClick={() => setActiveTab('coop')}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
-              activeTab === 'coop'
-                ? 'bg-green-500 text-white shadow-md'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            <Users size={16} /> 合作任务
-          </button>
-        </div>
+        <ParentTasksTabs activeTab={activeTab} onChange={setActiveTab} />
 
-        {activeTab === 'normal' ? (
+        {activeTab === 'today' && (
+          <ParentTodayTasksTab
+            refreshKey={todayRefreshKey}
+            onCreateTask={() => setShowAdd(true)}
+            onEditTask={openEdit}
+            onManageAll={() => setActiveTab('all')}
+          />
+        )}
+
+        {activeTab === 'all' ? (
           <CreateActionCard
             icon="📋"
             title="把今天要练习的事放到任务里"
@@ -727,7 +732,7 @@ export default function ParentTasks() {
                 </div>
               </details>
           </CreateActionCard>
-        ) : (
+        ) : activeTab === 'family' ? (
           <CreateActionCard
             icon="🏠"
             title="合作任务适合全家一起完成的大目标"
@@ -737,9 +742,9 @@ export default function ParentTasks() {
             primaryClassName="bg-green-600 border-none"
             tone="from-green-50 to-emerald-50 border-green-100"
           />
-        )}
+        ) : null}
 
-        {activeTab === 'normal' && (
+        {activeTab === 'all' && (
           <>
             {/* 空状态 */}
             {tasks.length === 0 && !showAdd && !showTemplates && (
@@ -942,7 +947,7 @@ export default function ParentTasks() {
           </>
         )}
 
-        {activeTab === 'coop' && (
+        {activeTab === 'family' && (
           <>
             {familyMissions.length === 0 && (
               <div className="text-center py-8">

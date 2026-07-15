@@ -1,21 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Layout } from '../../components/Layout';
-import { Lock, ClipboardList, Gift, Users, Crown, Trophy, X, Clock, Star, Bell, Calendar, Edit2, TrendingUp, TrendingDown, Minus, AlertTriangle, BookOpen, HeartPulse, Utensils, Brain, CheckCircle2, Compass } from 'lucide-react';
+import { Lock, Users, X, Clock, Star, Bell, Calendar, Edit2, TrendingUp, TrendingDown, Minus, AlertTriangle, HeartPulse, CheckCircle2, BookOpen } from 'lucide-react';
 import api from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
-import { StatsPanel } from '../../components/StatsPanel';
 import { ReviewCardSkeleton } from '../../components/Skeleton';
 import { BottomSheet } from '../../components/BottomSheet';
 import { InputModal } from '../../components/Modal';
-import { ParentInbox, type ParentInboxItem } from '../../components/ParentInbox';
+import type { ParentInboxItem } from '../../components/ParentInbox';
 import { getTaskCompletionSummary } from '../../utils/taskCompletion';
+import { ParentDashboardTabs } from './dashboard/ParentDashboardTabs';
+import { ParentDailyWelcomeModal } from './dashboard/ParentDailyWelcomeModal';
+import { ParentOverviewTab } from './dashboard/ParentOverviewTab';
+import { ParentReportsTab } from './dashboard/ParentReportsTab';
+import { ParentToolsTab } from './dashboard/ParentToolsTab';
+import type { ParentDashboardTab, ParentDashboardStats } from './dashboard/types';
 
 interface ReviewItem {
   id: string;
@@ -208,6 +213,7 @@ const FAMILY_VIBE_OPTIONS: ScoreOption[] = [
 
 export default function ParentDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
@@ -215,9 +221,22 @@ export default function ParentDashboard() {
   const [parentInbox, setParentInbox] = useState<{ items: ParentInboxItem[]; totalActionCount: number }>({ items: [], totalActionCount: 0 });
   const [taskSessionReminders, setTaskSessionReminders] = useState<any[]>([]);
   const [reviewTab, setReviewTab] = useState<'pending' | 'history'>('pending');
-  const [showAllTools, setShowAllTools] = useState(false);
-  const [weekTasks, setWeekTasks] = useState(0);
+  const [dashboardStats, setDashboardStats] = useState<ParentDashboardStats>({ weekTasks: 0, weekCompleted: 0 });
   const [weeklyReports, setWeeklyReports] = useState<any[]>([]);
+  const [showDailyWelcome, setShowDailyWelcome] = useState(false);
+  const welcomeClaimStartedRef = useRef(false);
+
+  const requestedTab = searchParams.get('tab');
+  const activeTab: ParentDashboardTab = ['overview', 'approvals', 'reports', 'tools'].includes(String(requestedTab))
+    ? requestedTab as ParentDashboardTab
+    : 'overview';
+
+  const setActiveTab = (tab: ParentDashboardTab) => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'overview') next.delete('tab');
+    else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  };
 
   // 审核历史日期选择
   const [historyDate, setHistoryDate] = useState<string>(''); // 空字符串表示最近7天
@@ -274,6 +293,7 @@ export default function ParentDashboard() {
   // 收件箱「任务审核」胶囊：切到待审核 Tab 并滚动到审核区
   const reviewSectionRef = useRef<HTMLDivElement>(null);
   const scrollToReviewSection = () => {
+    setActiveTab('approvals');
     setReviewTab('pending');
     requestAnimationFrame(() => {
       reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -285,6 +305,14 @@ export default function ParentDashboard() {
     fetchPunishmentSettings();
     fetchPunishmentTips();
     fetchWeeklyReports();
+    if (!welcomeClaimStartedRef.current) {
+      welcomeClaimStartedRef.current = true;
+      api.post('/parent/daily-welcome/claim')
+        .then(res => {
+          if (res.data?.shouldShow) setShowDailyWelcome(true);
+        })
+        .catch(() => undefined);
+    }
   }, []);
 
   // R4 周报：取最近一个周期的报告（多孩子时同一 weekStart 各一条），拿不到则不渲染卡片
@@ -435,7 +463,10 @@ export default function ParentDashboard() {
           setReviews(res.data.pendingReviews || []);
           setLowEnergyChildren(res.data.lowEnergyChildren || []);
           if (res.data.stats) {
-              setWeekTasks(res.data.weekTasks || 0);
+              setDashboardStats({
+                weekTasks: Number(res.data.stats.weekTasks || 0),
+                weekCompleted: Number(res.data.stats.weekCompleted || 0),
+              });
           }
       }
       if (remindersRes.status === 'fulfilled') {
@@ -823,65 +854,28 @@ export default function ParentDashboard() {
         rightElem={<button onClick={() => navigate('/select-user')} className="text-xs font-bold text-blue-600">切换</button>}
       />
 
-      <div className="p-4 space-y-6 overflow-y-auto flex-1 pb-10">
-        {/* 今日收件箱：聚合待处理事项 */}
-        <ParentInbox
-          items={parentInbox.items}
-          totalActionCount={parentInbox.totalActionCount}
-          loading={loading}
-          onGoReview={scrollToReviewSection}
-        />
-        {lowEnergyChildren.length > 0 && (
-          <div className="space-y-2">
-            {lowEnergyChildren.map(child => (
-              <div key={child.childId} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
-                {t('inbox.lowEnergy', { name: child.name })}
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/70 p-4 pb-10">
+        <ParentDashboardTabs activeTab={activeTab} pendingCount={reviews.length} onChange={setActiveTab} />
 
-        {/* R4 本周报告：每周日 20:00 生成，无报告时不渲染 */}
-        {weeklyReports.length > 0 && (
-          <div className="rounded-2xl bg-white border border-indigo-100 p-4 space-y-3 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-black text-indigo-700">📋 {t('weekly.parentCardTitle')}</div>
-              <div className="text-[11px] font-bold text-slate-400">{t('weekly.weekOf', { date: weeklyReports[0].weekStart })}</div>
-            </div>
-            {weeklyReports.map(report => (
-              <div key={report.id} className="space-y-2">
-                {weeklyReports.length > 1 && (
-                  <div className="text-xs font-black text-slate-700">{report.childName}</div>
-                )}
-                <p className="text-xs text-slate-600 leading-relaxed font-medium">{report.parentNarrative}</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="rounded-xl bg-indigo-50 p-2 text-center">
-                    <div className="text-base font-black text-indigo-700">{report.stats?.tasksCompleted ?? 0}</div>
-                    <div className="text-[10px] font-bold text-slate-500">{t('weekly.statTasks')}</div>
-                  </div>
-                  <div className="rounded-xl bg-emerald-50 p-2 text-center">
-                    <div className="text-base font-black text-emerald-700">{report.stats?.activeStarts ?? 0}</div>
-                    <div className="text-[10px] font-bold text-slate-500">{t('weekly.statStarts')}</div>
-                  </div>
-                  <div className="rounded-xl bg-amber-50 p-2 text-center">
-                    <div className="text-base font-black text-amber-700">{report.stats?.coinsEarned ?? 0}</div>
-                    <div className="text-[10px] font-bold text-slate-500">{t('weekly.statCoins')}</div>
-                  </div>
-                </div>
-                {report.suggestion ? (
-                  <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-bold text-amber-700">
-                    💡 {report.suggestion}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
+        {activeTab === 'overview' ? (
+          <ParentOverviewTab
+            inbox={parentInbox}
+            stats={dashboardStats}
+            pendingCount={reviews.length}
+            lowEnergyChildren={lowEnergyChildren}
+            reminders={taskSessionReminders}
+            loading={loading}
+            onGoApprovals={scrollToReviewSection}
+            onGoTasks={() => navigate('/parent/tasks?tab=today')}
+            onOpenWelcome={() => setShowDailyWelcome(true)}
+          />
+        ) : null}
 
-        {/* 成长数据统计面板 */}
-        <StatsPanel />
+        {activeTab === 'reports' ? <ParentReportsTab weeklyReports={weeklyReports} /> : null}
 
-        {taskSessionReminders.length > 0 && (
+        {activeTab === 'tools' ? <ParentToolsTab /> : null}
+
+        {activeTab === 'approvals' && taskSessionReminders.length > 0 && (
           <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -912,7 +906,8 @@ export default function ParentDashboard() {
         )}
 
         {/* 任务审核区域 */}
-        <div ref={reviewSectionRef}>
+        {activeTab === 'approvals' ? (
+        <div ref={reviewSectionRef} data-testid="parent-approvals-tab">
           {/* Tab 切换 */}
           <div className="flex gap-2 mb-3">
             <button
@@ -1224,96 +1219,18 @@ export default function ParentDashboard() {
             </>
           )}
         </div>
+        ) : null}
 
-        {/* 首次使用引导 */}
-        {weekTasks === 0 && reviews.length === 0 && (
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
-            <div className="text-center">
-              <div className="text-5xl mb-4">🎉</div>
-              <h3 className="font-bold text-xl text-gray-800 mb-2">欢迎使用星辰早晨！</h3>
-              <p className="text-gray-600 text-sm mb-4">
-                还没有任务？快来为孩子设置第一个任务吧！
-              </p>
-              <div className="space-y-3 text-left bg-white/60 rounded-xl p-4 text-sm">
-                <div className="flex items-center gap-3">
-                  <span className="bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span>
-                  <span>点击下方「任务管理」添加任务</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">2</span>
-                  <span>设置「心愿商店」让孩子兑换奖励</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                  <span>切换到孩子账号开始使用</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 管理入口 */}
-        <button
-          type="button"
-          onClick={() => setShowAllTools(value => !value)}
-          aria-expanded={showAllTools}
-          className="flex min-h-[44px] w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
-        >
-          <span>{t('parentDashboard.allTools')}</span>
-          <span aria-hidden="true">{showAllTools ? '−' : '+'}</span>
-        </button>
-        {showAllTools && (
-        <div className="grid grid-cols-2 gap-3">
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2 relative" onClick={() => navigate('/parent/tasks')}>
-            <ClipboardList size={28} className="text-blue-600"/>
-            <span>任务管理</span>
-            {weekTasks === 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full animate-pulse">去添加</span>
-            )}
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/learning')}>
-            <BookOpen size={28} className="text-indigo-600"/>
-            <span>学习闯关</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/wellbeing')}>
-            <HeartPulse size={28} className="text-emerald-600"/>
-            <span>情绪/游戏票</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/morning')}>
-            <Utensils size={28} className="text-amber-600"/>
-            <span>早餐小厨房</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/rules-insights')}>
-            <Brain size={28} className="text-blue-600"/>
-            <span>规则/洞察</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/explore')}>
-            <Compass size={28} className="text-teal-600"/>
-            <span>家庭探索</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/wishes')}>
-            <Gift size={28} className="text-pink-600"/>
-            <span>心愿管理</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/family')}>
-            <Users size={28} className="text-green-600"/>
-            <span>家庭管理</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/privileges')}>
-            <Crown size={28} className="text-purple-600"/>
-            <span>特权设置</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/achievements')}>
-            <Trophy size={28} className="text-yellow-600"/>
-            <span>成就管理</span>
-          </Button>
-          <Button variant="secondary" size="lg" className="h-24 flex-col gap-2" onClick={() => navigate('/parent/punishment')}>
-            <Lock size={28} className="text-orange-600"/>
-            <span>惩罚设置</span>
-          </Button>
-        </div>
-        )}
       </div>
+
+      <ParentDailyWelcomeModal
+        isOpen={showDailyWelcome}
+        stats={dashboardStats}
+        pendingCount={reviews.length}
+        onClose={() => setShowDailyWelcome(false)}
+        onGoTasks={() => navigate('/parent/tasks?tab=today')}
+        onGoApprovals={scrollToReviewSection}
+      />
 
       {/* 审批弹窗 - 支持安全区域 */}
       {showReviewModal && currentReview && createPortal(

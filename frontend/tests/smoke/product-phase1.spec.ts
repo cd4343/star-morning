@@ -74,11 +74,11 @@ test('parent completes five-step quick setup at 375px', async ({ page }) => {
 
   await page.getByTestId('quick-setup-submit').click();
   await expect(page).toHaveURL(/\/parent\/dashboard$/);
-  const allTools = page.getByRole('button', { name: '全部工具' });
+  const allTools = page.getByTestId('parent-workspace-tab-tools');
   await expect(allTools).toBeVisible();
   await expect(page.getByRole('button', { name: /任务管理/ })).toHaveCount(0);
   await allTools.click();
-  await expect(page.getByRole('button', { name: /任务管理/ })).toBeVisible();
+  await expect(page.getByTestId('parent-tool-tasks')).toBeVisible();
   expect(postedBody).toMatchObject({
     childAgeBand: '9-10',
     focusAreas: ['morning', 'homework'],
