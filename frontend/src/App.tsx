@@ -23,7 +23,6 @@ const ParentQuickSetup = lazy(() => import('./pages/parent/ParentQuickSetup'));
 const ChildLayout = lazy(() => import('./pages/child/ChildLayout'));
 const ChildChallenge = lazy(() => import('./pages/child/ChildChallenge'));
 const ChildCalm = lazy(() => import('./pages/child/ChildCalm'));
-const ChildMorning = lazy(() => import('./pages/child/ChildMorning'));
 const ChildWishes = lazy(() => import('./pages/child/ChildWishes'));
 const ChildMe = lazy(() => import('./pages/child/ChildMe'));
 const ChildExplore = lazy(() => import('./pages/child/ChildExplore'));
@@ -130,7 +129,7 @@ function App() {
           <Route path="tasks" element={<Navigate to="/child/challenge" replace />} />
           <Route path="learning" element={<Navigate to="/child/challenge" replace />} />
           <Route path="calm" element={<Suspense fallback={<PageLoader />}><ChildCalm /></Suspense>} />
-          <Route path="morning" element={<Suspense fallback={<PageLoader />}><ChildMorning /></Suspense>} />
+          <Route path="morning" element={<Navigate to="/child/today?tab=breakfast" replace />} />
           <Route path="explore" element={<Suspense fallback={<PageLoader />}><ChildExplore /></Suspense>} />
           <Route path="wishes" element={<Suspense fallback={<PageLoader />}><ChildWishes /></Suspense>} />
           <Route path="me" element={<Suspense fallback={<PageLoader />}><ChildMe /></Suspense>} />

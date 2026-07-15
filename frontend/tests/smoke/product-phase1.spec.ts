@@ -88,7 +88,7 @@ test('parent completes five-step quick setup at 375px', async ({ page }) => {
   });
 });
 
-test('child today prioritizes a running task and shows four primary destinations', async ({ page }) => {
+test('child Today shows every task, clickable status filters, and the breakfast tab', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('token', 'phase-one-child-token');
     localStorage.setItem('user', JSON.stringify({
@@ -114,6 +114,9 @@ test('child today prioritizes a running task and shows four primary destinations
       tasks: [
         { id: 'task-later', title: '整理书包', category: '生活', status: 'todo', icon: '🎒', coinReward: 8, durationMinutes: 8 },
         { id: 'task-morning', title: '晨间小行动', category: '早晨启动', status: 'todo', icon: '🌤️', coinReward: 4, durationMinutes: 5 },
+        { id: 'task-pending', title: '等待家长确认', category: '生活', status: 'pending', icon: '⏳', coinReward: 6, durationMinutes: 5 },
+        { id: 'task-completed', title: '已经完成的阅读', category: '学习', status: 'approved', icon: '✅', coinReward: 10, durationMinutes: 10 },
+        { id: 'task-rejected', title: '需要调整后再试', category: '生活', status: 'rejected', icon: '🔁', coinReward: 5, durationMinutes: 5 },
         ...(!runningTaskCompleted ? [{
           id: 'task-running', title: '正在完成的作业', category: '学习', status: 'running', icon: '📚',
           coinReward: 15, xpReward: 12, durationMinutes: 20, completionMode: 'timer', targetValue: 20,
@@ -135,7 +138,29 @@ test('child today prioritizes a running task and shows four primary destinations
 
   await page.goto('/child/today');
 
-  await expect(page.getByTestId('today-primary-action')).toContainText('正在完成的作业');
+  await expect(page.getByTestId('today-tab-tasks')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-testid^="today-task-task-"]')).toHaveCount(6);
+  await expect(page.getByTestId('today-task-task-running')).toBeVisible();
+  await expect(page.getByTestId('today-task-task-pending')).toBeVisible();
+  await expect(page.getByTestId('today-task-task-completed')).toBeVisible();
+  await page.getByTestId('today-filter-todo').click();
+  await expect(page.locator('[data-testid^="today-task-task-"]')).toHaveCount(4);
+  await expect(page.getByTestId('today-task-task-running')).toBeVisible();
+  await page.getByTestId('today-filter-completed').click();
+  await expect(page.locator('[data-testid^="today-task-task-"]')).toHaveCount(1);
+  await expect(page.getByTestId('today-task-task-completed')).toBeVisible();
+  await page.getByTestId('today-filter-pending').click();
+  await expect(page.locator('[data-testid^="today-task-task-"]')).toHaveCount(1);
+  await expect(page.getByTestId('today-task-task-pending')).toBeVisible();
+  await page.getByTestId('today-tab-breakfast').click();
+  await expect(page.getByTestId('breakfast-kitchen')).toBeVisible();
+  await expect(page.getByTestId('breakfast-kitchen')).not.toContainText('今天早餐怎么搭');
+  await page.goto('/child/morning');
+  await expect(page).toHaveURL(/\/child\/today\?tab=breakfast$/);
+  await expect(page.getByTestId('breakfast-kitchen')).toBeVisible();
+  await page.getByTestId('today-tab-tasks').click();
+  await expect(page.getByTestId('today-filter-all')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-testid^="today-task-task-"]')).toHaveCount(6);
   const rewardHeader = page.getByTestId('child-reward-header');
   await expect(rewardHeader.getByTestId('child-header-coins')).toContainText('80');
   await expect(rewardHeader.getByTestId('child-header-screen-time')).toContainText('17');
@@ -157,7 +182,7 @@ test('child today prioritizes a running task and shows four primary destinations
   expect(await nav.locator('button').count()).toBe(4);
 
   const requestsBeforeDetails = dashboardRequests;
-  await page.getByRole('button', { name: /查看任务详情/ }).click();
+  await page.getByTestId('today-task-task-running').click();
   await expect(page).toHaveURL(/\/child\/today$/);
   const taskDetails = page.getByRole('dialog');
   await expect(taskDetails).toContainText('正在完成的作业');
@@ -176,7 +201,8 @@ test('child today prioritizes a running task and shows four primary destinations
   await runningTimer.getByRole('button', { name: '关闭' }).click();
   await page.getByTestId('challenge-back-today-floating').click();
   await expect(page).toHaveURL(/\/child\/today$/);
-  await expect(page.getByTestId('today-primary-action')).not.toContainText('正在完成的作业');
+  await expect(page.getByTestId('today-task-task-running')).toHaveCount(0);
+  await expect(page.locator('[data-testid^="today-task-task-"]')).toHaveCount(5);
   expect(dashboardRequests).toBeGreaterThan(requestsBeforeDetails);
 });
 
