@@ -249,7 +249,7 @@ export default function ParentWishes() {
 
   // 抽奖奖池上架模式
   const [lotteryEditMode, setLotteryEditMode] = useState(false);
-  const [lotterySettings, setLotterySettings] = useState({ enabled: true, dailyPaidLimit: 2 });
+  const [lotterySettings, setLotterySettings] = useState({ enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 });
   const [savingLotterySettings, setSavingLotterySettings] = useState(false);
   const [selectedLotteryIds, setSelectedLotteryIds] = useState<Set<string>>(new Set());
   // 实时权重调整（在管理上架时使用）
@@ -308,6 +308,7 @@ export default function ParentWishes() {
         setLotterySettings({
           enabled: resLotterySettings.data?.enabled !== false,
           dailyPaidLimit: Number(resLotterySettings.data?.dailyPaidLimit ?? 2),
+          dailyTicketLimit: Number(resLotterySettings.data?.dailyTicketLimit ?? 1),
         });
       }
     } catch (e) {
@@ -316,13 +317,14 @@ export default function ParentWishes() {
     }
   };
 
-  const toggleLotteryEnabled = async () => {
+  const saveLotterySettings = async (next: typeof lotterySettings) => {
     try {
       setSavingLotterySettings(true);
-      const res = await api.put('/parent/lottery-settings', { enabled: !lotterySettings.enabled });
+      const res = await api.put('/parent/lottery-settings', next);
       setLotterySettings({
         enabled: res.data?.enabled !== false,
         dailyPaidLimit: Number(res.data?.dailyPaidLimit ?? 2),
+        dailyTicketLimit: Number(res.data?.dailyTicketLimit ?? 1),
       });
       toast.success(res.data?.enabled ? t('lottery.parentEnabled') : t('lottery.parentDisabled'));
     } catch (error: any) {
@@ -846,6 +848,7 @@ export default function ParentWishes() {
           ].map(tab => (
               <button
                 key={tab.id}
+                data-testid={`wishes-tab-${tab.id}`}
                 onClick={() => {
                   setViewType(tab.id as any);
                   setShowAdd(false);
@@ -1349,7 +1352,7 @@ export default function ParentWishes() {
         {/* 抽奖奖池特殊操作栏 */}
         {viewType === 'lottery' && !showTemplates && (
           <div className="space-y-3">
-          <div className="rounded-xl border border-purple-100 bg-white p-3">
+          <div className="rounded-xl border border-purple-100 bg-white p-3" data-testid="lottery-safety-settings">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-black text-slate-900">{t('lottery.parentSafetyTitle')}</div>
@@ -1357,13 +1360,38 @@ export default function ParentWishes() {
               </div>
               <button
                 type="button"
-                onClick={toggleLotteryEnabled}
+                onClick={() => saveLotterySettings({ ...lotterySettings, enabled: !lotterySettings.enabled })}
                 disabled={savingLotterySettings}
                 aria-pressed={lotterySettings.enabled}
                 className={`min-h-[44px] shrink-0 rounded-xl px-3 text-xs font-black ${lotterySettings.enabled ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'}`}
               >
                 {lotterySettings.enabled ? t('lottery.parentEnabled') : t('lottery.parentDisabled')}
               </button>
+            </div>
+            <div className="mt-4 border-t border-purple-100 pt-3">
+              <div className="text-xs font-black text-slate-700">{t('lottery.parentPaidLimitLabel')}</div>
+              <div className="mt-2 grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map(limit => (
+                  <button
+                    key={limit}
+                    type="button"
+                    data-testid={`lottery-paid-limit-${limit}`}
+                    disabled={savingLotterySettings}
+                    onClick={() => saveLotterySettings({ ...lotterySettings, dailyPaidLimit: limit })}
+                    className={`min-h-[44px] rounded-xl text-sm font-black ${lotterySettings.dailyPaidLimit === limit ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700'}`}
+                  >{limit}</button>
+                ))}
+              </div>
+              <button
+                type="button"
+                data-testid="lottery-ticket-toggle"
+                disabled={savingLotterySettings}
+                onClick={() => saveLotterySettings({ ...lotterySettings, dailyTicketLimit: lotterySettings.dailyTicketLimit ? 0 : 1 })}
+                className={`mt-3 min-h-[44px] w-full rounded-xl px-3 text-xs font-black ${lotterySettings.dailyTicketLimit ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}
+              >{lotterySettings.dailyTicketLimit ? t('lottery.parentTicketEnabled') : t('lottery.parentTicketDisabled')}</button>
+              <div className="mt-2 text-xs font-bold text-slate-500">
+                {t('lottery.parentImpactPreview', { coins: lotterySettings.dailyPaidLimit * 15, tickets: lotterySettings.dailyTicketLimit })}
+              </div>
             </div>
           </div>
           <div className={`p-3 rounded-xl ${lotteryEditMode ? 'bg-purple-100 border-2 border-purple-400' : 'bg-purple-50'}`}>

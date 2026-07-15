@@ -2,6 +2,52 @@ import { expect, test } from '@playwright/test';
 
 test.use({ viewport: { width: 375, height: 812 } });
 
+test('parent sets five paid lottery draws and one daily effort ticket', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'phase-two-parent-token');
+    localStorage.setItem('user', JSON.stringify({ id: 'parent-phase-two', name: '测试家长', role: 'parent', familyId: 'family-phase-two' }));
+  });
+  const writes: any[] = [];
+  await page.route('**/api/**', async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === '/api/parent/wishes') return route.fulfill({ json: [{ id: 'lottery-1', type: 'lottery', title: '5金币', icon: '🪙', isActive: 1, weight: 10 }] });
+    if (path === '/api/parent/lottery-settings' && request.method() === 'GET') return route.fulfill({ json: { enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 } });
+    if (path === '/api/parent/lottery-settings' && request.method() === 'PUT') {
+      const body = request.postDataJSON();
+      writes.push(body);
+      return route.fulfill({ json: body });
+    }
+    if (path === '/api/parent/reward-pools') return route.fulfill({ json: [] });
+    if (path === '/api/parent/chest-settings') return route.fulfill({ json: {} });
+    if (path === '/api/parent/economy-settings') return route.fulfill({ json: { settings: { coinPerRmb: 10, dailyCoinTarget: 30 } } });
+    if (path === '/api/parent/economy-audit') return route.fulfill({ json: {
+      settings: {
+        ecoCoinPerRmb: 10,
+        ecoTasksPerDay: 3,
+        dailyCoinTarget: 30,
+        settings: { preset: 'standard', coinPerRmb: 10, dailyCoinTarget: 30 },
+      },
+      production: { measuredDailyCoins: 0, targetDailyCoins: 30, sampleDays: 0 },
+      catalog: { total: 0, aligned: 0, underpriced: 0, overpriced: 0, missingReference: 0, invalidReference: 0, items: [] },
+      warnings: [],
+      recentBatches: [],
+    } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/parent/wishes');
+  await expect(page.getByTestId('wishes-tab-lottery')).toBeVisible();
+  await page.waitForTimeout(300);
+  await page.getByTestId('wishes-tab-lottery').click();
+  await page.getByTestId('lottery-paid-limit-5').click();
+  await expect.poll(() => writes.at(-1)?.dailyPaidLimit).toBe(5);
+  await expect(page.getByTestId('lottery-safety-settings')).toContainText('每日最多消耗 75 金币 + 1 张努力券');
+  await page.getByTestId('lottery-ticket-toggle').click();
+  await expect.poll(() => writes.at(-1)?.dailyTicketLimit).toBe(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('parent controls the value anchor and confirms catalog recalibration before applying', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('token', 'phase-two-parent-token');
