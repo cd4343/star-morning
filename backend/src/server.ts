@@ -19,12 +19,14 @@ import { registerParentInboxRoutes } from './parentInboxRoutes';
 import { registerEconomyRoutes } from './economyRoutes';
 import {
   assertPaidLotteryDrawAllowed,
+  getTodayLotteryTicketUsageCount,
   getLotterySafetySettings,
   isLotteryInventoryVisible,
   normalizeLotteryOutcome,
   normalizeLotteryPrize,
   normalizeLotteryPrizeInput,
-  setLotteryEnabled,
+  recordLotteryTicketUsage,
+  setLotterySafetySettings,
   validateLotteryActivationIds,
 } from './lotteryRules';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
@@ -6655,17 +6657,49 @@ const getTodayPaidLotteryDrawCount = async (db: any, childId: string, date: stri
     return Number(row?.count || 0);
 };
 
+const getAvailableLotteryTicketCount = async (db: any, childId: string): Promise<number> => {
+    const row = await db.get(`
+        SELECT COALESCE(SUM(CASE WHEN ui.source = 'lottery_ticket' THEN MAX(1, ui.cost) ELSE 1 END), 0) AS count
+        FROM user_inventory ui
+        LEFT JOIN wishes w ON ui.wishId = w.id
+        WHERE ui.childId = ? AND ui.status = 'pending'
+          AND (w.effectType = 'free_spin' OR ui.source = 'lottery_ticket')
+    `, childId);
+    return Number(row?.count || 0);
+};
+
+const getLotteryQuotaState = async (db: any, familyId: string, childId: string, date: string) => {
+    const settings = await getLotterySafetySettings(db, familyId);
+    const [todayPaidDrawCount, todayTicketDrawCount, availableTicketCount] = await Promise.all([
+        getTodayPaidLotteryDrawCount(db, childId, date),
+        getTodayLotteryTicketUsageCount(db, childId, date),
+        getAvailableLotteryTicketCount(db, childId),
+    ]);
+    const remainingPaidDraws = settings.enabled ? Math.max(0, settings.dailyPaidLimit - todayPaidDrawCount) : 0;
+    const remainingTicketDraws = settings.enabled ? Math.max(0, settings.dailyTicketLimit - todayTicketDrawCount) : 0;
+    const nextDrawMode = !settings.enabled
+        ? 'none'
+        : remainingTicketDraws > 0 && availableTicketCount > 0
+          ? 'ticket'
+          : remainingPaidDraws > 0 ? 'coins' : 'none';
+    return { settings, todayPaidDrawCount, remainingPaidDraws, todayTicketDrawCount, remainingTicketDraws, availableTicketCount, nextDrawMode };
+};
+
 app.get('/api/parent/lottery-settings', protect, async (req: any, res) => {
     const request = req as AuthRequest;
+    if (request.user?.role !== 'parent') return res.status(403).json({ message: '权限不足' });
     res.json(await getLotterySafetySettings(getDb(), request.user!.familyId));
 });
 
 app.put('/api/parent/lottery-settings', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    if (typeof req.body?.enabled !== 'boolean') {
-        return res.status(400).json({ message: 'enabled 必须是布尔值' });
-    }
-    res.json(await setLotteryEnabled(getDb(), request.user!.familyId, req.body.enabled));
+    if (request.user?.role !== 'parent') return res.status(403).json({ message: '权限不足' });
+    if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') return res.status(400).json({ message: 'enabled 必须是布尔值' });
+    res.json(await setLotterySafetySettings(getDb(), request.user!.familyId, {
+        enabled: req.body?.enabled,
+        dailyPaidLimit: req.body?.dailyPaidLimit,
+        dailyTicketLimit: req.body?.dailyTicketLimit,
+    }));
 });
 
 // 获取抽奖信息（当前费用、今日次数）
@@ -6675,13 +6709,10 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
     const today = getLocalDateString();
     await ensureSingleDrawAgainPrize(db, request.user!.familyId);
 
-    const settings = await getLotterySafetySettings(db, request.user!.familyId);
-    const todayCount = await getTodayPaidLotteryDrawCount(db, request.user!.id, today);
+    const quota = await getLotteryQuotaState(db, request.user!.familyId, request.user!.id, today);
 
     const currentCost = getLotteryCost();
     const nextCost = currentCost;
-    const remainingDraws = settings.enabled ? Math.max(0, settings.dailyPaidLimit - todayCount) : 0;
-
     const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
     // 获取奖池奖品
@@ -6698,13 +6729,20 @@ app.get('/api/child/lottery/info', protect, async (req: any, res) => {
     }
 
     res.json({
-        todayDrawCount: todayCount,
-        todayPaidDrawCount: todayCount,
+        todayDrawCount: quota.todayPaidDrawCount,
+        todayPaidDrawCount: quota.todayPaidDrawCount,
         currentCost,
         nextCost,
-        lotteryEnabled: settings.enabled,
-        dailyLimit: settings.dailyPaidLimit,
-        remainingDraws,
+        lotteryEnabled: quota.settings.enabled,
+        dailyLimit: quota.settings.dailyPaidLimit,
+        dailyPaidLimit: quota.settings.dailyPaidLimit,
+        remainingDraws: quota.remainingPaidDraws,
+        remainingPaidDraws: quota.remainingPaidDraws,
+        dailyTicketLimit: quota.settings.dailyTicketLimit,
+        todayTicketDrawCount: quota.todayTicketDrawCount,
+        remainingTicketDraws: quota.remainingTicketDraws,
+        availableTicketCount: quota.availableTicketCount,
+        nextDrawMode: quota.nextDrawMode,
         pity: pityInfo,
         prizes: displayPrizes
     });
@@ -6753,15 +6791,16 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             const settings = await getLotterySafetySettings(db, request.user!.familyId);
             if (!settings.enabled) assertPaidLotteryDrawAllowed(0, settings);
             const txPaidCount = await getTodayPaidLotteryDrawCount(db, request.user!.id, today);
+            const txTicketCount = await getTodayLotteryTicketUsageCount(db, request.user!.id, today);
             // 自动消费背包中的抽奖券/免费抽奖机会（M6：让宝箱抽奖券真正可用）
-            const ticket = await db.get(`
+            const ticket = txTicketCount < settings.dailyTicketLimit ? await db.get(`
                 SELECT ui.id, ui.cost, ui.source, w.effectType
                 FROM user_inventory ui
                 LEFT JOIN wishes w ON ui.wishId = w.id
                 WHERE ui.childId = ? AND ui.status = 'pending'
                   AND (w.effectType = 'free_spin' OR ui.source = 'lottery_ticket')
                 ORDER BY ui.acquiredAt ASC LIMIT 1
-            `, request.user!.id);
+            `, request.user!.id) : null;
             let usedTicket = false;
             if (ticket) {
                 if (ticket.source === 'lottery_ticket' && Number(ticket.cost || 1) > 1) {
@@ -6784,16 +6823,16 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
                 if ((deduct.changes || 0) !== 1) {
                     throw Object.assign(new Error(`金币不足，本次抽奖需要 ${cost} 金币`), { statusCode: 400 });
                 }
+            } else {
+                await recordLotteryTicketUsage(db, request.user!.familyId, request.user!.id, today, ticket.id);
             }
             // 抽奖 V2
             const drawRes = await drawPrizeCoreV2(db, request.user!.familyId, request.user!.id, usedTicket ? 0 : cost, 'lottery');
             return { ...drawRes, usedTicket };
         });
 
-        const settings = await getLotterySafetySettings(db, request.user!.familyId);
-        const actualCount = await getTodayPaidLotteryDrawCount(db, request.user!.id, today);
+        const quota = await getLotteryQuotaState(db, request.user!.familyId, request.user!.id, today);
         const nextCost = getLotteryCost();
-        const remainingDraws = settings.enabled ? Math.max(0, settings.dailyPaidLimit - actualCount) : 0;
         const pityInfo = await getLotteryPityInfo(db, request.user!.id, request.user!.familyId);
 
         res.json({
@@ -6801,12 +6840,19 @@ app.post('/api/child/lottery/play', protect, async (req: any, res) => {
             cost: result.usedTicket ? 0 : cost,
             usedTicket: !!result.usedTicket,
             nextCost,
-            todayDrawCount: actualCount,
-            todayPaidDrawCount: actualCount,
+            todayDrawCount: quota.todayPaidDrawCount,
+            todayPaidDrawCount: quota.todayPaidDrawCount,
             currentCost: cost,
-            lotteryEnabled: settings.enabled,
-            dailyLimit: settings.dailyPaidLimit,
-            remainingDraws,
+            lotteryEnabled: quota.settings.enabled,
+            dailyLimit: quota.settings.dailyPaidLimit,
+            dailyPaidLimit: quota.settings.dailyPaidLimit,
+            remainingDraws: quota.remainingPaidDraws,
+            remainingPaidDraws: quota.remainingPaidDraws,
+            dailyTicketLimit: quota.settings.dailyTicketLimit,
+            todayTicketDrawCount: quota.todayTicketDrawCount,
+            remainingTicketDraws: quota.remainingTicketDraws,
+            availableTicketCount: quota.availableTicketCount,
+            nextDrawMode: quota.nextDrawMode,
             isDrawAgain: result.isDrawAgain,
             isBonusCoins: result.isBonusCoins,
             bonusCoins: result.bonusCoins,
