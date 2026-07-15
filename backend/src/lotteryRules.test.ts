@@ -12,22 +12,25 @@ import {
   normalizeLotteryOutcome,
   normalizeLotteryPrize,
   normalizeLotteryPrizeInput,
+  getTodayLotteryTicketUsageCount,
+  recordLotteryTicketUsage,
   resolveLotteryRewardAmount,
   setLotteryEnabled,
+  setLotterySafetySettings,
   validateLotteryActivationIds,
 } from './lotteryRules';
 
 describe('孩子抽奖安全上限', () => {
   it('默认只允许每天两次付费抽取，第三次必须在扣币前失败', () => {
     expect(LOTTERY_DAILY_PAID_LIMIT).toBe(2);
-    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: true, dailyPaidLimit: 2 })).not.toThrow();
-    expect(() => assertPaidLotteryDrawAllowed(1, { enabled: true, dailyPaidLimit: 2 })).not.toThrow();
-    expect(() => assertPaidLotteryDrawAllowed(2, { enabled: true, dailyPaidLimit: 2 })).toThrow(/最多付费抽 2 次/);
+    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 })).not.toThrow();
+    expect(() => assertPaidLotteryDrawAllowed(1, { enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 })).not.toThrow();
+    expect(() => assertPaidLotteryDrawAllowed(2, { enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 })).toThrow(/最多付费抽 2 次/);
   });
 
   it('家长可以关闭抽奖，但配置不能把上限提高到两次以上', () => {
-    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: false, dailyPaidLimit: 0 })).toThrow(/家长已关闭/);
-    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: true, dailyPaidLimit: 3 })).toThrow(/配置无效/);
+    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: false, dailyPaidLimit: 2, dailyTicketLimit: 1 })).toThrow(/家长已关闭/);
+    expect(() => assertPaidLotteryDrawAllowed(0, { enabled: true, dailyPaidLimit: 6, dailyTicketLimit: 1 })).toThrow(/配置无效/);
   });
 
   it('旧家庭默认启用两次上限，迁移可重复执行且家长只能关闭或恢复默认', async () => {
@@ -36,10 +39,36 @@ describe('孩子抽奖安全上限', () => {
     await ensureLotterySafetyTables(db);
     await ensureLotterySafetyTables(db);
 
-    expect(await getLotterySafetySettings(db, 'family-1')).toEqual({ enabled: true, dailyPaidLimit: 2 });
-    expect(await setLotteryEnabled(db, 'family-1', false)).toEqual({ enabled: false, dailyPaidLimit: 0 });
-    expect(await getLotterySafetySettings(db, 'family-1')).toEqual({ enabled: false, dailyPaidLimit: 0 });
-    expect(await setLotteryEnabled(db, 'family-1', true)).toEqual({ enabled: true, dailyPaidLimit: 2 });
+    expect(await getLotterySafetySettings(db, 'family-1')).toEqual({ enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 });
+    expect(await setLotteryEnabled(db, 'family-1', false)).toEqual({ enabled: false, dailyPaidLimit: 2, dailyTicketLimit: 1 });
+    expect(await getLotterySafetySettings(db, 'family-1')).toEqual({ enabled: false, dailyPaidLimit: 2, dailyTicketLimit: 1 });
+    expect(await setLotteryEnabled(db, 'family-1', true)).toEqual({ enabled: true, dailyPaidLimit: 2, dailyTicketLimit: 1 });
+    await db.close();
+  });
+
+  it('家长可以设置一到五次付费抽奖，但非法整数必须被拒绝', async () => {
+    const db = await open({ filename: ':memory:', driver: sqlite3.Database });
+    await db.exec('PRAGMA foreign_keys = ON; CREATE TABLE families (id TEXT PRIMARY KEY); INSERT INTO families VALUES (\'family-1\');');
+    await ensureLotterySafetyTables(db);
+
+    expect(await setLotterySafetySettings(db, 'family-1', { enabled: true, dailyPaidLimit: 5, dailyTicketLimit: 1 }))
+      .toEqual({ enabled: true, dailyPaidLimit: 5, dailyTicketLimit: 1 });
+    for (const dailyPaidLimit of [0, 6, 1.5]) {
+      await expect(setLotterySafetySettings(db, 'family-1', { dailyPaidLimit })).rejects.toThrow(/1.*5|配置无效/);
+    }
+    await db.close();
+  });
+
+  it('每日努力券使用记录阻止同一孩子同一天消费第二张券', async () => {
+    const db = await open({ filename: ':memory:', driver: sqlite3.Database });
+    await db.exec('PRAGMA foreign_keys = ON; CREATE TABLE families (id TEXT PRIMARY KEY); INSERT INTO families VALUES (\'family-1\');');
+    await ensureLotterySafetyTables(db);
+
+    expect(await getTodayLotteryTicketUsageCount(db, 'child-1', '2026-07-15')).toBe(0);
+    await recordLotteryTicketUsage(db, 'family-1', 'child-1', '2026-07-15', 'inventory-1');
+    expect(await getTodayLotteryTicketUsageCount(db, 'child-1', '2026-07-15')).toBe(1);
+    await expect(recordLotteryTicketUsage(db, 'family-1', 'child-1', '2026-07-15', 'inventory-2')).rejects.toThrow();
+    expect(await getTodayLotteryTicketUsageCount(db, 'child-1', '2026-07-16')).toBe(0);
     await db.close();
   });
 });

@@ -1,13 +1,17 @@
 import type { Database } from 'sqlite';
+import { randomUUID } from 'crypto';
 
 export type LotteryAmountEffect = 'bonus_coins' | 'bonus_xp' | 'bonus_privilege';
 
 export const LOTTERY_DAILY_PAID_LIMIT = 2;
+export const LOTTERY_MAX_DAILY_PAID_LIMIT = 5;
+export const LOTTERY_DEFAULT_DAILY_TICKET_LIMIT = 1;
 export const LOTTERY_EMPTY_REWARD_COINS = 5;
 
 export interface LotterySafetySettings {
   enabled: boolean;
   dailyPaidLimit: number;
+  dailyTicketLimit: number;
 }
 
 export const ensureLotterySafetyTables = async (db: Database): Promise<void> => {
@@ -20,36 +24,101 @@ export const ensureLotterySafetyTables = async (db: Database): Promise<void> => 
       FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
     );
   `);
+  const columns = await db.all('PRAGMA table_info(family_lottery_settings)');
+  const columnNames = new Set(columns.map((column: any) => String(column.name)));
+  if (!columnNames.has('paid_draw_limit_v2')) {
+    await db.exec(`ALTER TABLE family_lottery_settings ADD COLUMN paid_draw_limit_v2 INTEGER DEFAULT ${LOTTERY_DAILY_PAID_LIMIT}`);
+  }
+  if (!columnNames.has('daily_ticket_limit')) {
+    await db.exec(`ALTER TABLE family_lottery_settings ADD COLUMN daily_ticket_limit INTEGER DEFAULT ${LOTTERY_DEFAULT_DAILY_TICKET_LIMIT}`);
+  }
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS lottery_ticket_daily_usage (
+      id TEXT PRIMARY KEY,
+      family_id TEXT NOT NULL,
+      child_id TEXT NOT NULL,
+      usage_date TEXT NOT NULL,
+      inventory_id TEXT NOT NULL,
+      used_at TEXT NOT NULL,
+      UNIQUE(child_id, usage_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_lottery_ticket_usage_family_date
+      ON lottery_ticket_daily_usage(family_id, usage_date);
+  `);
 };
 
 export const getLotterySafetySettings = async (db: Database, familyId: string): Promise<LotterySafetySettings> => {
   await ensureLotterySafetyTables(db);
   const row = await db.get(
-    'SELECT is_enabled, daily_paid_limit FROM family_lottery_settings WHERE family_id = ?',
+    'SELECT is_enabled, daily_paid_limit, paid_draw_limit_v2, daily_ticket_limit FROM family_lottery_settings WHERE family_id = ?',
     familyId,
   );
-  if (!row) return { enabled: true, dailyPaidLimit: LOTTERY_DAILY_PAID_LIMIT };
+  if (!row) return { enabled: true, dailyPaidLimit: LOTTERY_DAILY_PAID_LIMIT, dailyTicketLimit: LOTTERY_DEFAULT_DAILY_TICKET_LIMIT };
   const enabled = row.is_enabled === 1;
   return {
     enabled,
-    dailyPaidLimit: enabled
-      ? Math.min(LOTTERY_DAILY_PAID_LIMIT, Math.max(0, Number(row.daily_paid_limit) || 0))
-      : 0,
+    dailyPaidLimit: Math.min(LOTTERY_MAX_DAILY_PAID_LIMIT, Math.max(1, Number(row.paid_draw_limit_v2 ?? row.daily_paid_limit) || LOTTERY_DAILY_PAID_LIMIT)),
+    dailyTicketLimit: Number(row.daily_ticket_limit) === 0 ? 0 : LOTTERY_DEFAULT_DAILY_TICKET_LIMIT,
   };
 };
 
-export const setLotteryEnabled = async (db: Database, familyId: string, enabled: boolean): Promise<LotterySafetySettings> => {
+export const setLotterySafetySettings = async (
+  db: Database,
+  familyId: string,
+  input: Partial<LotterySafetySettings>,
+): Promise<LotterySafetySettings> => {
   await ensureLotterySafetyTables(db);
+  const current = await getLotterySafetySettings(db, familyId);
+  const enabled = input.enabled ?? current.enabled;
+  const dailyPaidLimit = input.dailyPaidLimit ?? current.dailyPaidLimit;
+  const dailyTicketLimit = input.dailyTicketLimit ?? current.dailyTicketLimit;
+  if (!Number.isInteger(dailyPaidLimit) || dailyPaidLimit < 1 || dailyPaidLimit > LOTTERY_MAX_DAILY_PAID_LIMIT) {
+    throw new LotteryConfigurationError('每日付费抽奖次数必须是 1 到 5 的整数');
+  }
+  if (dailyTicketLimit !== 0 && dailyTicketLimit !== 1) {
+    throw new LotteryConfigurationError('每日努力券次数只能是 0 或 1');
+  }
   await db.run(
-    `INSERT INTO family_lottery_settings (family_id, is_enabled, daily_paid_limit, updated_at)
-     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `INSERT INTO family_lottery_settings
+       (family_id, is_enabled, daily_paid_limit, paid_draw_limit_v2, daily_ticket_limit, updated_at)
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT(family_id) DO UPDATE SET
        is_enabled = excluded.is_enabled,
-       daily_paid_limit = ?,
+       paid_draw_limit_v2 = excluded.paid_draw_limit_v2,
+       daily_ticket_limit = excluded.daily_ticket_limit,
        updated_at = CURRENT_TIMESTAMP`,
-    familyId, enabled ? 1 : 0, LOTTERY_DAILY_PAID_LIMIT, LOTTERY_DAILY_PAID_LIMIT,
+    familyId, enabled ? 1 : 0, LOTTERY_DAILY_PAID_LIMIT, dailyPaidLimit, dailyTicketLimit,
   );
-  return { enabled, dailyPaidLimit: enabled ? LOTTERY_DAILY_PAID_LIMIT : 0 };
+  return { enabled, dailyPaidLimit, dailyTicketLimit };
+};
+
+export const setLotteryEnabled = async (db: Database, familyId: string, enabled: boolean): Promise<LotterySafetySettings> => (
+  setLotterySafetySettings(db, familyId, { enabled })
+);
+
+export const getTodayLotteryTicketUsageCount = async (db: Database, childId: string, usageDate: string): Promise<number> => {
+  await ensureLotterySafetyTables(db);
+  const row = await db.get(
+    'SELECT COUNT(*) AS count FROM lottery_ticket_daily_usage WHERE child_id = ? AND usage_date = ?',
+    childId,
+    usageDate,
+  );
+  return Number(row?.count || 0);
+};
+
+export const recordLotteryTicketUsage = async (
+  db: Database,
+  familyId: string,
+  childId: string,
+  usageDate: string,
+  inventoryId: string,
+): Promise<void> => {
+  await ensureLotterySafetyTables(db);
+  await db.run(
+    `INSERT INTO lottery_ticket_daily_usage (id, family_id, child_id, usage_date, inventory_id, used_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    randomUUID(), familyId, childId, usageDate, inventoryId, new Date().toISOString(),
+  );
 };
 
 type LotteryPrizeLike = {
@@ -102,7 +171,7 @@ export const assertPaidLotteryDrawAllowed = (
   settings: LotterySafetySettings,
 ): void => {
   if (!settings.enabled) throw new LotteryLimitError('家长已关闭抽奖');
-  if (!Number.isInteger(settings.dailyPaidLimit) || settings.dailyPaidLimit < 0 || settings.dailyPaidLimit > LOTTERY_DAILY_PAID_LIMIT) {
+  if (!Number.isInteger(settings.dailyPaidLimit) || settings.dailyPaidLimit < 1 || settings.dailyPaidLimit > LOTTERY_MAX_DAILY_PAID_LIMIT) {
     throw new LotteryConfigurationError('抽奖每日上限配置无效');
   }
   if (todayPaidDrawCount >= settings.dailyPaidLimit) {
