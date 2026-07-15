@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { CalendarDays, Check, Coins, Sparkles, Utensils } from 'lucide-react';
+import { CalendarDays, Check, Coins, Sparkles } from 'lucide-react';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { useToast } from '../../components/Toast';
@@ -77,7 +77,7 @@ const getOrderItemIds = (order?: BreakfastOrder | null) => {
   return order.itemId ? [order.itemId] : [];
 };
 
-export default function ChildMorning() {
+export function BreakfastKitchenContent({ embedded = false }: { embedded?: boolean }) {
   const { childData, refresh } = useOutletContext<any>();
   const toast = useToast();
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
@@ -164,18 +164,10 @@ export default function ChildMorning() {
   }
 
   return (
-    <div className="p-4 pb-24 min-h-full bg-gradient-to-b from-amber-50 via-white to-sky-50 space-y-4">
-      <div className="rounded-3xl bg-gradient-to-br from-orange-400 via-amber-400 to-sky-400 text-white p-5 shadow-lg shadow-amber-100 overflow-hidden relative">
-        <div className="absolute -right-5 -top-5 w-28 h-28 rounded-full bg-white/20" />
-        <div className="relative">
-          <div className="flex items-center gap-2 text-sm font-bold opacity-90">
-            <Utensils size={18} /> 早餐小厨房
-          </div>
-          <div className="text-2xl font-black mt-2">今天早餐怎么搭？</div>
-          <div className="mt-1 text-sm text-white/85 font-bold">按日期选择，主食、饮品、套餐都可以自由组合。</div>
-        </div>
-      </div>
-
+    <div
+      className={embedded ? 'space-y-4' : 'min-h-full space-y-4 bg-gradient-to-b from-amber-50 via-white to-sky-50 p-4 pb-24'}
+      data-testid="breakfast-kitchen"
+    >
       <Card className="space-y-3 border-orange-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 font-black text-gray-800">
@@ -295,4 +287,8 @@ export default function ChildMorning() {
       </Card>
     </div>
   );
+}
+
+export default function ChildMorning() {
+  return <BreakfastKitchenContent />;
 }
