@@ -8,6 +8,7 @@ import { ensureEconomySchema } from './economySchema';
 import { ensureTaskSettlementSchema } from './taskSettlement';
 import { ensureGrowthIdentitySchema } from './growthIdentitySchema';
 import { ensureGrowthCosmeticSchema } from './growthCosmeticSchema';
+import { ensureParentDailyWelcomeSchema } from './parentDailyWelcome';
 
 let db: Database;
 
@@ -35,6 +36,7 @@ export const initializeDatabase = async () => {
   await ensureLotterySafetyTables(db);
   await ensureEconomySchema(db);
   await ensureTaskSettlementSchema(db);
+  await ensureParentDailyWelcomeSchema(db);
 
   // B2-6: 迁移版本追踪
   await db.exec(`

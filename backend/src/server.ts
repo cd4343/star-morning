@@ -37,6 +37,8 @@ import { settleTaskEntry, syncTaskSettlementCoinAdjustment, TaskSettlementError 
 import { buildAchievementDisplayFields, hasSystemAchievementIdentityChanged } from './achievementDisplay';
 import { getSystemAchievementsByLegacySignature } from './growthIdentityCatalog';
 import { registerGrowthIdentityRoutes } from './growthIdentityRoutes';
+import { getBeijingDate, getBeijingTimeString, getLocalDateString } from './beijingTime';
+import { registerParentWorkspaceRoutes } from './parentWorkspaceRoutes';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -621,43 +623,6 @@ app.get('/api/health', (req, res) => {
 
 // --- 北京时间工具函数 ---
 // 强制使用北京时间 (UTC+8)，不依赖服务器本地时区设置
-const BEIJING_OFFSET = 8 * 60; // 北京时间 UTC+8，单位：分钟
-
-/**
- * 获取北京时间的 Date 对象
- */
-const getBeijingDate = (date: Date = new Date()): Date => {
-  // 获取 UTC 时间戳，然后加上北京时间偏移
-  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-  return new Date(utc + (BEIJING_OFFSET * 60000));
-};
-
-/**
- * 获取北京时间日期字符串 (YYYY-MM-DD)
- * 强制使用 UTC+8，确保任务在北京时间午夜00:00重置
- */
-const getLocalDateString = (date: Date = new Date()): string => {
-  const beijingDate = getBeijingDate(date);
-  const year = beijingDate.getFullYear();
-  const month = String(beijingDate.getMonth() + 1).padStart(2, '0');
-  const day = String(beijingDate.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-/**
- * 获取北京时间完整时间字符串 (YYYY-MM-DD HH:MM:SS)
- */
-const getBeijingTimeString = (date: Date = new Date()): string => {
-  const beijingDate = getBeijingDate(date);
-  const year = beijingDate.getFullYear();
-  const month = String(beijingDate.getMonth() + 1).padStart(2, '0');
-  const day = String(beijingDate.getDate()).padStart(2, '0');
-  const hours = String(beijingDate.getHours()).padStart(2, '0');
-  const minutes = String(beijingDate.getMinutes()).padStart(2, '0');
-  const seconds = String(beijingDate.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-};
-
 // --- 任务生成函数 ---
 /**
  * 判断任务是否应该在指定日期出现
@@ -1734,6 +1699,7 @@ registerEconomyRoutes(app, protect, requireParent);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
 registerGrowthIdentityRoutes(app, protect, requireChild);
+registerParentWorkspaceRoutes(app, getDb);
 
 // Parent Family Management
 app.post('/api/parent/set-pin', protect, async (req: any, res) => {
