@@ -13,7 +13,8 @@ import fs from 'fs/promises';
 import axios from 'axios';
 import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
-import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, drawChestReward, getChestTriggerResult, recordChestReward, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
+import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
+import { ensureChestRewardGrantSchema, grantTaskChestReward } from './chestRewardGrant';
 import { registerProductConfigRoutes } from './productConfigRoutes';
 import { registerParentInboxRoutes } from './parentInboxRoutes';
 import { registerEconomyRoutes } from './economyRoutes';
@@ -5898,28 +5899,31 @@ app.post('/api/child/tasks/:taskId/complete', protect, requireChild, async (req:
         // 更新被退回的记录
         entryId = existingEntry.id;
         await db.run(
-            `UPDATE task_entries SET status = 'pending', submittedAt = ?, actualDurationMinutes = ?, isOverdue = ?, autoCompleted = 0, autoCompleteReason = NULL WHERE id = ?`,
-            now, duration || 0, isOverdue ? 1 : 0, entryId
+            `UPDATE task_entries SET status = 'pending', submittedAt = ?, actualDurationMinutes = ?, isOverdue = ?, autoCompleted = 0, autoCompleteReason = NULL, submission_key = ? WHERE id = ?`,
+            now, duration || 0, isOverdue ? 1 : 0, `task-session:${runningSession.id}`, entryId
         );
         console.log(`📝 孩子 ${childId} 重新提交任务 ${taskId}，更新记录 ${entryId}，超时状态：${isOverdue}`);
     } else {
         // 创建新记录
         entryId = randomUUID();
         await db.run(
-            `INSERT INTO task_entries (id, taskId, childId, status, submittedAt, actualDurationMinutes, isOverdue, autoCompleted) VALUES (?, ?, ?, 'pending', ?, ?, ?, 0)`,
-            entryId, taskId, childId, now, duration || 0, isOverdue ? 1 : 0
+            `INSERT INTO task_entries (id, taskId, childId, status, submittedAt, actualDurationMinutes, isOverdue, autoCompleted, submission_key) VALUES (?, ?, ?, 'pending', ?, ?, ?, 0, ?)`,
+            entryId, taskId, childId, now, duration || 0, isOverdue ? 1 : 0, `task-session:${runningSession.id}`
         );
         console.log(`📝 孩子 ${childId} 提交任务 ${taskId}，创建记录 ${entryId}，状态：pending，超时状态：${isOverdue}`);
     }
 
     // 验证记录已创建
-    await db.run(
+    const completedSession = await db.run(
         `UPDATE task_sessions
          SET status = 'completed', endedAt = ?, taskEntryId = ?
          WHERE id = ? AND childId = ? AND taskId = ? AND status = 'running'
          AND date(startedAt, '+8 hours') = ?`,
         now, entryId, runningSession.id, childId, taskId, today
     );
+    if ((completedSession.changes || 0) !== 1) {
+      return res.status(409).json({ message: '任务已被提交，请勿重复操作', entryId });
+    }
 
     const verifyEntry = await db.get('SELECT id, status, submittedAt, isOverdue FROM task_entries WHERE id = ?', entryId);
     if (verifyEntry) {
@@ -5928,34 +5932,26 @@ app.post('/api/child/tasks/:taskId/complete', protect, requireChild, async (req:
         console.error(`❌ 任务提交失败，记录未找到！`);
     }
 
-    // 宝箱触发逻辑：完成任务即时反馈，奖品价值按任务难度分层
+    // 宝箱奖励、拼图进度与抽奖券合成在独立事务中完成。
     let chestReward: any = null;
     try {
       let difficulty: 'easy' | 'medium' | 'hard' = 'easy';
       if (task.durationMinutes > 45) difficulty = 'hard';
       else if (task.durationMinutes > 20) difficulty = 'medium';
-
-      const trigger = await getChestTriggerResult(db, request.user!.familyId, childId, difficulty);
-      if (trigger.triggered) {
-        const reward = await drawChestReward(db, request.user!.familyId, difficulty);
-        if (reward) {
-          chestReward = reward;
-          if (reward.type === 'coins') await db.run('UPDATE users SET coins = coins + ? WHERE id = ?', reward.value, childId);
-          else if (reward.type === 'xp') await db.run('UPDATE users SET xp = xp + ? WHERE id = ?', reward.value, childId);
-          else if (reward.type === 'privilegePoints') await db.run('UPDATE users SET privilegePoints = privilegePoints + ? WHERE id = ?', reward.value, childId);
-          else if (reward.type === 'lotteryTicket') {
-            await db.run(`INSERT INTO user_inventory (id, childId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, 'coins', 'lottery_ticket', 'pending')`, randomUUID(), childId, `抽奖券(${reward.value}张)`, reward.icon || '🎫', reward.value);
-          }
-          await recordChestReward(db, {
-            childId,
-            familyId: request.user!.familyId,
-            taskEntryId: entryId,
-            reward,
-            status: 'granted'
-          });
-        }
-      }
-    } catch (err) { console.error('宝箱触发出错:', err); }
+      chestReward = await grantTaskChestReward(db, {
+        childId,
+        familyId: request.user!.familyId,
+        taskEntryId: entryId,
+        difficulty,
+      });
+    } catch (err) {
+      console.error('宝箱发放失败:', err);
+      return res.status(503).json({
+        message: '任务已提交，但惊喜宝箱还没有到账，请点击重试',
+        entryId,
+        chestRetryRequired: true,
+      });
+    }
 
     let gameTicketPreview: any = null;
     try {
@@ -5985,6 +5981,33 @@ app.post('/api/child/tasks/:taskId/complete', protect, requireChild, async (req:
     }
 
     res.json({ message: 'submitted', entryId, chest: chestReward, gameTicketPreview });
+});
+
+app.post('/api/child/task-entries/:entryId/chest/retry', protect, requireChild, async (req: any, res) => {
+  const request = req as AuthRequest;
+  const db = getDb();
+  const entry = await db.get(
+    `SELECT te.id, t.durationMinutes
+       FROM task_entries te
+       JOIN tasks t ON te.taskId = t.id
+      WHERE te.id = ? AND te.childId = ? AND t.familyId = ?`,
+    req.params.entryId, request.user!.id, request.user!.familyId
+  );
+  if (!entry) return res.status(404).json({ message: '任务提交记录不存在' });
+  const minutes = Number(entry.durationMinutes || 0);
+  const difficulty = minutes > 45 ? 'hard' : minutes > 20 ? 'medium' : 'easy';
+  try {
+    const chest = await grantTaskChestReward(db, {
+      childId: request.user!.id,
+      familyId: request.user!.familyId,
+      taskEntryId: entry.id,
+      difficulty,
+    });
+    res.json({ message: chest ? '惊喜宝箱已到账' : '家庭暂未开启惊喜宝箱', chest });
+  } catch (error) {
+    console.error('宝箱重试失败:', error);
+    res.status(503).json({ message: '惊喜宝箱仍未到账，请稍后再试', retryable: true });
+  }
 });
 
 app.get('/api/child/task-session-reminders', protect, requireChild, async (req: any, res) => {
@@ -7624,6 +7647,7 @@ initializeDatabase()
   .then(async () => {
     console.log('✅ Database initialized successfully');
     await initRewardTables();
+    await ensureChestRewardGrantSchema(getDb());
     await initLotteryTables();
     console.log('✅ Reward system routes registered');
     startTaskSessionFinalizer();

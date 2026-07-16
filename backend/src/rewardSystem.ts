@@ -188,12 +188,13 @@ const DEFAULT_CHEST_SETTINGS = {
 };
 
 const DEFAULT_REWARD_POOL_ITEMS = [
-  { name: '小星币', type: 'coins', value: 2, weight: 35, rarity: 'common', icon: '🪙', description: '适合简单任务的即时金币反馈。' },
-  { name: '经验火花', type: 'xp', value: 5, weight: 30, rarity: 'common', icon: '✨', description: '让孩子看到成长条马上前进一点。' },
-  { name: '能量金币', type: 'coins', value: 5, weight: 20, rarity: 'uncommon', icon: '⚡', description: '适合普通任务的小惊喜。' },
-  { name: '专注经验包', type: 'xp', value: 12, weight: 12, rarity: 'uncommon', icon: '📘', description: '适合学习或需要坚持的任务。' },
-  { name: '特权点', type: 'privilegePoints', value: 1, weight: 3, rarity: 'rare', icon: '💎', description: '低频大奖，用于兑换家长设置的特权。' },
+  { name: '小星币', type: 'coins', value: 2, weight: 45, rarity: 'common', icon: '🪙', description: '完成任务后的即时金币反馈。' },
+  { name: '能量金币', type: 'coins', value: 5, weight: 25, rarity: 'uncommon', icon: '⚡', description: '一份更亮眼的小金币惊喜。' },
+  { name: '幸运拼图', type: 'lotteryTicket', value: 1, weight: 25, rarity: 'uncommon', icon: '🧩', description: '集齐2片自动合成1次幸运转盘机会。' },
+  { name: '权益点', type: 'privilegePoints', value: 1, weight: 5, rarity: 'rare', icon: '💎', description: '低频奖励，用于兑换家庭约定权益。' },
 ];
+
+const SUPPORTED_CHEST_REWARD_TYPES = ['coins', 'privilegePoints', 'lotteryTicket'] as const;
 
 export const ensureDefaultRewardPools = async (db: any, familyId: string) => {
   const existing = await db.get('SELECT COUNT(*) as count FROM reward_pools WHERE familyId = ?', familyId);
@@ -320,45 +321,10 @@ export const updateChestSettings = async (db: any, familyId: string, input: any)
   return getOrCreateChestSettings(db, familyId);
 };
 
-const rarityRank = (rarity: string) => {
-  // P2：统一为抽奖的 5 档稀有度（新增 epic），与 RARITY_RANK 一致
-  const ranks: Record<string, number> = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
-  return ranks[rarity] || 1;
-};
-
-const rewardValueScore = (item: any) => {
-  const rawValue = Math.max(0, Number(item?.value || 0));
-  if (item?.type === 'xp') return rawValue / 2;
-  if (item?.type === 'privilegePoints') return rawValue * 12;
-  if (item?.type === 'lotteryTicket') return rawValue * 10;
-  if (item?.type === 'shopDiscount') return rawValue / 2;
-  return rawValue;
-};
-
-const prizeTierScore = (item: any) => {
-  const valueScore = rewardValueScore(item);
-  const valueBand = valueScore >= 30 ? 3 : valueScore >= 12 ? 2 : 1;
-  return rarityRank(item?.rarity) + valueBand;
-};
-
-const filterChestItemsByDifficulty = (items: any[], difficulty: 'easy' | 'medium' | 'hard') => {
-  if (difficulty === 'hard') return items;
-  const maxTier = difficulty === 'medium' ? 5 : 4;
-  const filtered = items.filter(item => prizeTierScore(item) <= maxTier);
-  return filtered.length > 0 ? filtered : items;
-};
-
-const difficultyWeightMultiplier = (item: any, difficulty: 'easy' | 'medium' | 'hard') => {
-  const rank = rarityRank(item?.rarity);
-  if (difficulty === 'hard') return rank >= 3 ? 1.6 : 1;
-  if (difficulty === 'medium') return rank === 2 || rank === 3 ? 1.25 : 1;
-  return rank <= 2 ? 1.35 : 0.7;
-};
-
 export const drawChestReward = async (
   db: any,
   familyId: string,
-  difficulty: 'easy' | 'medium' | 'hard' = 'medium'
+  _difficulty: 'easy' | 'medium' | 'hard' = 'medium'
 ): Promise<ChestReward | null> => {
   await ensureDefaultRewardPools(db, familyId);
   const items = await db.all(
@@ -367,15 +333,11 @@ export const drawChestReward = async (
   );
   if (items.length === 0) return null;
 
-  const candidates = filterChestItemsByDifficulty(items, difficulty);
-  // P2：权重统一——并入抽奖的 5 档稀有度因子（weight × 稀有度因子），再叠加任务难度努力加成（家长确认保留）
+  const candidates = items.filter((item: any) => SUPPORTED_CHEST_REWARD_TYPES.includes(item.type));
+  if (candidates.length === 0) return null;
   const weightedItems = candidates.map((item: any) => ({
     ...item,
-    adjustedWeight: Math.max(1, Math.round(
-      Number(item.weight || 10)
-      * (LOTTERY_RARITY_WEIGHT_FACTOR[item.rarity || 'common'] || 1)
-      * difficultyWeightMultiplier(item, difficulty)
-    )),
+    adjustedWeight: Math.max(1, Math.round(Number(item.weight || 10))),
   }));
   const totalWeight = weightedItems.reduce((sum: number, p: any) => sum + p.adjustedWeight, 0);
   let random = Math.random() * totalWeight;
@@ -581,7 +543,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const request = req as AuthRequest;
     const { name, type, value, weight, rarity, icon, description } = req.body;
     if (!name || !type || value === undefined) return res.status(400).json({ message: '名称、类型、数值不能为空' });
-    if (!['coins', 'xp', 'privilegePoints', 'lotteryTicket', 'shopDiscount'].includes(type)) return res.status(400).json({ message: '无效的类型' });
+    if (!SUPPORTED_CHEST_REWARD_TYPES.includes(type)) return res.status(400).json({ message: '宝箱只支持金币、幸运拼图和权益点' });
     // P2：启用中的宝箱奖品总数上限 9（够随机又不稀释稀有奖）；新增默认即启用，故先校验
     const activeCount = await getDb().get('SELECT COUNT(*) as c FROM reward_pools WHERE familyId = ? AND isActive = 1', request.user!.familyId);
     if ((activeCount?.c || 0) >= 9) return res.status(400).json({ message: '启用中的宝箱奖品已达上限（9 个），请先停用或删除其他奖品' });
@@ -599,7 +561,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const existing = await getDb().get('SELECT * FROM reward_pools WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
     if (!existing) return res.status(404).json({ message: '奖励不存在' });
     const nextType = type !== undefined ? type : existing.type;
-    if (!['coins', 'xp', 'privilegePoints', 'lotteryTicket', 'shopDiscount'].includes(nextType)) return res.status(400).json({ message: '无效的类型' });
+    if (!SUPPORTED_CHEST_REWARD_TYPES.includes(nextType)) return res.status(400).json({ message: '宝箱只支持金币、幸运拼图和权益点' });
     const nextName = name !== undefined ? name : existing.name;
     if (!nextName) return res.status(400).json({ message: '名称不能为空' });
     // P2：若本次是"停用→启用"，需保证启用总数不超过上限 9（防止绕过添加校验）
@@ -635,7 +597,7 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
     const rows = await db.all(
       `SELECT id, name, type, value, rarity, icon, description
        FROM reward_pools
-       WHERE familyId = ? AND isActive = 1
+       WHERE familyId = ? AND isActive = 1 AND type IN ('coins', 'privilegePoints', 'lotteryTicket')
        ORDER BY
          CASE rarity
            WHEN 'legendary' THEN 1
@@ -647,10 +609,19 @@ export function registerRewardSystemRoutes(app: Express, protect: any) {
          name ASC`,
       request.user!.familyId
     );
+    const puzzle = await db.get(
+      'SELECT pieces, tickets_generated FROM lottery_puzzle_progress WHERE child_id = ? AND family_id = ?',
+      request.user!.id, request.user!.familyId
+    );
     res.json({
       settings,
       prizes: rows,
-      note: '完成任意任务都会打开宝箱；系统会根据任务难度优先匹配合适价值的奖品。'
+      puzzleProgress: {
+        pieces: Number(puzzle?.pieces || 0),
+        required: 2,
+        ticketsGenerated: Number(puzzle?.tickets_generated || 0),
+      },
+      note: '完成任务就会打开惊喜宝箱；幸运拼图集齐2片会自动合成1次幸运转盘机会。'
     });
   });
 

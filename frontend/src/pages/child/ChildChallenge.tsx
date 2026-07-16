@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, BookOpen, CheckCircle2, ChevronDown, Clock, Gift, HelpCircle, Pause, Play, Send, Sparkles, Star, Users, X, Zap } from 'lucide-react';
@@ -393,7 +393,7 @@ export default function ChildChallenge() {
   const [showChestModal, setShowChestModal] = useState(false);
   const [chestStage, setChestStage] = useState<'opening' | 'revealed'>('revealed');
   const [showChestGuide, setShowChestGuide] = useState(false);
-  const [chestGuide, setChestGuide] = useState<{ settings?: any; prizes: any[]; note?: string }>({ prizes: [] });
+  const [chestGuide, setChestGuide] = useState<{ settings?: any; prizes: any[]; note?: string; puzzleProgress?: { pieces: number; required: number } }>({ prizes: [] });
   const [activeQuest, setActiveQuest] = useState<Quest | null>(null);
   const [learningSessionId, setLearningSessionId] = useState('');
   const [learningStepIndex, setLearningStepIndex] = useState(0);
@@ -658,13 +658,16 @@ export default function ChildChallenge() {
       if (res.data?.chest) {
         playMagicSound();
         setChestReward(res.data.chest);
+        if (res.data.chest.puzzleProgress) {
+          setChestGuide(current => ({ ...current, puzzleProgress: res.data.chest.puzzleProgress }));
+        }
         setChestStage('opening');
         setShowChestModal(true);
         window.setTimeout(() => setChestStage('revealed'), 950);
-        toast.success('任务已提交，打开惊喜宝箱！');
+        toast.success(t('reward.taskSubmittedChestOpened'));
       } else {
         playSuccessSound();
-        toast.success('任务已提交，等待家长确认');
+        toast.success(t('reward.taskSubmittedPending'));
       }
       setShowConfetti(true);
       window.setTimeout(() => setShowConfetti(false), 3000);
@@ -675,6 +678,31 @@ export default function ChildChallenge() {
       setTimerRunning(false);
       fetchData();
     } catch (e: any) {
+      if (e.response?.data?.chestRetryRequired && e.response?.data?.entryId) {
+        try {
+          const retry = await api.post(`/child/task-entries/${e.response.data.entryId}/chest/retry`);
+          if (retry.data?.chest) {
+            playMagicSound();
+            setChestReward(retry.data.chest);
+            if (retry.data.chest.puzzleProgress) {
+              setChestGuide(current => ({ ...current, puzzleProgress: retry.data.chest.puzzleProgress }));
+            }
+            setChestStage('revealed');
+            setShowChestModal(true);
+          }
+          toast.success(t('reward.chestRetrySuccess'));
+          if (runningTask) removeActiveTask(runningTask.id);
+          refreshActiveTimerTasks();
+          setRunningTask(null);
+          setTimerMinimized(false);
+          setTimerRunning(false);
+          fetchData();
+          return;
+        } catch (retryError: any) {
+          toast.error(retryError.response?.data?.message || t('reward.chestRetryFailed'));
+          return;
+        }
+      }
       if (e.response?.status === 409) {
         if (runningTask) removeActiveTask(runningTask.id);
         refreshActiveTimerTasks();
@@ -689,15 +717,26 @@ export default function ChildChallenge() {
     }
   };
 
-  const openChestGuide = async () => {
+  const refreshChestGuide = useCallback(async () => {
     try {
       const res = await api.get('/child/chest-prizes');
-      setChestGuide({ prizes: res.data?.prizes || [], settings: res.data?.settings, note: res.data?.note });
+      setChestGuide({ prizes: res.data?.prizes || [], settings: res.data?.settings, note: res.data?.note, puzzleProgress: res.data?.puzzleProgress });
+      return true;
     } catch {
-      setChestGuide({ prizes: [], note: '宝箱说明暂时加载失败，请稍后再试。' });
-    } finally {
-      setShowChestGuide(true);
+      return false;
     }
+  }, []);
+
+  useEffect(() => {
+    void refreshChestGuide();
+  }, [refreshChestGuide]);
+
+  const openChestGuide = async () => {
+    const loaded = await refreshChestGuide();
+    if (!loaded) {
+      setChestGuide(current => ({ ...current, note: t('reward.chestGuideLoadFailed') }));
+    }
+    setShowChestGuide(true);
   };
 
   const abandonRunningTask = async () => {
@@ -1567,6 +1606,14 @@ export default function ChildChallenge() {
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={openChestGuide}
+            className="mt-2 min-h-11 w-full rounded-2xl bg-amber-50 border border-amber-100 px-3 py-2 text-left text-xs font-black text-amber-800 flex items-center justify-between gap-2 active:scale-[0.99]"
+          >
+            <span className="flex items-center gap-2"><span className="text-lg" aria-hidden="true">🧩</span>{t('reward.puzzleProgressShort', { pieces: chestGuide.puzzleProgress?.pieces ?? '—', required: chestGuide.puzzleProgress?.required || 2 })}</span>
+            <span className="text-[10px] text-amber-600">{t('reward.puzzleRule')}</span>
+          </button>
         </div>
 
         <div className="mt-4">
@@ -1784,13 +1831,16 @@ export default function ChildChallenge() {
                   +{chestReward.value || 0}
                   <span className="ml-1 text-xl">
                     {chestReward.type === 'coins' ? '金币' :
-                     chestReward.type === 'xp' ? t('growth.shortLabel') :
                      chestReward.type === 'privilegePoints' ? t('growth.rightsPointUnit') :
-                     chestReward.type === 'lotteryTicket' ? '抽奖券' : '奖励'}
+                     chestReward.type === 'lotteryPuzzle' ? t('reward.puzzlePieceUnit') : '奖励'}
                   </span>
                 </div>
                 <p className="mt-3 text-sm font-bold text-slate-500 leading-relaxed">
-                  完成任务后立即开箱，奖励已经记到账上或放入背包。
+                  {chestReward.type === 'lotteryPuzzle'
+                    ? chestReward.lotteryTicketsCreated > 0
+                      ? t('reward.puzzleCollected')
+                      : t('reward.puzzleNeedMoreDetailed', { pieces: chestReward.puzzleProgress?.pieces || 0 })
+                    : t('reward.chestCredited')}
                 </p>
                 <div className="mt-5 grid grid-cols-2 gap-2">
                   <button
@@ -1827,7 +1877,7 @@ export default function ChildChallenge() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-black text-slate-900">宝箱里可能有什么？</h3>
-                <p className="mt-1 text-xs font-bold text-slate-500">完成任务就会开箱，任务越难越容易匹配高价值奖品。</p>
+                <p className="mt-1 text-xs font-bold text-slate-500">{t('reward.chestImmediateFeedback')}</p>
               </div>
               <button onClick={() => setShowChestGuide(false)} className="w-9 h-9 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center">
                 <X size={18} />
@@ -1835,6 +1885,9 @@ export default function ChildChallenge() {
             </div>
             <div className="mt-3 rounded-2xl bg-amber-50 border border-amber-100 p-3 text-xs font-bold text-amber-700">
               {chestGuide.note || '这里展示奖池内容，不展示概率，保留一点开奖惊喜。'}
+              <div className="mt-2 rounded-xl bg-white/70 px-3 py-2 text-amber-800">
+                {t('reward.puzzleProgressGuide', { pieces: chestGuide.puzzleProgress?.pieces || 0, required: chestGuide.puzzleProgress?.required || 2 })}
+              </div>
             </div>
             <div className="mt-3 space-y-2 overflow-y-auto pr-1">
               {chestGuide.prizes.length === 0 ? (
@@ -1848,9 +1901,8 @@ export default function ChildChallenge() {
                       <div className="font-black text-slate-800 truncate">{prize.name}</div>
                       <div className="text-xs font-bold text-slate-500 truncate">
                         {prize.type === 'coins' ? `${prize.value} 金币` :
-                         prize.type === 'xp' ? t('growth.shortReward', { value: prize.value }) :
                          prize.type === 'privilegePoints' ? `${prize.value} ${t('growth.rightsPointUnit')}` :
-                         prize.type === 'lotteryTicket' ? `${prize.value} 张抽奖券` : prize.description || '神秘奖励'}
+                         prize.type === 'lotteryTicket' ? t('reward.puzzlePrizeValue', { value: prize.value }) : prize.description || '神秘奖励'}
                       </div>
                     </div>
                     <span className={`rounded-full border px-2 py-1 text-[10px] font-black whitespace-nowrap ${rarity.className}`}>

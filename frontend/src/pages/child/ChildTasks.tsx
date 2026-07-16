@@ -4,6 +4,7 @@ import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { Check, Clock, Play, X, Pause, Calendar, ChevronDown, GripHorizontal, Info } from 'lucide-react';
 import api from '../../services/api';
+import { t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import { playSuccessSound, playMagicSound, playErrorSound } from '../../utils/sounds';
 import { Confetti } from '../../components/Confetti';
@@ -407,7 +408,7 @@ export default function ChildTasks() {
   const [chestReward, setChestReward] = useState<any>(null);
   const [showChestModal, setShowChestModal] = useState(false);
   const [showChestGuide, setShowChestGuide] = useState(false);
-  const [chestGuide, setChestGuide] = useState<{ settings?: any; prizes: any[]; note?: string }>({ prizes: [] });
+  const [chestGuide, setChestGuide] = useState<{ settings?: any; prizes: any[]; note?: string; puzzleProgress?: { pieces: number; required: number } }>({ prizes: [] });
   const [showConfetti, setShowConfetti] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -509,24 +510,48 @@ export default function ChildTasks() {
           localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(newActiveTasks));
           closeFocusedTask();
           fetchTasks();
-          if (res.data?.chest) {
-              playMagicSound(); setChestReward(res.data.chest); setShowChestModal(true);
+           if (res.data?.chest) {
+               playMagicSound(); setChestReward(res.data.chest); setShowChestModal(true);
+               if (res.data.chest.puzzleProgress) {
+                   setChestGuide(current => ({ ...current, puzzleProgress: res.data.chest.puzzleProgress }));
+               }
               if (isFamilyMission) {
                   setShowConfetti(true);
-                  toast.success(withGameTicketPreview('全家任务已提交，并获得惊喜宝箱！', res.data?.gameTicketPreview));
+                   toast.success(withGameTicketPreview(t('reward.taskSubmittedChestOpened'), res.data?.gameTicketPreview));
                   setTimeout(() => setShowConfetti(false), 3000);
               } else {
-                  toast.success(withGameTicketPreview('任务已提交，并打开了惊喜宝箱！', res.data?.gameTicketPreview));
+                   toast.success(withGameTicketPreview(t('reward.taskSubmittedChestOpened'), res.data?.gameTicketPreview));
               }
           } else if (isFamilyMission) {
               playMagicSound(); setShowConfetti(true);
-              toast.success(withGameTicketPreview('全家任务已提交！等待家长审核发放高额奖励！', res.data?.gameTicketPreview));
+               toast.success(withGameTicketPreview(t('reward.taskSubmittedPending'), res.data?.gameTicketPreview));
               setTimeout(() => setShowConfetti(false), 3000);
           } else {
-              playSuccessSound(); toast.success(withGameTicketPreview('任务已提交，等待家长审核', res.data?.gameTicketPreview));
+               playSuccessSound(); toast.success(withGameTicketPreview(t('reward.taskSubmittedPending'), res.data?.gameTicketPreview));
           }
       } catch (e: any) {
           const message = e.response?.data?.message || '提交失败';
+          if (e.response?.data?.chestRetryRequired && e.response?.data?.entryId) {
+              try {
+                  const retry = await api.post(`/child/task-entries/${e.response.data.entryId}/chest/retry`);
+                   if (retry.data?.chest) {
+                       playMagicSound(); setChestReward(retry.data.chest); setShowChestModal(true);
+                       if (retry.data.chest.puzzleProgress) {
+                           setChestGuide(current => ({ ...current, puzzleProgress: retry.data.chest.puzzleProgress }));
+                       }
+                  }
+                  const newActiveTasks = activeTasks.filter(t => t.id !== taskId);
+                  setActiveTasks(newActiveTasks);
+                  localStorage.setItem(ACTIVE_TASKS_KEY, JSON.stringify(newActiveTasks));
+                  closeFocusedTask();
+                  fetchTasks();
+                   toast.success(t('reward.chestRetrySuccess'));
+                  return;
+              } catch (retryError: any) {
+                   toast.error(retryError.response?.data?.message || t('reward.chestRetryFailed'));
+                  return;
+              }
+          }
           if (e.response?.status === 409) {
               const newActiveTasks = activeTasks.filter(t => t.id !== taskId);
               setActiveTasks(newActiveTasks);
@@ -732,15 +757,26 @@ export default function ChildTasks() {
     } catch (err) { console.error(err); }
   };
 
-  const openChestGuide = async () => {
+  const refreshChestGuide = useCallback(async () => {
     try {
       const res = await api.get('/child/chest-prizes');
-      setChestGuide({ prizes: res.data?.prizes || [], settings: res.data?.settings, note: res.data?.note });
-    } catch (err) {
-      setChestGuide({ prizes: [], note: '宝箱说明暂时加载失败，请稍后再试。' });
-    } finally {
-      setShowChestGuide(true);
+      setChestGuide({ prizes: res.data?.prizes || [], settings: res.data?.settings, note: res.data?.note, puzzleProgress: res.data?.puzzleProgress });
+      return true;
+    } catch {
+      return false;
     }
+  }, []);
+
+  useEffect(() => {
+    void refreshChestGuide();
+  }, [refreshChestGuide]);
+
+  const openChestGuide = async () => {
+    const loaded = await refreshChestGuide();
+    if (!loaded) {
+      setChestGuide(current => ({ ...current, note: t('reward.chestGuideLoadFailed') }));
+    }
+    setShowChestGuide(true);
   };
 
   const handleSelectDate = (dateStr: string) => { const today = new Date().toISOString().split('T')[0]; setSelectedDate(dateStr === today ? '' : dateStr); };
@@ -830,8 +866,8 @@ export default function ChildTasks() {
                 <button key={cat} onClick={() => setFilterCategory(cat)} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${filterCategory === cat ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 border'}`}>{cat} ({count})</button>
               );
             })}
-            <button onClick={openChestGuide} className="px-3 py-1 rounded-full text-xs font-bold transition-all bg-amber-50 text-amber-600 border border-amber-100 flex items-center gap-1 whitespace-nowrap">
-              <Info size={12}/> 宝箱说明
+            <button onClick={openChestGuide} className="min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1 whitespace-nowrap">
+              <Info size={14}/> {t('reward.puzzleProgressShort', { pieces: chestGuide.puzzleProgress?.pieces ?? '—', required: chestGuide.puzzleProgress?.required || 2 })}
             </button>
           </div>
           {filterCategory !== '全部' && (
@@ -973,7 +1009,14 @@ export default function ChildTasks() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 text-center animate-in zoom-in-95" style={getAnchoredModalStyle(null, overlayBounds, 384, 440)} onClick={e => e.stopPropagation()}>
             <div className="text-6xl mb-4 animate-bounce">{chestReward.icon || '🎁'}</div>
             <h3 className="text-2xl font-black text-gray-800 mb-2">惊喜宝箱！</h3>
-            <div className="text-4xl font-black text-yellow-500 mb-4">+{chestReward.value} {chestReward.type === 'coins' ? '💰' : '⭐'}</div>
+            <div className="text-4xl font-black text-yellow-500 mb-2">+{chestReward.value} {chestReward.type === 'coins' ? t('reward.chestTypeCoins') : chestReward.type === 'lotteryPuzzle' ? t('reward.puzzlePieceUnit') : t('reward.chestTypeRights')}</div>
+            {chestReward.type === 'lotteryPuzzle' && (
+              <div className="mb-4 text-sm font-bold text-amber-700">
+                {chestReward.lotteryTicketsCreated > 0
+                  ? t('reward.puzzleCollected')
+                  : t('reward.puzzleNeedMore', { pieces: chestReward.puzzleProgress?.pieces || 0 })}
+              </div>
+            )}
             <button onClick={() => setShowChestModal(false)} className="w-full py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-bold rounded-xl shadow-lg">太棒了！</button>
           </div>
         </div>,
@@ -991,7 +1034,8 @@ export default function ChildTasks() {
               <button onClick={() => setShowChestGuide(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X size={18}/></button>
             </div>
             <div className="p-3 rounded-2xl bg-amber-50 border border-amber-100 text-xs text-amber-700 font-bold mb-3">
-              当前规则：完成任务必定打开宝箱；困难任务更容易开到高价值奖品。
+              {t('reward.chestRuleSummary')}
+              <div className="mt-2 rounded-xl bg-white/70 px-3 py-2">{t('reward.puzzleProgressGuide', { pieces: chestGuide.puzzleProgress?.pieces || 0, required: chestGuide.puzzleProgress?.required || 2 })}</div>
             </div>
             <div className="space-y-2 overflow-y-auto pr-1" style={{ maxHeight: 320 }}>
               {chestGuide.prizes.length === 0 ? (
@@ -1005,9 +1049,8 @@ export default function ChildTasks() {
                       <div className="font-black text-gray-800 truncate">{prize.name}</div>
                       <div className="text-xs text-gray-500 truncate">
                         {prize.type === 'coins' ? `${prize.value} 金币` :
-                         prize.type === 'xp' ? `${prize.value} 经验` :
-                         prize.type === 'privilegePoints' ? `${prize.value} 特权点` :
-                         prize.type === 'lotteryTicket' ? `${prize.value} 张抽奖券` : prize.description || '神秘奖励'}
+                         prize.type === 'privilegePoints' ? `${prize.value} ${t('reward.chestTypeRights')}` :
+                         prize.type === 'lotteryTicket' ? t('reward.puzzlePrizeValue', { value: prize.value }) : prize.description || '神秘奖励'}
                       </div>
                     </div>
                     <span className={`text-[10px] px-2 py-1 rounded-full border font-black whitespace-nowrap ${rarity.className}`}>
