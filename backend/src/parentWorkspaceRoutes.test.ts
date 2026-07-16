@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import { ensureParentDailyWelcomeSchema } from './parentDailyWelcome';
+import { getLocalDateString } from './beijingTime';
 import {
   createClaimParentDailyWelcomeHandler,
   createGetParentTodayTasksHandler,
@@ -100,9 +101,10 @@ describe('家长工作台接口', () => {
 
   it('今日安排只返回当前家庭孩子的当日任务，并给出配置总数', async () => {
     const db = await openTestDb();
+    const today = new Date();
     const handler = createGetParentTodayTasksHandler(
       () => db,
-      () => new Date('2026-07-16T02:00:00.000Z'),
+      () => today,
     );
     const response = createResponse();
     await handler(
@@ -110,7 +112,7 @@ describe('家长工作台接口', () => {
       response,
       vi.fn(),
     );
-    expect(response.body.date).toBe('2026-07-16');
+    expect(response.body.date).toBe(getLocalDateString(today));
     expect(response.body.configuredTaskCount).toBe(1);
     expect(response.body.schedules).toHaveLength(1);
     expect(response.body.schedules[0]).toMatchObject({ childId: 'child-1', childName: '孩子' });

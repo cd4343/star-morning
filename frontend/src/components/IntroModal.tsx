@@ -22,7 +22,7 @@ export const IntroModal: React.FC<IntroModalProps> = ({ onClose }) => (
       <div className="p-4 flex justify-end items-center border-b border-gray-50">
         <button
           onClick={onClose}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-colors"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-colors"
         >
           ✕
         </button>

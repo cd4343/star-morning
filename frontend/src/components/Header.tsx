@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { t } from '../i18n';
 
 interface HeaderProps {
   title: string;
@@ -22,7 +23,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onBack, showBack = false,
     <div className={`flex items-center justify-between p-4 bg-white border-b z-10 sticky top-0 ${className}`}>
       <div className="flex items-center">
         {showBack && (
-          <button onClick={handleBack} className="mr-2 p-1 rounded-full hover:bg-gray-100">
+          <button aria-label={t('common.back')} onClick={handleBack} className="mr-2 flex h-11 w-11 items-center justify-center rounded-full hover:bg-gray-100">
             <ChevronLeft size={24} className="text-gray-700" />
           </button>
         )}

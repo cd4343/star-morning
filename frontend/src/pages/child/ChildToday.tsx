@@ -89,7 +89,9 @@ export default function ChildToday() {
     params.set('tab', task.taskType === 'family' ? 'family' : 'today');
     params.set('taskId', task.id);
     params.set('from', 'today');
-    navigate(`/child/challenge?${params.toString()}`, { state: { fromToday: true } });
+    navigate(`/child/challenge?${params.toString()}`, {
+      state: { fromToday: true, startTask: task.status !== 'running' },
+    });
   };
 
   return (

@@ -638,6 +638,7 @@ export default function ChildChallenge() {
       fetchData();
     } catch (e: any) {
       toast.error(e.response?.data?.message || '开始任务失败');
+      setSelectedTask(task);
       fetchData();
     } finally {
       setSubmittingTask(false);
@@ -864,9 +865,13 @@ export default function ChildChallenge() {
       focusRunningTaskCard(targetTask, true);
       return;
     }
+    if (Boolean((location.state as { startTask?: boolean } | null)?.startTask)) {
+      void startTaskInChallenge(targetTask);
+      return;
+    }
     focusTaskCard(targetTask, getTaskTab(targetTask), false);
     setSelectedTask(targetTask);
-  }, [freshDashboardReady, location.key, location.pathname, location.search, tasks]);
+  }, [freshDashboardReady, location.key, location.pathname, location.search, location.state, tasks]);
 
   useEffect(() => {
     if (!runningTask || tasks.length === 0) return;

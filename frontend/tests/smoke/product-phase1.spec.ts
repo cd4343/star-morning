@@ -2,6 +2,27 @@ import { expect, test } from '@playwright/test';
 
 test.use({ viewport: { width: 375, height: 812 } });
 
+test('auth entry keeps every visible touch target usable at 375px', async ({ page }) => {
+  const expectUsableTouchTargets = async () => {
+    const undersized = await page.locator('button:visible').evaluateAll(buttons => buttons
+      .map(button => {
+        const rect = button.getBoundingClientRect();
+        return { label: button.getAttribute('aria-label') || button.textContent?.trim() || '', width: rect.width, height: rect.height };
+      })
+      .filter(button => button.width < 44 || button.height < 44));
+    expect(undersized).toEqual([]);
+  };
+
+  await page.goto('/register');
+  await expect(page.getByRole('button', { name: '返回' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expectUsableTouchTargets();
+
+  await page.getByRole('button', { name: '💡 了解这个应用' }).click();
+  await expect(page.getByRole('button', { name: '✕' })).toBeVisible();
+  await expectUsableTouchTargets();
+});
+
 test('parent completes five-step quick setup at 375px', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('token', 'phase-one-smoke-token');
@@ -230,6 +251,54 @@ test('child challenge rejects a stale Today task id instead of opening another t
   await expect(page).toHaveURL(/\/child\/challenge\?tab=today&from=today$/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByText('真正可做的任务').first()).toBeVisible();
+});
+
+test('child starts a Today task with the single confirmation already made in Today details', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'today-single-start-token');
+    localStorage.setItem('user', JSON.stringify({
+      id: 'child-single-start', name: '测试孩子', role: 'child', familyId: 'family-single-start', coins: 20,
+    }));
+  });
+
+  let startRequests = 0;
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/child/dashboard') {
+      return route.fulfill({ json: {
+        child: { id: 'child-single-start', name: '测试孩子', coins: 20 },
+        tasks: [{
+          id: 'task-start-once', title: '整理今天的书包', category: '生活', status: 'todo',
+          icon: '🎒', coinReward: 8, xpReward: 5, durationMinutes: 8,
+        }],
+        recentReviews: [],
+      } });
+    }
+    if (path === '/api/child/tasks/task-start-once/start') {
+      startRequests += 1;
+      return route.fulfill({ json: {
+        session: {
+          id: 'session-start-once', taskId: 'task-start-once', childId: 'child-single-start',
+          familyId: 'family-single-start', status: 'running', startedAt: new Date().toISOString(),
+        },
+      } });
+    }
+    if (path === '/api/child/screen-time') return route.fulfill({ json: { balance: 10 } });
+    if (path === '/api/child/chest-prizes') return route.fulfill({ json: { prizes: [] } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/child/today');
+  await page.getByTestId('today-task-task-start-once').click();
+
+  const todayDetails = page.getByRole('dialog');
+  await expect(todayDetails).toContainText('整理今天的书包');
+  await todayDetails.getByRole('button', { name: '开始挑战' }).click();
+
+  await expect(page).toHaveURL(/\/child\/challenge\?tab=today&taskId=task-start-once&from=today$/);
+  await expect(page.getByRole('dialog')).toContainText('正在挑战：整理今天的书包');
+  await expect.poll(() => startRequests).toBe(1);
+  await expect(page.getByRole('button', { name: '开始挑战' })).toHaveCount(0);
 });
 
 test('child growth page separates level xp from reward progress', async ({ page }) => {
