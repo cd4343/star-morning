@@ -1,5 +1,5 @@
 export type TaskCompletionMode = 'timer' | 'participation' | 'count' | 'checklist';
-export type TaskRewardCategory = '生活' | '学习' | '早晨启动' | '运动' | '活动' | '情绪调节' | '其他';
+export type TaskRewardCategory = '生活' | '学习' | '运动' | '活动' | '情绪调节' | '其他';
 
 type RewardInput = {
   minutes?: number | string | null;
@@ -19,9 +19,8 @@ export type TaskRewardSuggestion = {
 };
 
 const CATEGORY_ALIASES: Record<TaskRewardCategory, string[]> = {
-  生活: ['生活', '劳动', '生活习惯', '日常', '家务'],
-  学习: ['学习', '学业', '阅读'],
-  早晨启动: ['早晨启动', '晨间启动', '晨读', '早晨复习', '起床复习'],
+  生活: ['生活', '劳动', '生活习惯', '日常', '家务', '早晨启动', '晨间启动'],
+  学习: ['学习', '学业', '阅读', '晨读', '早晨复习', '起床复习'],
   运动: ['运动', '锻炼', '体育'],
   活动: ['活动', '兴趣', '艺术', '亲子', '项目'],
   情绪调节: ['情绪调节', '情绪', '冷静', '冷静练习', '情绪自助'],
@@ -53,11 +52,10 @@ export type TaskResistanceLevel = '轻松' | '普通' | '勇气';
 
 const RESISTANCE_FACTORS: Record<TaskResistanceLevel, number> = { 轻松: 0.8, 普通: 1, 勇气: 1.3 };
 
-// 未显式指定抗拒程度时按类别推断：学习对孩子是「勇气工作」，生活/早晨启动/情绪调节保持轻量
+// 未显式指定抗拒程度时按类别推断：学习对孩子是「勇气工作」，生活/情绪调节保持轻量
 const CATEGORY_DEFAULT_RESISTANCE: Record<TaskRewardCategory, TaskResistanceLevel> = {
   生活: '轻松',
   学习: '勇气',
-  早晨启动: '轻松',
   运动: '普通',
   活动: '普通',
   情绪调节: '轻松',
@@ -80,12 +78,6 @@ const CATEGORY_PROFILES: Record<TaskRewardCategory, { xpFactor: number; privileg
     privilegeMinutes: 45,
     title: '学习奖励建议',
     settlement: '结算时不奖励“做得越快”，主要看是否按小步完成、是否认真、是否需要过多提醒。',
-  },
-  早晨启动: {
-    xpFactor: 1.8,
-    privilegeMinutes: null,
-    title: '早晨启动建议',
-    settlement: '结算时看是否愿意启动、情绪是否平稳、是否完成3到6分钟的小动作；不要按速度或完美度评价。',
   },
   生活: {
     xpFactor: 1.15,

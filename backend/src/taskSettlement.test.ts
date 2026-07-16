@@ -81,7 +81,7 @@ describe('task settlement', () => {
     expect((await db.get('SELECT COUNT(*) AS count FROM task_reward_settlements')).count).toBe(1);
   });
 
-  it('生活任务不会触发游戏时间发放', async () => {
+  it('非学习任务不会触发游戏时间发放', async () => {
     await insertTask('生活');
     const grantGameMinutes = vi.fn();
 
@@ -93,7 +93,21 @@ describe('task settlement', () => {
 
     expect(outcome.result.gameMinutesAwarded).toBe(0);
     expect(grantGameMinutes).not.toHaveBeenCalled();
-    expect(outcome.result.reasons).toContain('生活任务不发放游戏时间');
+    expect(outcome.result.reasons).toContain('只有学习省时任务可在家长确认后获得游戏时间');
+  });
+
+  it('旧晨间任务按生活类兼容，不能继续产生游戏时间', async () => {
+    await insertTask('早晨启动');
+    const grantGameMinutes = vi.fn();
+
+    const outcome = await settleTaskEntry(db, {
+      entryId: 'entry-1',
+      familyId: 'family-1',
+      grantGameMinutes,
+    });
+
+    expect(outcome.result.gameMinutesAwarded).toBe(0);
+    expect(grantGameMinutes).not.toHaveBeenCalled();
   });
 
   it('游戏时间发放失败时回滚任务状态与所有余额', async () => {

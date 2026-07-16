@@ -181,7 +181,7 @@ export const settleTaskEntry = async (
 
   const category = normalizeRewardCategory(entry.category);
   let gameAward: TaskGameAward = { gameMinutesAwarded: 0, reasons: [] };
-  if ((category === '学习' || category === '早晨启动') && input.grantGameMinutes) {
+  if (category === '学习' && input.grantGameMinutes) {
     gameAward = await input.grantGameMinutes(entry);
   }
 
@@ -191,7 +191,7 @@ export const settleTaskEntry = async (
   ];
   if (familyMultiplier) reasons.push('家庭合作任务已按约定倍率结算');
   if (privilegePointsAwarded > 0) reasons.push(`累计成长进度达到新阶段，获得${privilegePointsAwarded}特权点`);
-  if (category === '生活') reasons.push('生活任务不发放游戏时间');
+  if (category !== '学习') reasons.push('只有学习省时任务可在家长确认后获得游戏时间');
   reasons.push(...(gameAward.reasons || []));
 
   const balance = await db.get<{ coins: number; privilegePoints: number }>(

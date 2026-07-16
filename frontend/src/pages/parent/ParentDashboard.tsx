@@ -145,28 +145,6 @@ const LIFE_RESULT_OPTIONS: ScoreOption[] = [
   { label: '需要返工', value: -20, emoji: '🔁' },
 ];
 
-// 早晨启动：分值分别复用 TIME / QUALITY / INITIATIVE 既有档位
-const MORNING_START_OPTIONS: ScoreOption[] = [
-  { label: '提前就绪', value: 20, emoji: '🌅' },
-  { label: '按点启动', value: 0, emoji: '✅' },
-  { label: '稍有磨蹭', value: -10, emoji: '⏰' },
-  { label: '拖延较久', value: -20, emoji: '🐢' },
-];
-
-const MORNING_FLOW_OPTIONS: ScoreOption[] = [
-  { label: '全部完成', value: 30, emoji: '🌟' },
-  { label: '基本完成', value: 10, emoji: '👍' },
-  { label: '少了一两项', value: 0, emoji: '😐' },
-  { label: '大多没做', value: -30, emoji: '😞' },
-];
-
-const MORNING_WAKE_OPTIONS: ScoreOption[] = [
-  { label: '闹钟即起', value: 20, emoji: '⏰' },
-  { label: '叫一次就起', value: 0, emoji: '👌' },
-  { label: '叫了几次', value: -10, emoji: '📢' },
-  { label: '反复催促', value: -20, emoji: '🔔' },
-];
-
 // 情绪调节：分值分别复用 SPORT_PARTICIPATION / SPORT_ACTION / SPORT_INITIATIVE 既有档位
 const EMOTION_TIMING_OPTIONS: ScoreOption[] = [
   { label: '很快用上', value: 10, emoji: '🌈' },
@@ -275,7 +253,7 @@ export default function ParentDashboard() {
 
   // 预设原因
   const PRESET_REASONS = ['磨蹭拖拉', '态度消极', '未达要求', '说谎欺骗', '屡教不改'];
-  const HISTORY_CATEGORIES = ['all', '生活', '学习', '早晨启动', '运动', '活动', '情绪调节', '其他'];
+  const HISTORY_CATEGORIES = ['all', '生活', '学习', '运动', '活动', '情绪调节', '其他'];
 
   // 任务详情弹窗状态
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -604,8 +582,8 @@ export default function ParentDashboard() {
 
   const getReviewScoreDimensions = (): ScoreDimension[] => {
     const rawCategory = String(reviewSuggestion?.category || currentReview?.category || '');
-    const category = ['劳动', '生活习惯', '日常', '家务'].includes(rawCategory) ? '生活'
-      : ['晨间启动', '晨读', '早晨复习', '起床复习'].includes(rawCategory) ? '早晨启动'
+    const category = ['劳动', '生活习惯', '日常', '家务', '早晨启动', '晨间启动'].includes(rawCategory) ? '生活'
+      : ['晨读', '早晨复习', '起床复习'].includes(rawCategory) ? '学习'
       : ['情绪', '冷静', '冷静练习', '情绪自助'].includes(rawCategory) ? '情绪调节'
       : rawCategory;
     const completionMode = String(reviewSuggestion?.completionMode || currentReview?.completionMode || 'timer');
@@ -642,13 +620,6 @@ export default function ParentDashboard() {
         { key: 'time' as ScoreKey, title: '及时完成', icon: <CheckCircle2 size={16} className="text-emerald-500" />, activeClass: 'bg-emerald-500', options: LIFE_STABILITY_OPTIONS, hint: '生活类看稳定和及时做到，不因做得快加大奖励。' },
         { key: 'quality' as ScoreKey, title: '仔细程度', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: LIFE_RESULT_OPTIONS, hint: '做完是否顺手归位、有没有糊弄。' },
         { key: 'initiative' as ScoreKey, title: '不用提醒', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: INITIATIVE_OPTIONS, hint: '看叫一次就动，还是催了好几次才动。' },
-      ];
-    }
-    if (category === '早晨启动') {
-      return [
-        { key: 'time' as ScoreKey, title: '按点启动', icon: <Clock size={16} className="text-sky-500" />, activeClass: 'bg-sky-500', options: MORNING_START_OPTIONS, hint: '按约定时间开始行动就是好的开始，不比速度。' },
-        { key: 'quality' as ScoreKey, title: '流程完整', icon: <Star size={16} className="text-yellow-500" />, activeClass: 'bg-yellow-500', options: MORNING_FLOW_OPTIONS, hint: '洗漱、穿衣、吃饭是否都完成。' },
-        { key: 'initiative' as ScoreKey, title: '自己起床', icon: <Bell size={16} className="text-purple-500" />, activeClass: 'bg-purple-500', options: MORNING_WAKE_OPTIONS, hint: '闹钟一响就行动是最高分。' },
       ];
     }
     if (category === '情绪调节') {

@@ -42,19 +42,6 @@ export const getSuggestedTaskReward = (input: RewardInput): TaskRewardSuggestion
     };
   }
 
-  if (category === '早晨启动') {
-    const coins = clamp(Math.round(2 + minutes * 0.45), 2, 5);
-    const xp = clamp(Math.round(5 + minutes * 0.8), 5, 10);
-    return {
-      coins,
-      xp,
-      privilegePoints: 0,
-      title: '早晨启动建议',
-      basis: '只奖励开始和完成一小步，保持轻量，避免早晨变成拉扯。',
-      settlement: '结算时看是否愿意启动、情绪是否平稳、是否完成3到6分钟的小动作；不要按速度或完美度评价。',
-    };
-  }
-
   if (category === '生活') {
     const coins = clamp(roundToFive(4 + minutes * 0.55), 5, 25);
     const xp = clamp(roundToFive(coins * 1.15), 5, 35);

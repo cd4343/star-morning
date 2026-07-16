@@ -12,6 +12,35 @@ import { ensureParentDailyWelcomeSchema } from './parentDailyWelcome';
 
 let db: Database;
 
+export const migrateRetiredMorningTaskCategories = async (database: Database) => {
+  const version = 'phase9a-retire-morning-category';
+  const applied = await database.get('SELECT version FROM schema_versions WHERE version = ?', version);
+  if (applied) return;
+
+  await database.exec('BEGIN IMMEDIATE');
+  try {
+    await database.run(`
+      UPDATE tasks
+         SET category = CASE
+           WHEN title LIKE '%晨读%' OR title LIKE '%阅读%' OR title LIKE '%复习%'
+             OR title LIKE '%背诵%' OR title LIKE '%作业%' OR title LIKE '%学习%'
+           THEN '学习'
+           ELSE '生活'
+         END
+       WHERE category IN ('早晨启动', '晨间启动', '晨读', '早晨复习', '起床复习')
+    `);
+    await database.run(
+      'INSERT INTO schema_versions (version, description) VALUES (?, ?)',
+      version,
+      '停用晨间任务分类：学习标题迁移为学习，其余迁移为生活'
+    );
+    await database.exec('COMMIT');
+  } catch (error) {
+    await database.exec('ROLLBACK');
+    throw error;
+  }
+};
+
 export const initializeDatabase = async () => {
   const dbPath = process.env.STARCOIN_DB_PATH
     ? path.resolve(process.env.STARCOIN_DB_PATH)
@@ -64,6 +93,8 @@ export const initializeDatabase = async () => {
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);
   }
+
+  await migrateRetiredMorningTaskCategories(db);
 
   try { await db.run('ALTER TABLE users ADD COLUMN pin TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN phone TEXT'); } catch (e) {}

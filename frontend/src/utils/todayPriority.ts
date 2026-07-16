@@ -23,11 +23,7 @@ export const sortTodayTasks = (tasks: TodayTask[]): TodayTask[] => (
     .filter(isActionable)
     .map((task, index) => ({ task, index }))
     .sort((left, right) => {
-      const priority = (task: TodayTask) => {
-        if (task.status === 'running') return 0;
-        if (task.category === '早晨启动') return 1;
-        return 2;
-      };
+      const priority = (task: TodayTask) => task.status === 'running' ? 0 : 1;
       return priority(left.task) - priority(right.task) || left.index - right.index;
     })
     .map(item => item.task)

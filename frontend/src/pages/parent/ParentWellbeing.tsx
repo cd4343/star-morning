@@ -103,7 +103,7 @@ const SCREEN_RECORD_TYPE_FILTERS = [
   { value: 'grant', label: '发放' },
   { value: 'deduct', label: '扣减' },
   { value: 'study_saved_time', label: '学习节省' },
-  { value: 'morning_startup', label: '早晨启动' },
+  { value: 'morning_startup', label: '历史晨间（已停用）' },
   { value: 'session', label: '使用' },
   { value: 'completed', label: '已结束' },
 ] as const;
@@ -143,7 +143,7 @@ export default function ParentWellbeing() {
   const [saving, setSaving] = useState(false);
   const [grantChildId, setGrantChildId] = useState('');
   const [grantMinutes, setGrantMinutes] = useState(10);
-  const [grantReason, setGrantReason] = useState('完成额外努力');
+  const [grantReason, setGrantReason] = useState('');
   const [emotionDateFilter, setEmotionDateFilter] = useState<EmotionDateFilter>('week');
   const [emotionSceneFilter, setEmotionSceneFilter] = useState('all');
   const [emotionHelpedFilter, setEmotionHelpedFilter] = useState<EmotionHelpedFilter>('all');
@@ -227,13 +227,14 @@ export default function ParentWellbeing() {
 
   const grantTicket = async () => {
     if (!grantChildId) return toast.warning('请先选择孩子');
+    if (grantReason.trim().length < 2) return toast.warning('请填写至少 2 个字的纠错原因');
     try {
       await api.post('/parent/screen-time/grant', {
         childId: grantChildId,
         minutes: grantMinutes,
         reason: grantReason,
       });
-      toast.success(grantMinutes > 0 ? '游戏票已发放' : '游戏票已扣减');
+      toast.success(grantMinutes > 0 ? '游戏票余额已增加' : '游戏票余额已扣减');
       fetchData();
     } catch (e: any) {
       toast.error(e.response?.data?.message || '调整失败');
@@ -299,17 +300,20 @@ export default function ParentWellbeing() {
                 </span>
               </span>
             </label>
-            <Field label="兑换比例（节省 1 分钟 = ? 分钟游戏票）">
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                value={rules.studySavedTimeRatio}
-                onChange={e => updateRule('studySavedTimeRatio', Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl border bg-white"
-              />
-            </Field>
+            <details className="rounded-xl bg-white border border-sky-100 px-3 py-2">
+              <summary className="min-h-11 flex items-center cursor-pointer text-xs font-black text-sky-700">高级设置：兑换比例</summary>
+              <Field label="节省 1 分钟 = ? 分钟游戏票">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                  value={rules.studySavedTimeRatio}
+                  onChange={e => updateRule('studySavedTimeRatio', Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border bg-white"
+                />
+              </Field>
+            </details>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -328,7 +332,7 @@ export default function ParentWellbeing() {
           </div>
 
           <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3 text-xs text-emerald-700 font-bold leading-relaxed">
-            规则说明：游戏票按北京时间当天统计，未使用分钟不会结转到明天；每日基础建议 15 分钟；每日可用分钟会被“每日上限”封顶；学习节省时间只奖励学习类任务，早晨启动任务每天最多奖励 1 分钟；每次结束后会按“冷却分钟”限制再次开启。
+            规则说明：游戏票按北京时间当天统计，未使用分钟不会结转到明天；每日基础建议 15 分钟；每日可用分钟会被“每日上限”封顶；任务奖励只来自家长确认后的学习省时；每次结束后会按“冷却分钟”限制再次开启。
           </div>
 
           <Button onClick={saveRules} loading={saving} className="w-full bg-emerald-500 border-none">
@@ -338,7 +342,7 @@ export default function ParentWellbeing() {
 
         <Card className="space-y-3">
           <div className="flex items-center gap-2 font-black text-gray-800">
-            <Sparkles size={20} className="text-yellow-500" /> 发放/扣减游戏票
+            <Sparkles size={20} className="text-yellow-500" /> 游戏票余额纠错
           </div>
           {overview.length === 0 ? (
             <div className="text-sm text-gray-400 text-center py-6">还没有孩子成员，先到家庭管理添加孩子。</div>
@@ -354,11 +358,11 @@ export default function ParentWellbeing() {
                   <input type="number" value={grantMinutes} onChange={e => setGrantMinutes(Number(e.target.value) || 0)} className="w-full px-3 py-2 rounded-xl border bg-gray-50" />
                 </Field>
               </div>
-              <Field label="原因">
-                <input value={grantReason} onChange={e => setGrantReason(e.target.value)} className="w-full px-3 py-2 rounded-xl border bg-gray-50" />
+              <Field label="纠错原因（必填）">
+                <input value={grantReason} onChange={e => setGrantReason(e.target.value)} placeholder="例如：补记昨日少算的 5 分钟" className="w-full px-3 py-2 rounded-xl border bg-gray-50" />
               </Field>
               <Button onClick={grantTicket} variant="secondary" className="w-full">
-                调整游戏票
+                确认纠错
               </Button>
             </>
           )}
@@ -393,8 +397,8 @@ export default function ParentWellbeing() {
               </div>
               <div className="grid grid-cols-3 gap-1.5 text-[10px] font-bold">
                 <div className="rounded-xl bg-sky-50 text-sky-600 px-2 py-1.5">学习 +{child.breakdown?.studySaved ?? 0}</div>
-                <div className="rounded-xl bg-amber-50 text-amber-600 px-2 py-1.5">早晨 +{(child.breakdown?.morningStartup ?? 0) + (child.breakdown?.morningStreak ?? 0)}</div>
-                <div className="rounded-xl bg-gray-50 text-gray-500 px-2 py-1.5">家长 {child.breakdown?.manual ?? 0}</div>
+                <div className="rounded-xl bg-amber-50 text-amber-600 px-2 py-1.5">历史晨间 +{(child.breakdown?.morningStartup ?? 0) + (child.breakdown?.morningStreak ?? 0)}</div>
+                <div className="rounded-xl bg-gray-50 text-gray-500 px-2 py-1.5">纠错 {child.breakdown?.manual ?? 0}</div>
               </div>
             </Card>
           ))}
@@ -486,7 +490,7 @@ export default function ParentWellbeing() {
               : isStudySaved
                 ? `学习节省 +${Math.abs(Number(record.minutes || 0))} 分钟`
                 : isMorningStartup
-                  ? `早晨启动 +${Math.abs(Number(record.minutes || 0))} 分钟`
+                  ? `历史晨间（已停用） +${Math.abs(Number(record.minutes || 0))} 分钟`
                   : `${isPositive ? '发放' : '扣减'} ${Math.abs(Number(record.minutes || 0))} 分钟`;
             const statusText: Record<string, string> = {
               running: '进行中',
@@ -510,7 +514,7 @@ export default function ParentWellbeing() {
                     </div>
                   </div>
                   <div className="text-xs text-gray-500 mt-0.5">
-                    {record.reason || (isSession ? '孩子开启游戏票' : '家长调整')}
+                    {record.reason || (isSession ? '孩子开启游戏票' : '家长余额纠错')}
                   </div>
                   <div className="text-[10px] text-gray-400 mt-1">{new Date(record.createdAt).toLocaleString(getDateLocale())}</div>
                 </div>

@@ -64,7 +64,7 @@ const TASK_TEMPLATES: Record<FocusArea, QuickStartTask> = {
     templateKey: 'quick-start-morning',
     focusArea: 'morning',
     title: '选一个晨间小行动',
-    category: '早晨启动',
+    category: '生活',
     coinReward: 4,
     xpReward: 8,
     durationMinutes: 5,

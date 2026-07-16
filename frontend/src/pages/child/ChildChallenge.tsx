@@ -82,7 +82,6 @@ const REVIEW_FOCUS_BY_CATEGORY: Record<string, string> = {
   学习: '专注投入、认真程度、自主与求助（求助加分）',
   生活: '及时完成、仔细程度、不用提醒',
   运动: '坚持时长、投入程度、愿意开始',
-  早晨启动: '按点启动、流程完整、自己起床',
   情绪调节: '及时使用、方法完成度、主动觉察',
 };
 
@@ -1332,9 +1331,6 @@ export default function ChildChallenge() {
 
   const getTaskGameTicketHint = (task: Task) => {
     const category = normalizeTaskCategory(task.category);
-    if (category === '早晨启动') {
-      return '审核通过后，今天可获得 +1 分钟游戏票；连续3天早晨启动还有额外奖励。';
-    }
     if (category === '学习' && Number(task.durationMinutes || task.duration || 0) > 0 && Number(screenSummary?.rules?.studySavedTimeEnabled ?? 1) === 1) {
       return '高质量完成并节省的学习时间，会按家长设置兑换成今天的游戏票。';
     }

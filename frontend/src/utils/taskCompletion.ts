@@ -74,7 +74,6 @@ export const getDefaultReviewFocus = (mode: TaskCompletionMode, category?: strin
   if (normalized === '运动') return '参与完整、动作安全、愿意开始';
   if (normalized === '活动') return '投入过程、完成约定、合作表达';
   if (normalized === '情绪调节') return '识别感受、使用冷静方法、恢复后表达';
-  if (normalized === '早晨启动') return '愿意开始、情绪平稳、完成一小步';
   if (normalized === '学习') return '开始及时、质量认真、少量提醒';
   if (normalized === '生活') return '动作完成、结果可用、逐步独立';
   if (mode === 'checklist') return '关键步骤是否完成';

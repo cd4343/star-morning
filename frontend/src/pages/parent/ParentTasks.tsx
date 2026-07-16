@@ -49,10 +49,9 @@ const TASK_TEMPLATES = [
   { title: '练习写字', category: '学习', coinReward: 20, xpReward: 20, duration: 20, icon: '✍️' },
   { title: '背诵古诗', category: '学习', coinReward: 25, xpReward: 25, duration: 15, icon: '📜' },
   { title: '英语单词', category: '学习', coinReward: 20, xpReward: 20, duration: 15, icon: '🔤' },
-  // 早晨启动
-  { title: '朗读课文5分钟', category: '早晨启动', coinReward: 4, xpReward: 8, duration: 5, icon: '🌤️' },
-  { title: '复习3个小知识点', category: '早晨启动', coinReward: 4, xpReward: 8, duration: 5, icon: '🧠' },
-  { title: '选一个晨读小任务', category: '早晨启动', coinReward: 3, xpReward: 6, duration: 3, icon: '📖' },
+  { title: '朗读课文5分钟', category: '学习', coinReward: 4, xpReward: 8, duration: 5, icon: '🌤️' },
+  { title: '复习3个小知识点', category: '学习', coinReward: 4, xpReward: 8, duration: 5, icon: '🧠' },
+  { title: '选一个晨读小任务', category: '学习', coinReward: 3, xpReward: 6, duration: 3, icon: '📖' },
   // 家务劳动
   { title: '扫地拖地', category: '生活', coinReward: 30, xpReward: 30, duration: 20, icon: '🧹' },
   { title: '洗碗', category: '生活', coinReward: 25, xpReward: 25, duration: 15, icon: '🍽️' },

@@ -432,7 +432,7 @@ export default function ChildCalm() {
 
           <div className="grid grid-cols-3 gap-2 text-[10px] font-black">
             <div className="rounded-xl bg-sky-50 text-sky-600 px-2 py-2 text-center">学习 +{summary?.breakdown?.studySaved ?? 0}</div>
-            <div className="rounded-xl bg-amber-50 text-amber-600 px-2 py-2 text-center">早晨 +{(summary?.breakdown?.morningStartup ?? 0) + (summary?.breakdown?.morningStreak ?? 0)}</div>
+            <div className="rounded-xl bg-amber-50 text-amber-600 px-2 py-2 text-center">历史 +{(summary?.breakdown?.morningStartup ?? 0) + (summary?.breakdown?.morningStreak ?? 0)}</div>
             <div className="rounded-xl bg-slate-50 text-slate-500 px-2 py-2 text-center">现在 {summary?.window?.beijingTime || '--'}</div>
           </div>
 
@@ -494,7 +494,7 @@ export default function ChildCalm() {
           )}
 
           <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-2.5 text-[11px] leading-relaxed text-emerald-700 font-bold">
-            游戏票当天有效。学习任务节省的分钟、家长发放和部分奖励会增加游戏票，开始使用后按本次分钟扣除。
+            游戏票当天有效。任务奖励只来自家长确认后的学习省时；家庭权益和余额纠错会单独记录，开始使用后按本次分钟扣除。
           </div>
         </Card>
       )}

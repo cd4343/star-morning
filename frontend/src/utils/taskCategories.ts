@@ -1,4 +1,4 @@
-export type TaskCategoryKey = '生活' | '学习' | '早晨启动' | '运动' | '活动' | '情绪调节' | '其他';
+export type TaskCategoryKey = '生活' | '学习' | '运动' | '活动' | '情绪调节' | '其他';
 
 export const TASK_CATEGORY_OPTIONS: Array<{
   value: TaskCategoryKey;
@@ -14,7 +14,7 @@ export const TASK_CATEGORY_OPTIONS: Array<{
     label: '生活',
     parentDesc: '自理、卫生、整理、家务和日常习惯。目标是让生活更稳定，不建议单次奖励过高。',
     childHint: '让今天更顺一点的小动作。',
-    aliases: ['劳动', '生活习惯', '日常', '家务'],
+    aliases: ['劳动', '生活习惯', '日常', '家务', '早晨启动', '晨间启动'],
   },
   {
     value: '学习',
@@ -22,15 +22,7 @@ export const TASK_CATEGORY_OPTIONS: Array<{
     label: '学习',
     parentDesc: '作业、阅读、复习、背诵、练字等需要专注和认知投入的任务。',
     childHint: '先开始一小步，不用一下子做完全部。',
-    aliases: ['学业', '阅读'],
-  },
-  {
-    value: '早晨启动',
-    icon: '🌤️',
-    label: '早晨启动',
-    parentDesc: '晨读、复习朗读、准备学习状态等3到6分钟的小启动。目标是降低抗拒，不追求一次学很多。',
-    childHint: '只做一个很小的开始，让早晨先顺起来。',
-    aliases: ['晨间启动', '晨读', '早晨复习', '起床复习'],
+    aliases: ['学业', '阅读', '晨读', '早晨复习', '起床复习'],
   },
   {
     value: '运动',

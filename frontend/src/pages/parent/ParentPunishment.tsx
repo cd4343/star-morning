@@ -54,7 +54,7 @@ const RECORD_LEVEL_FILTERS = [
   { value: 'custom', label: '自定义' },
 ];
 
-const RECORD_CATEGORY_FILTERS = ['all', '生活', '学习', '早晨启动', '运动', '活动', '情绪调节', '其他'];
+const RECORD_CATEGORY_FILTERS = ['all', '生活', '学习', '运动', '活动', '情绪调节', '其他'];
 
 const LEVEL_LABELS: Record<string, string> = {
   mild: '轻度',

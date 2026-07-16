@@ -8,7 +8,7 @@ import {
 // 这些测试锁住"金币/经验"的确定性数学与边界。
 // 任何改动若破坏"整数、≥1、勇气>普通>轻松、开方防刷时长、特权点门槛、锁定公式"等业务约定，必须让测试失败（Rule 9：测试验证意图）。
 
-const CATEGORIES = ['生活', '学习', '早晨启动', '运动', '活动', '情绪调节', '其他'] as const;
+const CATEGORIES = ['生活', '学习', '运动', '活动', '情绪调节', '其他'] as const;
 const RESISTANCES = ['轻松', '普通', '勇气'] as const;
 
 describe('金币/经验：整数与下限（不允许浮点、零、负数）', () => {
@@ -67,8 +67,8 @@ describe('特权点门槛（达到类别时长才给 1 点；无门槛类别永�
     expect(getTaskRewardSuggestion({ category: '生活', minutes: 60 }).privilegePoints).toBe(1);
     expect(getTaskRewardSuggestion({ category: '生活', minutes: 59 }).privilegePoints).toBe(0);
   });
-  it('运动/情绪调节/早晨启动 无论多久都不给特权点', () => {
-    for (const category of ['运动', '情绪调节', '早晨启动']) {
+  it('运动/情绪调节无论多久都不给特权点', () => {
+    for (const category of ['运动', '情绪调节']) {
       expect(getTaskRewardSuggestion({ category, minutes: 180 }).privilegePoints).toBe(0);
     }
   });
@@ -90,7 +90,9 @@ describe('经验 = round(金币 × 类别倍率)（锁公式，改了要让测�
 describe('类别 / 抗拒 归一化', () => {
   it('别名映射到正确类别', () => {
     expect(normalizeRewardCategory('阅读')).toBe('学习');
+    expect(normalizeRewardCategory('晨读')).toBe('学习');
     expect(normalizeRewardCategory('家务')).toBe('生活');
+    expect(normalizeRewardCategory('早晨启动')).toBe('生活');
     expect(normalizeRewardCategory('锻炼')).toBe('运动');
     expect(normalizeRewardCategory('不存在的类别')).toBe('其他');
   });
