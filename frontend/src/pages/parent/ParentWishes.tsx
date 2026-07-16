@@ -1134,7 +1134,7 @@ export default function ParentWishes() {
               </div>
               <div className="p-3 rounded-xl border border-amber-100 bg-amber-50 text-xs text-amber-800">
                 <div className="font-bold mb-2">奖项设置推荐</div>
-                <div className="mb-2 leading-relaxed">简单任务优先小金币/成长，中等任务可放抽奖券，困难或高抗拒任务再放权益点。宝箱每次完成任务都会出现，所以奖品数值宜小、层级清楚。</div>
+                <div className="mb-2 leading-relaxed">{t('reward.parentChestRuleDesc')} {t('reward.chestPuzzleDesc')}</div>
                 <div className="grid grid-cols-2 gap-2">
                   {CHEST_RECOMMENDATIONS.map(item => (
                     <button

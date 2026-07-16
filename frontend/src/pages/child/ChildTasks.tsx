@@ -964,7 +964,7 @@ export default function ChildTasks() {
 
               {detailIsPreview && (
                 <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 text-xs text-amber-700 font-bold leading-relaxed">
-                  完成任务后会立即打开宝箱。任务越难，越容易获得价值更高的惊喜奖励。
+                  {t('reward.chestRuleSummary')}
                 </div>
               )}
 
