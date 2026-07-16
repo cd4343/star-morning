@@ -54,4 +54,8 @@ export type Privilege = {
   cost: number;
   level?: string;
   timeWindow?: string | null;
+  category?: string;
+  is_enabled?: number | boolean;
+  is_preset?: number | boolean;
+  game_minutes?: number;
 };

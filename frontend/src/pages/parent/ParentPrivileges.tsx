@@ -14,37 +14,23 @@ import { BottomSheet } from '../../components/BottomSheet';
 import { IconPicker } from '../../components/IconPicker';
 import { TimeWindowEditor } from '../../components/TimeWindowEditor';
 import { CreateActionCard } from '../../components/CreateActionCard';
+import { ParentGameTimePrivilegeApprovals } from '../../components/parent/ParentGameTimePrivilegeApprovals';
 
-// 特权模板 - 以服务性商品为主
+// 系统模板只提供安全的家庭选择权，不把基本生活、安全和照护商品化。
 const PRIVILEGE_TEMPLATES = [
-  // 时间类特权
-  { title: '晚睡30分钟', desc: '周末可以晚睡30分钟', cost: 3, icon: '🌙', category: '时间' },
-  { title: '晚睡1小时', desc: '周末可以晚睡1小时', cost: 5, icon: '🌙', category: '时间' },
-  { title: '多玩30分钟', desc: '额外获得30分钟游戏/娱乐时间', cost: 5, icon: '🎮', category: '时间' },
-  { title: '免早起一次', desc: '周末可以睡懒觉一次', cost: 8, icon: '😴', category: '时间' },
-  // 家务免除类
-  { title: '免做家务一次', desc: '可以免除一次家务任务', cost: 5, icon: '🧹', category: '家务' },
-  { title: '免洗碗一次', desc: '免除一次洗碗任务', cost: 3, icon: '🍽️', category: '家务' },
-  { title: '免整理房间', desc: '免除一次整理房间任务', cost: 4, icon: '🛏️', category: '家务' },
-  { title: '免倒垃圾一周', desc: '一周内免除倒垃圾任务', cost: 10, icon: '🗑️', category: '家务' },
-  // 娱乐类特权
-  { title: '看电视30分钟', desc: '额外看电视30分钟', cost: 3, icon: '📺', category: '娱乐' },
-  { title: '看电影一部', desc: '可以看一部喜欢的电影', cost: 8, icon: '🎬', category: '娱乐' },
-  { title: '玩手机30分钟', desc: '额外玩手机30分钟', cost: 5, icon: '📱', category: '娱乐' },
-  { title: '玩游戏1小时', desc: '额外玩游戏1小时', cost: 10, icon: '🕹️', category: '娱乐' },
-  // 外出类特权
-  { title: '去公园玩', desc: '周末去公园玩一次', cost: 5, icon: '🏞️', category: '外出' },
-  { title: '去游乐场', desc: '去游乐场玩一次', cost: 15, icon: '🎢', category: '外出' },
-  { title: '和朋友玩', desc: '可以约朋友来家里或出去玩', cost: 5, icon: '👫', category: '外出' },
-  { title: '外出吃饭', desc: '可以选择去哪里吃饭', cost: 10, icon: '🍔', category: '外出' },
-  // 特殊奖励
-  { title: '选择晚餐', desc: '今天晚餐由你决定吃什么', cost: 3, icon: '🍕', category: '特殊' },
-  { title: '买小玩具', desc: '可以买一个小玩具（50元内）', cost: 20, icon: '🧸', category: '特殊' },
-  { title: '免作业检查', desc: '作业完成后免检查一次', cost: 8, icon: '📝', category: '特殊' },
-  { title: '亲子活动', desc: '和爸妈一起做喜欢的事', cost: 5, icon: '👨‍👩‍👧', category: '特殊' },
+  { title: t('privilege.template.dinner.title'), desc: t('privilege.template.dinner.desc'), cost: 3, icon: '🍽️', category: '家庭选择权' },
+  { title: t('privilege.template.weekend.title'), desc: t('privilege.template.weekend.desc'), cost: 5, icon: '🗓️', category: '家庭活动' },
+  { title: t('privilege.template.parentTime.title'), desc: t('privilege.template.parentTime.desc'), cost: 5, icon: '👨‍👩‍👧', category: '亲子体验' },
+  { title: t('privilege.template.together.title'), desc: t('privilege.template.together.desc'), cost: 8, icon: '🤝', category: '亲子体验' },
+  { title: t('privilege.template.order.title'), desc: t('privilege.template.order.desc'), cost: 3, icon: '🔀', category: '任务自主' },
+  { title: t('privilege.template.retry.title'), desc: t('privilege.template.retry.desc'), cost: 3, icon: '🔁', category: '任务自主' },
+  { title: t('privilege.template.delay.title'), desc: t('privilege.template.delay.desc'), cost: 5, icon: '⏳', category: '任务自主' },
+  { title: t('privilege.template.content.title'), desc: t('privilege.template.content.desc'), cost: 5, icon: '🎬', category: '娱乐选择' },
+  { title: t('privilege.template.familyGame.title'), desc: t('privilege.template.familyGame.desc'), cost: 5, icon: '🎲', category: '娱乐选择' },
+  { title: t('privilege.template.game15.title'), desc: t('privilege.template.game15.desc'), cost: 5, icon: '🎮', category: '娱乐选择', gameMinutes: 15 },
 ];
 
-const PRIVILEGE_CATEGORIES = ['时间', '家务', '娱乐', '外出', '特殊', '其他'];
+const PRIVILEGE_CATEGORIES = ['家庭选择权', '亲子体验', '任务自主', '娱乐选择', '家庭活动', '其他'];
 
 const PRIVILEGE_GUIDE = [
   { label: '小特权', cost: 3, desc: '5-15 分钟、低成本、可频繁兑现' },
@@ -63,7 +49,10 @@ export default function ParentPrivileges() {
   const [desc, setDesc] = useState('');
   const [cost, setCost] = useState('');
   const [icon, setIcon] = useState('👑');
-  const [category, setCategory] = useState('时间');
+  const [category, setCategory] = useState('家庭选择权');
+  const [gameMinutes, setGameMinutes] = useState('0');
+  const [editGameMinutes, setEditGameMinutes] = useState('0');
+  const [editEnabled, setEditEnabled] = useState(true);
 
   // 编辑状态
   const [editingPrivilege, setEditingPrivilege] = useState<any>(null);
@@ -105,6 +94,8 @@ export default function ParentPrivileges() {
     setEditIcon(p.icon || '👑');
     setEditLevel(p.level || 'bronze');
     setEditCategory(p.category || '其他');
+    setEditGameMinutes(String(p.game_minutes || 0));
+    setEditEnabled(p.is_enabled !== 0);
     // 解析时间限制
     if (p.timeWindow) {
       try {
@@ -136,7 +127,9 @@ export default function ParentPrivileges() {
         ? JSON.stringify({ enabled: true, start: editTimeWindowStart, end: editTimeWindowEnd, days: editTimeWindowDays })
         : null;
       await api.put(`/parent/privileges/${editingPrivilege.id}`, {
-        title, description: desc, cost: +cost, icon: editIcon, level: editLevel, timeWindow, category: editCategory || '其他'
+        title, description: desc, cost: +cost, icon: editIcon, level: editLevel, timeWindow,
+        category: editCategory || '其他', isEnabled: editEnabled ? 1 : 0,
+        gameMinutes: Math.max(0, Number(editGameMinutes) || 0)
       });
       setEditingPrivilege(null);
       setTitle(''); setDesc(''); setCost(''); setEditIcon('👑'); setEditLevel('bronze'); setEditCategory('其他');
@@ -154,22 +147,22 @@ export default function ParentPrivileges() {
     const timeWindow = timeWindowEnabled
       ? JSON.stringify({ enabled: true, start: timeWindowStart, end: timeWindowEnd, days: timeWindowDays })
       : null;
-    await api.post('/parent/privileges', { title, description: desc, cost: +cost, icon, level, timeWindow, category });
-    setShowAdd(false); setTitle(''); setDesc(''); setCost(''); setIcon('👑'); setLevel('bronze'); setCategory('时间'); setTimeWindowEnabled(false);
+    await api.post('/parent/privileges', { title, description: desc, cost: +cost, icon, level, timeWindow, category, gameMinutes: Math.max(0, Number(gameMinutes) || 0) });
+    setShowAdd(false); setTitle(''); setDesc(''); setCost(''); setIcon('👑'); setLevel('bronze'); setCategory('家庭选择权'); setGameMinutes('0'); setTimeWindowEnabled(false);
     toast.success('添加成功');
     fetchList();
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (privilege: any) => {
     const confirmed = await confirm({
-      title: '删除特权',
-      message: '确定删除这个特权吗？',
+      title: privilege.is_preset ? '停用系统特权' : '删除特权',
+      message: privilege.is_preset ? '停用后孩子端不再显示，之后仍可在编辑中重新启用。' : '确定删除这个特权吗？',
       type: 'danger',
-      confirmText: '删除',
+      confirmText: privilege.is_preset ? '停用' : '删除',
     });
     if (!confirmed) return;
-    await api.delete(`/parent/privileges/${id}`);
-    toast.success('删除成功');
+    await api.delete(`/parent/privileges/${privilege.id}`);
+    toast.success(privilege.is_preset ? '已停用' : '删除成功');
     fetchList();
   };
 
@@ -185,7 +178,9 @@ export default function ParentPrivileges() {
           cost: template.cost,
           icon: template.icon,
           category: template.category,
-          level: 'bronze'
+          level: 'bronze',
+          gameMinutes: 'gameMinutes' in template ? template.gameMinutes : 0,
+          isPreset: 1
         });
       }
       toast.success(`成功添加 ${selectedCount} 个特权！`);
@@ -259,6 +254,11 @@ export default function ParentPrivileges() {
             <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" placeholder="1" value={cost} onChange={e => setCost(e.target.value)} />
             <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{t('privileges.costHint')}</p>
           </div>
+          <div>
+            <label className="text-xs text-gray-500 font-bold block mb-1">🎮 {t('privilege.form.gameMinutes')}</label>
+            <input className="w-full min-h-[44px] p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" min="0" max="120" value={gameMinutes} onChange={e => setGameMinutes(e.target.value)} />
+            <p className="text-[11px] text-gray-400 mt-1">{t('privilege.form.gameMinutesHint')}</p>
+          </div>
           <div className="p-3 rounded-xl border border-purple-100 bg-purple-50 text-xs text-purple-800">
             <div className="font-bold mb-2">特权点规则助手</div>
             <div className="mb-2">特权点建议和金币分离：金币对应商品价值，特权点对应“选择权/服务/时间”。孩子通常每 30 分钟认真任务获得 1 点更容易理解。</div>
@@ -306,6 +306,7 @@ export default function ParentPrivileges() {
       </BottomSheet>
 
       <div className="p-4 space-y-3 overflow-y-auto flex-1">
+        <ParentGameTimePrivilegeApprovals />
         <CreateActionCard
           icon="👑"
           title="把“选择权”做成孩子能期待的特权"
@@ -412,6 +413,8 @@ export default function ParentPrivileges() {
                         <div className="font-bold truncate">{p.title}</div>
                         <div className="text-xs text-gray-500 truncate">{p.description}</div>
                         <div className="text-[10px] text-purple-500 mt-1 bg-purple-50 inline-block px-2 py-0.5 rounded-full">{p.category || '其他'}</div>
+                        {Number(p.game_minutes || 0) > 0 && <div className="text-[10px] text-amber-700 mt-1">🎮 {t('privilege.item.gameMinutes', { minutes: p.game_minutes })}</div>}
+                        {p.is_enabled === 0 && <div className="text-[10px] text-gray-400 mt-1">{t('privilege.item.disabled')}</div>}
                         {/* 时间限制标签 */}
                         {p.timeWindow && (() => {
                           try {
@@ -442,8 +445,8 @@ export default function ParentPrivileges() {
                          p.level === 'silver' ? '🥈 白银' : '🥉 青铜'}
                       </div>
                       <div className="font-bold text-purple-600 text-sm bg-purple-50 px-2 py-1 rounded-lg">{p.cost} 点</div>
-                      <button onClick={() => openEdit(p)} className="text-purple-400 hover:text-purple-600 p-1"><Pen size={16}/></button>
-                      <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
+                      <button onClick={() => openEdit(p)} className="text-purple-400 hover:text-purple-600 min-w-[44px] min-h-[44px] flex items-center justify-center"><Pen size={16}/></button>
+                      <button onClick={() => handleDelete(p)} className="text-red-400 hover:text-red-600 min-w-[44px] min-h-[44px] flex items-center justify-center"><Trash2 size={16}/></button>
                     </div>
                   </Card>
                 ))}
@@ -492,6 +495,14 @@ export default function ParentPrivileges() {
                   <label className="text-xs text-gray-500 font-bold block mb-1">💎 兑换消耗 (特权点)</label>
                   <input className="w-full p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" value={cost} onChange={e => setCost(e.target.value)} />
                 </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-bold block mb-1">🎮 {t('privilege.form.gameMinutes')}</label>
+                  <input className="w-full min-h-[44px] p-2.5 rounded-xl border bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none" type="number" min="0" max="120" value={editGameMinutes} onChange={e => setEditGameMinutes(e.target.value)} />
+                </div>
+                <label className="min-h-[44px] flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-700">
+                  <input type="checkbox" checked={editEnabled} onChange={e => setEditEnabled(e.target.checked)} className="w-5 h-5 accent-purple-600" />
+                  {t('privilege.form.childEnabled')}
+                </label>
                 <div className="p-3 rounded-xl border border-purple-100 bg-purple-50 text-xs text-purple-800">
                   <div className="font-bold mb-2">特权点规则助手</div>
                   <div className="mb-2">小特权 3 点，中等奖励 8 点，大目标 20 点起；家长仍可按家庭规则微调。</div>

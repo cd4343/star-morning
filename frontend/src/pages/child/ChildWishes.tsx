@@ -5,13 +5,14 @@ import { Button } from '../../components/Button';
 import type { Wish, InventoryItem, Privilege } from '../../types/shop';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import api from '../../services/api';
-import { ShoppingBag, RotateCcw, Gift, Dna, Coins, Clock, Gamepad2 } from 'lucide-react';
+import { ShoppingBag, RotateCcw, Gift, Dna, Coins, Clock, Gamepad2, Heart } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { Confetti } from '../../components/Confetti';
 import { BottomSheet } from '../../components/BottomSheet';
 import { playSuccessSound, playCoinSound, playErrorSound, playMagicSound } from '../../utils/sounds';
 import { t } from '../../i18n';
+import { ChildWishRequestPanel } from '../../components/child/ChildWishRequestPanel';
 
 // 前端时间窗口校验（与后端保持一致）
 const checkTimeWindow = (timeWindow: string | null): { ok: boolean; message?: string } => {
@@ -128,7 +129,7 @@ export default function ChildWishes() {
   const toast = useToast();
   const { confirm, Dialog: ConfirmDialog } = useConfirmDialog();
 
-  const [view, setView] = useState<'shop'|'bag'|'savings'|'lottery'|'privileges'>('shop');
+  const [view, setView] = useState<'wish'|'shop'|'bag'|'savings'|'lottery'|'privileges'>('shop');
 
   const [shopItems, setShopItems] = useState<Wish[]>([]);
   const [shopCategory, setShopCategory] = useState('全部');
@@ -292,9 +293,15 @@ export default function ChildWishes() {
   // 我们重写兑换特权函数，因为需要区分 立即使用、存入背包 和 取消。
   const executeRedeemPrivilege = async (priv: any, useImmediately: boolean) => {
       try {
-          await api.post(`/child/privileges/${priv.id}/redeem`, { useImmediately });
+          const response = await api.post(`/child/privileges/${priv.id}/redeem`, { useImmediately });
           playSuccessSound();
-          if (useImmediately) {
+          if (response.data?.requiresParentConfirmation) {
+            showTip(
+              t('privilege.child.confirmTitle'),
+              t('privilege.child.confirmMessage', { title: priv.title, minutes: response.data?.gameMinutes || priv.game_minutes }),
+              '⏳'
+            );
+          } else if (useImmediately) {
             showTip('生效成功', `${priv.title} 已经开始生效啦，尽情享受吧！`, '🚀');
           } else {
             showTip('兑换成功', `${priv.title} 已放入背包，快去"背包"查看并随时使用吧！`, '🎉');
@@ -694,6 +701,13 @@ export default function ChildWishes() {
   const activeSavingsGoals = savingsGoals.filter((goal: any) => !isGoalComplete(goal));
   const completedSavingsGoals = savingsGoals.filter((goal: any) => isGoalComplete(goal));
   const viewMeta = {
+    wish: {
+      icon: <Heart size={22} />,
+      title: t('wish.child.tabTitle'),
+      description: t('wish.child.tabHint'),
+      stat: t('wish.child.oneAtATime'),
+      className: 'bg-violet-50 border-violet-100 text-violet-700',
+    },
     shop: {
       icon: <ShoppingBag size={22} />,
       title: '奖励商店',
@@ -753,7 +767,8 @@ export default function ChildWishes() {
         )}
       </div>
 
-      <div className="grid grid-cols-5 gap-1 bg-white rounded-xl p-1 shadow-sm">
+      <div className="flex gap-1 overflow-x-auto bg-white rounded-xl p-1 shadow-sm scrollbar-hide" aria-label={t('wish.child.rewardTabs')}>
+          <button onClick={()=>setView('wish')} className={`min-h-[44px] min-w-[76px] px-2 py-2 text-sm font-bold rounded-lg transition-all ${view==='wish'?'bg-violet-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>{t('wish.child.tab')}</button>
           <button onClick={()=>setView('shop')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='shop'?'bg-pink-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>商店</button>
           <button onClick={()=>setView('bag')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='bag'?'bg-blue-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>背包</button>
           <button onClick={()=>setView('savings')} className={`min-h-[44px] px-1 py-2 text-sm font-bold rounded-lg transition-all ${view==='savings'?'bg-green-500 text-white shadow-md':'text-gray-500 active:bg-gray-50'}`}>储蓄</button>
@@ -776,6 +791,14 @@ export default function ChildWishes() {
         </div>
       </div>
 
+      {view === 'wish' && (
+        <ChildWishRequestPanel
+          coins={Number(childData.coins || 0)}
+          privilegePoints={Number(childData.privilegePoints || 0)}
+          onBalanceChange={() => { refresh(); void fetchAll(); }}
+        />
+      )}
+
       {view === 'shop' && (
         <button
           type="button"
@@ -788,7 +811,7 @@ export default function ChildWishes() {
           <div className="flex-1 min-w-0">
             <div className="text-sm font-black text-emerald-800">游戏票在冷静页使用</div>
             <div className="text-xs font-bold text-emerald-600 mt-0.5">
-              当前可用 {screenTime?.balance ?? 0} 分钟。可从家长发放、宝箱和部分任务获得，当天有效并受时间窗口限制。
+              当前可用 {screenTime?.balance ?? 0} 分钟。由每日基础时长、家长确认后的学习省时和家庭约定组成，当天有效并受时间窗口与每日上限限制。
             </div>
           </div>
           <span className="text-xs font-black text-emerald-600">去使用</span>
@@ -1295,6 +1318,21 @@ export default function ChildWishes() {
                                                 <div className="px-4 py-2 bg-gray-100 text-gray-400 text-xs font-bold rounded-xl flex items-center gap-1">
                                                   <Clock size={12}/> {timeCheck.message}
                                                 </div>
+                                              );
+                                            }
+                                            if (Number(priv.game_minutes || 0) > 0) {
+                                              return (
+                                                <button
+                                                  onClick={() => executeRedeemPrivilege(priv, false)}
+                                                  disabled={(childData.privilegePoints || 0) < priv.cost}
+                                                  className={`min-h-[44px] px-3 py-2 rounded-xl font-bold text-xs transition-all ${
+                                                    (childData.privilegePoints || 0) >= priv.cost
+                                                      ? 'bg-amber-500 text-white shadow-md'
+                                                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                  }`}
+                                                >
+                                                  {t('privilege.child.confirmAction')}
+                                                </button>
                                               );
                                             }
                                             return (

@@ -15,6 +15,7 @@ import { initializeDatabase, getDb } from './database';
 import { startBackupScheduler } from './backup';
 import { initRewardTables, initLotteryTables, registerRewardSystemRoutes, calculateReviewSuggestion, calculateAdjustedPunishment, drawPrizeCoreV2, getLotteryPityInfo } from './rewardSystem';
 import { ensureChestRewardGrantSchema, grantTaskChestReward } from './chestRewardGrant';
+import { ensurePhase9CRewardSchema, registerWishRequestRoutes } from './wishRequestRoutes';
 import { registerProductConfigRoutes } from './productConfigRoutes';
 import { registerParentInboxRoutes } from './parentInboxRoutes';
 import { registerEconomyRoutes } from './economyRoutes';
@@ -1559,6 +1560,7 @@ registerEconomyRoutes(app, protect, requireParent);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
 registerGrowthIdentityRoutes(app, protect, requireChild);
+registerWishRequestRoutes(app, protect, requireParent, requireChild);
 registerParentWorkspaceRoutes(app, getDb);
 
 // Parent Family Management
@@ -2449,6 +2451,7 @@ const normalizeTimeText = (value: any, fallback: string) => {
 
 const SCREEN_TIME_SOURCES = {
   STUDY_SAVED_TIME: 'study_saved_time',
+  PRIVILEGE_REDEMPTION: 'privilege_redemption',
   MORNING_STARTUP: 'morning_startup',
   MORNING_STARTUP_STREAK_3: 'morning_startup_streak_3',
   PARENT: 'parent',
@@ -2544,10 +2547,11 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
     return acc;
   }, {});
   const studySavedMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.STUDY_SAVED_TIME] || 0);
+  const privilegeRedemptionMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.PRIVILEGE_REDEMPTION] || 0);
   const morningStartupMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.MORNING_STARTUP] || 0);
   const morningStreakMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.MORNING_STARTUP_STREAK_3] || 0);
   const manualMinutes = Number(sourceTotals[SCREEN_TIME_SOURCES.PARENT] || 0) + Number(sourceTotals[SCREEN_TIME_SOURCES.MANUAL] || 0);
-  const otherEarnedMinutes = earnedMinutes - studySavedMinutes - morningStartupMinutes - morningStreakMinutes - manualMinutes;
+  const otherEarnedMinutes = earnedMinutes - studySavedMinutes - privilegeRedemptionMinutes - morningStartupMinutes - morningStreakMinutes - manualMinutes;
   const todayUsed = Number(used?.total || 0);
   const allowance = Boolean(rules.isEnabled) ? Math.max(0, Math.min(dailyMaxMinutes, dailyBaseMinutes + earnedMinutes)) : 0;
   const balance = Math.max(0, allowance - todayUsed);
@@ -2565,6 +2569,7 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
       base: dailyBaseMinutes,
       earned: earnedMinutes,
       studySaved: studySavedMinutes,
+      privilegeRedemption: privilegeRedemptionMinutes,
       morningStartup: morningStartupMinutes,
       morningStreak: morningStreakMinutes,
       manual: manualMinutes,
@@ -2576,6 +2581,7 @@ const getChildScreenTimeSummary = async (db: any, familyId: string, childId: str
     },
     rewardSources: {
       active: [SCREEN_TIME_SOURCES.STUDY_SAVED_TIME],
+      managed: [SCREEN_TIME_SOURCES.PRIVILEGE_REDEMPTION],
       legacyDisabled: [SCREEN_TIME_SOURCES.MORNING_STARTUP, SCREEN_TIME_SOURCES.MORNING_STARTUP_STREAK_3],
     },
     activeSession,
@@ -3501,7 +3507,7 @@ app.get('/api/parent/screen-time-records', protect, async (req: any, res) => {
 
   const normalizedType = String(type || 'all');
   const childFilter = decodeQueryText(childId);
-  const includeLedger = ['all', 'adjustment', 'grant', 'deduct', 'study_saved_time', 'morning_startup'].includes(normalizedType);
+  const includeLedger = ['all', 'adjustment', 'grant', 'deduct', 'study_saved_time', 'privilege_redemption', 'morning_startup'].includes(normalizedType);
   const includeSessions = ['all', 'session', 'running', 'completed', 'cancelled'].includes(normalizedType);
   const maxRows = Math.max(1, Math.min(200, parseInt(String(limit), 10) || 80));
   const records: any[] = [];
@@ -3530,6 +3536,7 @@ app.get('/api/parent/screen-time-records', protect, async (req: any, res) => {
     if (normalizedType === 'grant') query += ' AND l.deltaMinutes > 0';
     if (normalizedType === 'deduct') query += ' AND l.deltaMinutes < 0';
     if (normalizedType === 'study_saved_time') query += " AND l.source = 'study_saved_time'";
+    if (normalizedType === 'privilege_redemption') query += " AND l.source = 'privilege_redemption'";
     if (normalizedType === 'morning_startup') query += " AND l.source IN ('morning_startup', 'morning_startup_streak_3')";
     query = addDateFilter(query, params, 'l.createdAt');
     const rows = await db.all(`${query} ORDER BY datetime(l.createdAt) DESC LIMIT ?`, ...params, maxRows);
@@ -5463,26 +5470,46 @@ app.post('/api/parent/wishes/lottery/activate', protect, async (req: any, res) =
 
     res.json({ message: 'ok' });
 });
-app.get('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ?', request.user!.familyId)); });
+app.get('/api/parent/privileges', protect, async (req: any, res) => { const request = req as AuthRequest; res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ? ORDER BY is_enabled DESC, createdAt DESC', request.user!.familyId)); });
 app.post('/api/parent/privileges', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const { title, description, cost, icon, level, timeWindow, category } = request.body;
+    const { title, description, cost, icon, level, timeWindow, category, isEnabled, isPreset, gameMinutes } = request.body;
+    const normalizedTitle = String(title || '').trim().slice(0, 50);
+    const normalizedCost = Math.trunc(Number(cost));
+    const normalizedGameMinutes = Math.max(0, Math.min(120, Math.trunc(Number(gameMinutes || 0))));
+    if (!normalizedTitle) return res.status(400).json({ message: '特权名称不能为空' });
+    if (!Number.isFinite(normalizedCost) || normalizedCost < 0 || normalizedCost > 999999) return res.status(400).json({ message: '权益点价格无效' });
     await getDb().run(
-        `INSERT INTO privileges (id, familyId, title, description, cost, icon, level, timeWindow, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        randomUUID(), request.user!.familyId, title, description, cost, icon || '👑', level || 'bronze', timeWindow || null, category || '其他'
+        `INSERT INTO privileges (id, familyId, title, description, cost, icon, level, timeWindow, category, is_enabled, is_preset, game_minutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), request.user!.familyId, normalizedTitle, String(description || '').trim().slice(0, 200), normalizedCost,
+        icon || '👑', level || 'bronze', timeWindow || null, category || '其他', isEnabled === 0 ? 0 : 1, isPreset ? 1 : 0, normalizedGameMinutes
     );
     res.json({message:'ok'});
 });
 app.put('/api/parent/privileges/:id', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    const { title, description, cost, icon, level, timeWindow, category } = req.body;
+    const { title, description, cost, icon, level, timeWindow, category, isEnabled, gameMinutes } = req.body;
+    const normalizedTitle = String(title || '').trim().slice(0, 50);
+    const normalizedCost = Math.trunc(Number(cost));
+    const normalizedGameMinutes = Math.max(0, Math.min(120, Math.trunc(Number(gameMinutes || 0))));
+    if (!normalizedTitle) return res.status(400).json({ message: '特权名称不能为空' });
+    if (!Number.isFinite(normalizedCost) || normalizedCost < 0 || normalizedCost > 999999) return res.status(400).json({ message: '权益点价格无效' });
     await getDb().run(
-        'UPDATE privileges SET title = ?, description = ?, cost = ?, icon = ?, level = ?, timeWindow = ?, category = ? WHERE id = ? AND familyId = ?',
-        title, description, cost, icon || '👑', level || 'bronze', timeWindow || null, category || '其他', req.params.id, request.user!.familyId
+        'UPDATE privileges SET title = ?, description = ?, cost = ?, icon = ?, level = ?, timeWindow = ?, category = ?, is_enabled = ?, game_minutes = ? WHERE id = ? AND familyId = ?',
+        normalizedTitle, String(description || '').trim().slice(0, 200), normalizedCost, icon || '👑', level || 'bronze',
+        timeWindow || null, category || '其他', isEnabled === 0 ? 0 : 1, normalizedGameMinutes, req.params.id, request.user!.familyId
     );
     res.json({ message: '更新成功' });
 });
-app.delete('/api/parent/privileges/:id', protect, async (req: any, res) => { const request = req as AuthRequest; await getDb().run('DELETE FROM privileges WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId); res.json({message:'ok'}); });
+app.delete('/api/parent/privileges/:id', protect, async (req: any, res) => {
+    const request = req as AuthRequest;
+    const privilege = await getDb().get('SELECT is_preset FROM privileges WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!privilege) return res.status(404).json({ message: '特权不存在' });
+    if (privilege.is_preset) await getDb().run('UPDATE privileges SET is_enabled = 0 WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    else await getDb().run('DELETE FROM privileges WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    res.json({message:'ok'});
+});
 
 app.get('/api/parent/achievements', protect, async (req: any, res) => {
     const request = req as AuthRequest;
@@ -6905,14 +6932,18 @@ app.post('/api/child/achievements/:achievementId/claim', protect, requireChild, 
 // Child Privileges (read-only list)
 app.get('/api/child/privileges', protect, async (req: any, res) => {
     const request = req as AuthRequest;
-    res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ?', request.user!.familyId));
+    res.json(await getDb().all('SELECT * FROM privileges WHERE familyId = ? AND COALESCE(is_enabled, 1) = 1', request.user!.familyId));
 });
 
 // Child Redeem Privilege
 app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
     const request = req as AuthRequest;
     const db = getDb();
-    const priv = await db.get('SELECT * FROM privileges WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    const priv = await db.get(
+      'SELECT * FROM privileges WHERE id = ? AND familyId = ? AND COALESCE(is_enabled, 1) = 1',
+      req.params.id,
+      request.user!.familyId
+    );
     if (!priv) return res.status(404).json({ message: '特权不存在' });
 
     const user = await db.get('SELECT privilegePoints FROM users WHERE id = ?', request.user!.id);
@@ -6923,11 +6954,21 @@ app.post('/api/child/privileges/:id/redeem', protect, async (req: any, res) => {
             // 守卫式扣减：特权点是最稀缺货币，绝不允许并发扣成负数
             const deduct = await db.run('UPDATE users SET privilegePoints = privilegePoints - ? WHERE id = ? AND privilegePoints >= ?', priv.cost, request.user!.id, priv.cost);
             if ((deduct.changes || 0) !== 1) throw Object.assign(new Error('权益点不足'), { statusCode: 400 });
-            // 特权添加到背包，记录是用特权点兑换的，来源为privilege
-            await db.run(`INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-                randomUUID(), request.user!.id, priv.id, priv.title, priv.icon || '👑', priv.cost, 'privilegePoints', 'privilege');
+            const needsParentConfirmation = Number(priv.game_minutes || 0) > 0;
+            const useImmediately = req.body?.useImmediately === true && !needsParentConfirmation;
+            await db.run(
+                `INSERT INTO user_inventory (id, childId, privilegeId, title, icon, cost, costType, source, status, redeemedAt)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                randomUUID(), request.user!.id, priv.id, priv.title, priv.icon || '👑', priv.cost,
+                'privilegePoints', 'privilege', useImmediately ? 'redeemed' : 'pending', useImmediately ? new Date().toISOString() : null
+            );
         });
-        res.json({ message: '兑换成功！已放入背包' });
+        const requiresParentConfirmation = Number(priv.game_minutes || 0) > 0;
+        res.json({
+          message: requiresParentConfirmation ? '已提交家长确认，确认后游戏时间才会到账' : (req.body?.useImmediately ? '特权已开始生效' : '兑换成功！已放入背包'),
+          requiresParentConfirmation,
+          gameMinutes: Number(priv.game_minutes || 0),
+        });
     } catch (err: any) {
         const sc = err.statusCode || 500;
         if (sc === 500) console.error('特权兑换失败:', err);
@@ -7648,6 +7689,7 @@ initializeDatabase()
     console.log('✅ Database initialized successfully');
     await initRewardTables();
     await ensureChestRewardGrantSchema(getDb());
+    await ensurePhase9CRewardSchema(getDb());
     await initLotteryTables();
     console.log('✅ Reward system routes registered');
     startTaskSessionFinalizer();

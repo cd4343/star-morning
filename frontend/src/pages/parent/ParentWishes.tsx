@@ -8,6 +8,7 @@ import { Layout } from '../../components/Layout';
 import { Trash2, Check, CheckCircle2, Circle, Settings2, Edit2, X, Sparkles } from 'lucide-react';
 import api from '../../services/api';
 import { t } from '../../i18n';
+import { ParentWishRequestsPanel } from '../../components/parent/ParentWishRequestsPanel';
 import { useToast } from '../../components/Toast';
 import { useConfirmDialog } from '../../components/ConfirmDialog';
 import { BottomSheet } from '../../components/BottomSheet';
@@ -824,6 +825,10 @@ export default function ParentWishes() {
   return (
     <Layout>
       <Header title="心愿管理" showBack onBack={() => navigate('/parent/dashboard')} />
+
+      <div className="p-4 pb-0">
+        <ParentWishRequestsPanel />
+      </div>
 
       {/* Tabs */}
       <div className="flex border-b bg-white">

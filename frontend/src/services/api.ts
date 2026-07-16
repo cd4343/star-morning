@@ -100,14 +100,14 @@ api.interceptors.response.use(
   }
 );
 
-export const getErrorMessage = (error: unknown): string => {
+export const getErrorMessage = (error: unknown, fallback = '未知错误'): string => {
   if (axios.isAxiosError(error)) {
-    return error.response?.data?.message || error.message || '请求失败';
+    return error.response?.data?.message || error.message || fallback;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return '未知错误';
+  return fallback;
 };
 
 export const isAuthError = (error: unknown): boolean => {

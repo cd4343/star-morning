@@ -7,7 +7,7 @@ import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { useToast } from '../../components/Toast';
 import api from '../../services/api';
-import { getDateLocale } from '../../i18n';
+import { getDateLocale, t } from '../../i18n';
 
 type ScreenTimeRules = {
   isEnabled: number;
@@ -103,6 +103,7 @@ const SCREEN_RECORD_TYPE_FILTERS = [
   { value: 'grant', label: '发放' },
   { value: 'deduct', label: '扣减' },
   { value: 'study_saved_time', label: '学习节省' },
+  { value: 'privilege_redemption', label: t('screenTime.source.privilegeRedemption') },
   { value: 'morning_startup', label: '历史晨间（已停用）' },
   { value: 'session', label: '使用' },
   { value: 'completed', label: '已结束' },
@@ -483,12 +484,15 @@ export default function ParentWellbeing() {
           ) : screenRecords.map(record => {
             const isSession = record.type === 'session';
             const isStudySaved = record.source === 'study_saved_time';
+            const isPrivilegeRedemption = record.source === 'privilege_redemption';
             const isMorningStartup = record.source === 'morning_startup' || record.source === 'morning_startup_streak_3';
             const isPositive = Number(record.minutes || 0) >= 0;
             const title = isSession
               ? `使用 ${record.minutes || 0} 分钟`
               : isStudySaved
                 ? `学习节省 +${Math.abs(Number(record.minutes || 0))} 分钟`
+                : isPrivilegeRedemption
+                  ? `${t('screenTime.source.privilegeRedemption')} +${Math.abs(Number(record.minutes || 0))} 分钟`
                 : isMorningStartup
                   ? `历史晨间（已停用） +${Math.abs(Number(record.minutes || 0))} 分钟`
                   : `${isPositive ? '发放' : '扣减'} ${Math.abs(Number(record.minutes || 0))} 分钟`;
