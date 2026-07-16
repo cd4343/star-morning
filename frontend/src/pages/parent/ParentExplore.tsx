@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Archive, Award, BarChart3, Camera, CheckCircle2, ChevronDown, ChevronUp, Compass, Edit3, Globe, HardDrive, Heart, MapPin, Mic, Plus, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react';
 import { Header } from '../../components/Header';
 import { Button } from '../../components/Button';
-import api from '../../services/api';
+import api, { getErrorMessage } from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
-import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, ExploreVisitedPlace, EXPLORE_CATEGORIES, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import ParentExploreIntentSettings from '../../components/explore/ParentExploreIntentSettings';
+import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, ExploreVisitedPlace, ParentExploreIntentSettings as ParentIntentSettings, EXPLORE_CATEGORIES, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import { compressImage } from '../../utils/imageCompress';
 
 const categories = EXPLORE_CATEGORIES;
 const statusOptions = [
@@ -55,6 +57,13 @@ const formatBytes = (bytes: number) => {
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
 };
+
+const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
 
 // B3-2 同款：iOS Safari 兼容——自动检测支持的录音 MIME 类型
 const getSupportedMimeType = (): string | null => {
@@ -118,9 +127,14 @@ export default function ParentExplore() {
   const [pushUrl, setPushUrl] = useState('');
   const [pushPreviewLoading, setPushPreviewLoading] = useState(false);
   const FEED_INP = 'w-full rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-bold outline-none focus:border-rose-300 bg-white';
-  const EMPTY_PUSH_FORM = { title: '', summary: '', imageUrl: '', sourceUrl: '', city: '', venue: '', district: '', feedCategory: '', ageMin: '', ageMax: '', activityStart: '', activityEnd: '', signupDeadline: '', price: '', bookingMethod: '', officialUrl: '', recommendReason: '', notes: '', verifyStatus: '未核验', recommendScore: '', validFrom: '', validUntil: '' };
+  const EMPTY_PUSH_FORM = { title: '', summary: '', imageUrl: '', imageDataUrl: '', sourceUrl: '', city: '', venue: '', district: '', feedCategory: '', ageMin: '', ageMax: '', activityStart: '', activityEnd: '', signupDeadline: '', price: '', bookingMethod: '', officialUrl: '', recommendReason: '', notes: '', verifyStatus: '未核验', recommendScore: '', validFrom: '', validUntil: '', experienceTags: [] as string[] };
   const [pushForm, setPushForm] = useState(EMPTY_PUSH_FORM);
   const [pushing, setPushing] = useState(false);
+  const [editingFeedId, setEditingFeedId] = useState<string | null>(null);
+  const pushEditorRef = useRef<HTMLDivElement | null>(null);
+  const [intentSettings, setIntentSettings] = useState<ParentIntentSettings | null>(null);
+  const [disabledIntentKeys, setDisabledIntentKeys] = useState<string[]>([]);
+  const [savingIntentSettings, setSavingIntentSettings] = useState(false);
   // 探索三期：立即生成今日推荐
   const [generatingNow, setGeneratingNow] = useState(false);
   const [stats, setStats] = useState<ExploreStats | null>(null);
@@ -132,6 +146,10 @@ export default function ParentExplore() {
   const [feedLoadError, setFeedLoadError] = useState(false);
   const [discoveryAge, setDiscoveryAge] = useState('');
   const [discoveryCategory, setDiscoveryCategory] = useState('');
+  const [discoveryAdultCategory, setDiscoveryAdultCategory] = useState('');
+  const [discoveryDistrict, setDiscoveryDistrict] = useState('');
+  const [discoveryBudget, setDiscoveryBudget] = useState('');
+  const [discoveryDate, setDiscoveryDate] = useState('');
   const [showManualSearch, setShowManualSearch] = useState(false);
 
   const activePlaces = useMemo(() => places.filter(place => place.status !== 'archived'), [places]);
@@ -148,13 +166,32 @@ export default function ParentExplore() {
     return (feedSettings?.pendingReview || []).filter(item => {
       const category = item.feedCategory || item.category || '';
       if (discoveryCategory && category && category !== discoveryCategory) return false;
+      if (discoveryAdultCategory) {
+        const text = [item.title, item.summary, item.feedCategory, item.category, item.venue, item.experienceTags].filter(Boolean).join(' ').toLowerCase();
+        const matchingOptions = (intentSettings?.groups || []).flatMap(group => group.options).filter(option => option.adultCategory === discoveryAdultCategory);
+        if (!matchingOptions.some(option => option.key && (text.includes(option.key.toLowerCase()) || option.keywords.some(keyword => text.includes(keyword.toLowerCase()))))) return false;
+      }
+      if (discoveryDistrict && !(item.district || '').includes(discoveryDistrict.trim())) return false;
+      if (discoveryBudget) {
+        const priceText = String(item.price || '');
+        const priceNumber = Number(priceText.match(/\d+(?:\.\d+)?/)?.[0]);
+        if (discoveryBudget === 'free' && !/(免费|^0\s*$)/.test(priceText)) return false;
+        if (discoveryBudget === 'under100' && (!Number.isFinite(priceNumber) || priceNumber > 100)) return false;
+      }
+      if (discoveryDate) {
+        const dateValue = item.activityStart ? new Date(item.activityStart) : null;
+        if (!dateValue || Number.isNaN(dateValue.getTime())) return false;
+        const now = new Date();
+        if (discoveryDate === 'weekend' && ![0, 6].includes(dateValue.getDay())) return false;
+        if (discoveryDate === 'month' && (dateValue.getFullYear() !== now.getFullYear() || dateValue.getMonth() !== now.getMonth())) return false;
+      }
       if (discoveryAge && Number.isFinite(age)) {
         if (item.ageMin != null && age < item.ageMin) return false;
         if (item.ageMax != null && age > item.ageMax) return false;
       }
       return true;
     });
-  }, [discoveryAge, discoveryCategory, feedSettings]);
+  }, [discoveryAdultCategory, discoveryAge, discoveryBudget, discoveryCategory, discoveryDate, discoveryDistrict, feedSettings, intentSettings]);
   // P1b：去过的地点按规范类型归类罗列（按 EXPLORE_CATEGORIES 顺序，仅显示有数据的类型）
   const visitedByCategory = useMemo(() => {
     const groups: Record<string, ExploreVisitedPlace[]> = {};
@@ -221,8 +258,34 @@ export default function ParentExplore() {
     }
   };
 
+  const loadIntentSettings = async () => {
+    try {
+      const res = await api.get('/parent/explore/intent-settings');
+      setIntentSettings(res.data);
+      setDisabledIntentKeys(res.data?.disabledKeys || []);
+    } catch {
+      // 体验选项配置失败不阻塞地点、计划和记录功能。
+    }
+  };
+
+  const saveIntentSettings = async () => {
+    setSavingIntentSettings(true);
+    try {
+      const res = await api.put('/parent/explore/intent-settings', { disabledKeys: disabledIntentKeys });
+      setDisabledIntentKeys(res.data?.disabledKeys || disabledIntentKeys);
+      toast.success(t('explore.parentIntentSaved'));
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t('toast.operateFailed')));
+    } finally {
+      setSavingIntentSettings(false);
+    }
+  };
+
   useEffect(() => {
-    if (tab === 'discover' || tab === 'settings') loadFeedSettings();
+    if (tab === 'discover' || tab === 'settings') {
+      loadFeedSettings();
+      loadIntentSettings();
+    }
     if (tab === 'settings') {
       api.get('/parent/explore/quota').then(res => setQuota(res.data)).catch(() => {});
       api.get('/parent/explore/settings').then(res => {
@@ -536,14 +599,74 @@ export default function ParentExplore() {
         title: res.data?.title || prev.title,
         summary: res.data?.summary || prev.summary,
         imageUrl: res.data?.imageUrl || '',
+        imageDataUrl: '',
         sourceUrl: res.data?.sourceUrl || pushUrl.trim(),
-        officialUrl: prev.officialUrl || res.data?.sourceUrl || pushUrl.trim()
+        officialUrl: prev.officialUrl || res.data?.sourceUrl || pushUrl.trim(),
+        venue: res.data?.venue || prev.venue,
+        city: res.data?.city || prev.city,
+        district: res.data?.district || prev.district,
+        activityStart: res.data?.activityStart?.slice(0, 10) || prev.activityStart,
+        activityEnd: res.data?.activityEnd?.slice(0, 10) || prev.activityEnd,
       }));
     } catch (e: any) {
       toast.warning(e.response?.data?.message || t('toast.operateFailed'));
       setPushForm(prev => ({ ...prev, sourceUrl: pushUrl.trim() }));
     } finally {
       setPushPreviewLoading(false);
+    }
+  };
+
+  const uploadPushImage = async (file?: File) => {
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file, { maxWidth: 1600, maxHeight: 1200, maxSizeBytes: 1024 * 1024 });
+      if (compressed.size > 1024 * 1024) {
+        toast.warning(t('explore.feedImageTooLarge'));
+        return;
+      }
+      const imageDataUrl = await fileToDataUrl(compressed);
+      setPushForm(prev => ({ ...prev, imageDataUrl, imageUrl: '' }));
+    } catch {
+      toast.error(t('explore.feedImageFailed'));
+    }
+  };
+
+  const editFeedItem = (item: ExploreFeedSettings['pendingReview'][number]) => {
+    setEditingFeedId(item.id);
+    setPushForm({
+      ...EMPTY_PUSH_FORM,
+      title: item.title || '',
+      summary: item.summary || '',
+      imageUrl: item.imageUrl || '',
+      sourceUrl: item.sourceUrl || '',
+      city: item.city || '',
+      venue: item.venue || '',
+      district: item.district || '',
+      feedCategory: item.feedCategory || item.category || '',
+      ageMin: item.ageMin == null ? '' : String(item.ageMin),
+      ageMax: item.ageMax == null ? '' : String(item.ageMax),
+      activityStart: item.activityStart?.slice(0, 10) || '',
+      activityEnd: item.activityEnd?.slice(0, 10) || '',
+      signupDeadline: item.signupDeadline?.slice(0, 10) || '',
+      price: item.price || '',
+      bookingMethod: item.bookingMethod || '',
+      officialUrl: item.officialUrl || '',
+      recommendReason: item.recommendReason || '',
+      notes: item.notes || '',
+      verifyStatus: item.verifyStatus || '未核验',
+      recommendScore: item.recommendScore == null ? '' : String(item.recommendScore),
+    });
+    setTab('settings');
+    window.setTimeout(() => pushEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
+
+  const retryFeedEnrichment = async (id: string) => {
+    try {
+      const res = await api.post(`/parent/explore/feed/${id}/enrich-now`);
+      toast[res.data?.ready ? 'success' : 'warning'](res.data?.message || t('toast.operateFailed'));
+      await loadFeedSettings();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t('toast.operateFailed')));
     }
   };
 
@@ -555,10 +678,14 @@ export default function ParentExplore() {
     }
     setPushing(true);
     try {
-      await api.post('/parent/explore/feed/push', pushForm);
-      toast.success(t('explore.feedPushSuccess'));
+      const res = editingFeedId
+        ? await api.put(`/parent/explore/feed/${editingFeedId}`, { ...pushForm, publish: true })
+        : await api.post('/parent/explore/feed/push', pushForm);
+      toast[res.data?.visibleToChild === false ? 'warning' : 'success'](res.data?.message || t('explore.feedPushSuccess'));
       setPushUrl('');
       setPushForm(EMPTY_PUSH_FORM);
+      setEditingFeedId(null);
+      await loadFeedSettings();
     } catch (e: any) {
       toast.error(e.response?.data?.message || t('toast.operateFailed'));
     } finally {
@@ -614,13 +741,28 @@ export default function ParentExplore() {
                 <label className="text-xs font-bold text-slate-500">{t('explore.childAge')}<input aria-label={t('explore.childAge')} type="number" min="1" max="18" value={discoveryAge} onChange={event => setDiscoveryAge(event.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900" /></label>
                 <label className="text-xs font-bold text-slate-500">{t('explore.interest')}<select aria-label={t('explore.interest')} value={discoveryCategory} onChange={event => setDiscoveryCategory(event.target.value)} className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900"><option value="">{t('explore.interestAny')}</option><option value="户外">{t('explore.interestOutdoor')}</option><option value="科普">{t('explore.interestScience')}</option><option value="文博">{t('explore.interestCulture')}</option></select></label>
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select aria-label={t('explore.adultCategory')} value={discoveryAdultCategory} onChange={event => setDiscoveryAdultCategory(event.target.value)} className="min-h-[44px] rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-700">
+                  <option value="">{t('explore.adultCategoryAll')}</option>
+                  {[...new Set((intentSettings?.groups || []).flatMap(group => group.options.map(option => option.adultCategory)).filter(value => value !== '不限'))].map(value => <option key={value} value={value}>{value}</option>)}
+                </select>
+                <input aria-label={t('explore.districtFilter')} value={discoveryDistrict} onChange={event => setDiscoveryDistrict(event.target.value)} placeholder={t('explore.districtFilter')} className="min-h-[44px] rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+                <select aria-label={t('explore.budgetFilter')} value={discoveryBudget} onChange={event => setDiscoveryBudget(event.target.value)} className="min-h-[44px] rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-700">
+                  <option value="">{t('explore.budgetAny')}</option><option value="free">{t('explore.budgetFree')}</option><option value="under100">{t('explore.budgetUnder100')}</option>
+                </select>
+                <select aria-label={t('explore.dateFilter')} value={discoveryDate} onChange={event => setDiscoveryDate(event.target.value)} className="min-h-[44px] rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-700">
+                  <option value="">{t('explore.dateAny')}</option><option value="weekend">{t('explore.dateWeekend')}</option><option value="month">{t('explore.dateMonth')}</option>
+                </select>
+              </div>
               <div className="grid grid-cols-[1fr_5rem] gap-2"><input value={feedCity} onChange={event => setFeedCity(event.target.value)} placeholder={t('explore.cityPlaceholder')} className="min-h-[44px] rounded-xl border border-slate-200 px-3 text-sm font-bold" /><button type="button" onClick={generateFeedNow} disabled={generatingNow || !feedCity.trim()} className="min-h-[44px] rounded-xl bg-slate-900 text-xs font-black text-white disabled:opacity-40">{generatingNow ? t('common.loading') : t('explore.findNow')}</button></div>
               <p className="text-xs font-bold leading-relaxed text-slate-400">{t('explore.filterTruthHint')}</p>
               {feedLoadError ? <button type="button" onClick={loadFeedSettings} className="min-h-[44px] w-full rounded-xl border border-rose-200 text-sm font-black text-rose-600">{t('explore.retryRecommendations')}</button> : filteredRecommendations.length === 0 ? <div className="rounded-2xl bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">{t('explore.noMatchingRecommendations')}</div> : filteredRecommendations.map(item => (
                 <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 space-y-2">
-                  <div className="font-black text-slate-900">{item.title}</div>
+                  <div className="flex items-start justify-between gap-2"><div className="font-black text-slate-900">{item.title}</div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${item.enrichmentStatus === 'ready' ? 'bg-emerald-100 text-emerald-700' : item.enrichmentStatus === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{item.enrichmentStatus === 'ready' ? t('explore.enrichmentReady') : item.enrichmentStatus === 'failed' ? t('explore.enrichmentFailed') : t('explore.enrichmentWaiting')}</span></div>
                   <div className="flex flex-wrap gap-1 text-[11px] font-bold text-slate-500"><span>{item.feedCategory || item.category || t('explore.infoUnverified')}</span><span>·</span><span>{item.ageMin != null || item.ageMax != null ? `${item.ageMin ?? 0}-${item.ageMax ?? 18}${t('explore.ageSuffix')}` : t('explore.infoUnverified')}</span><span>·</span><span>{item.price || t('explore.infoUnverified')}</span></div>
-                  <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => reviewFeedItem(item.id, 'reject')} className="min-h-[44px] rounded-xl border border-slate-200 text-sm font-black text-slate-500">{t('explore.feedReject')}</button><button type="button" onClick={() => reviewFeedItem(item.id, 'approve')} className="min-h-[44px] rounded-xl bg-emerald-500 text-sm font-black text-white">{t('explore.feedApprove')}</button></div>
+                  {item.lastEnrichmentError && <p className="text-[11px] font-bold leading-relaxed text-amber-700">{item.lastEnrichmentError}</p>}
+                  <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => retryFeedEnrichment(item.id)} className="min-h-[44px] rounded-xl border border-sky-200 text-xs font-black text-sky-700">{t('explore.enrichmentRetry')}</button><button type="button" onClick={() => editFeedItem(item)} className="min-h-[44px] rounded-xl border border-violet-200 text-xs font-black text-violet-700">{t('explore.enrichmentEdit')}</button></div>
+                  <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => reviewFeedItem(item.id, 'reject')} className="min-h-[44px] rounded-xl border border-slate-200 text-sm font-black text-slate-500">{t('explore.feedReject')}</button><button type="button" onClick={() => reviewFeedItem(item.id, 'approve')} disabled={item.enrichmentStatus === 'waiting' || item.enrichmentStatus === 'failed'} className="min-h-[44px] rounded-xl bg-emerald-500 text-sm font-black text-white disabled:opacity-40">{t('explore.feedApprove')}</button></div>
                 </div>
               ))}
             </div>
@@ -919,6 +1061,16 @@ export default function ParentExplore() {
               </button>
             </div>
 
+            {intentSettings && (
+              <ParentExploreIntentSettings
+                settings={intentSettings}
+                disabledKeys={disabledIntentKeys}
+                saving={savingIntentSettings}
+                onToggle={key => setDisabledIntentKeys(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key])}
+                onSave={saveIntentSettings}
+              />
+            )}
+
             {/* 探索二期：发现推送设置 */}
             <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
               <div className="font-black text-slate-900 flex items-center gap-2">
@@ -1023,12 +1175,13 @@ export default function ParentExplore() {
             </div>
 
             {/* 探索二期：推荐给孩子（粘贴链接预览或手填） */}
-            <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
+            <div ref={pushEditorRef} className="scroll-mt-4 rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
               <div className="font-black text-slate-900 flex items-center gap-2">
                 <Heart size={18} className="text-rose-500" />
-                {t('explore.feedPushTitle')}
+                {editingFeedId ? t('explore.feedEditTitle') : t('explore.feedPushTitle')}
               </div>
               <p className="text-xs font-bold text-slate-500 leading-relaxed">{t('explore.feedPushDesc')}</p>
+              {editingFeedId && <button type="button" onClick={() => { setEditingFeedId(null); setPushForm(EMPTY_PUSH_FORM); }} className="min-h-[44px] w-full rounded-xl border border-slate-200 text-xs font-black text-slate-500">{t('explore.feedEditCancel')}</button>}
               <div className="grid grid-cols-[1fr_6rem] gap-2">
                 <input
                   value={pushUrl}
@@ -1045,9 +1198,13 @@ export default function ParentExplore() {
                   {pushPreviewLoading ? t('common.loading') : t('explore.feedPushPreview')}
                 </button>
               </div>
-              {pushForm.imageUrl && (
-                <img src={pushForm.imageUrl} alt={pushForm.title} className="w-full h-32 rounded-2xl object-cover border border-slate-100" />
+              {(pushForm.imageDataUrl || pushForm.imageUrl) && (
+                <img src={pushForm.imageDataUrl || pushForm.imageUrl} alt={pushForm.title} className="w-full h-32 rounded-2xl object-cover border border-slate-100" />
               )}
+              <label className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed border-rose-200 bg-rose-50 text-xs font-black text-rose-700">
+                <Camera size={16} className="mr-2" />{t('explore.feedUploadImage')}
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => uploadPushImage(event.target.files?.[0])} className="hidden" />
+              </label>
               <input
                 value={pushForm.title}
                 onChange={event => setPushForm(prev => ({ ...prev, title: event.target.value }))}
@@ -1104,7 +1261,7 @@ export default function ParentExplore() {
                 </div>
               </div>
               <Button fullWidth onClick={pushFeedCard} loading={pushing} disabled={!pushForm.title.trim()} className="bg-rose-500 hover:bg-rose-600">
-                {t('explore.feedPushConfirm')}
+                {editingFeedId ? t('explore.feedEditPublish') : t('explore.feedPushConfirm')}
               </Button>
             </div>
 

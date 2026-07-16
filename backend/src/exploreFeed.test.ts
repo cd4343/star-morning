@@ -55,6 +55,11 @@ const createExploreFeedDatabase = async () => {
       city TEXT,
       status TEXT,
       recommendDate TEXT,
+      enrichmentStatus TEXT,
+      enrichmentAttempts INTEGER DEFAULT 0,
+      nextEnrichmentAt TEXT,
+      lastEnrichmentError TEXT,
+      contentSourceType TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO families VALUES

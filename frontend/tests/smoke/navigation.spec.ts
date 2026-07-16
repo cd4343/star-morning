@@ -59,7 +59,11 @@ async function mockApi(page: Page) {
   await page.route('**/api/child/explore/places', route => route.fulfill({ json: [samplePlace] }));
   await page.route('**/api/child/explore/checkins', route => route.fulfill({ json: [] }));
   await page.route('**/api/child/explore/map-places', route => route.fulfill({ json: [samplePlace] }));
-  await page.route('**/api/child/explore/feed', route => route.fulfill({ json: { items: [], dailyLimit: 3 } }));
+  await page.route('**/api/child/explore/feed', route => route.fulfill({ json: [] }));
+  await page.route('**/api/child/explore/intents', route => route.fulfill({ json: {
+    selections: ['any'],
+    groups: [{ key: 'any', label: '随便看看', icon: '✨', options: [{ key: 'any', label: '给我一点惊喜', adultCategory: '不限', keywords: [] }] }],
+  } }));
   await page.route('**/api/child/explore/settings', route => route.fulfill({ json: { requirePhoto: false, geoVerify: false } }));
   await page.route('**/api/child/all-achievements', route => route.fulfill({ json: [] }));
   await page.route('**/api/parent/explore/places', route => route.fulfill({ json: [samplePlace, sampleWishlist] }));
@@ -70,6 +74,9 @@ async function mockApi(page: Page) {
       { id: 'feed-match', type: 'source', title: '周末森林观察活动', status: 'pending_review', city: '上海', feedCategory: '户外', ageMin: 6, ageMax: 10, price: '免费', verifyStatus: '已核验' },
       { id: 'feed-mismatch', type: 'source', title: '青少年夜间讲座', status: 'pending_review', city: '上海', feedCategory: '科普', ageMin: 13, ageMax: 16, price: '收费', verifyStatus: '未核验' },
     ],
+  } }));
+  await page.route('**/api/parent/explore/intent-settings', route => route.fulfill({ json: {
+    groups: [], disabledKeys: [], children: [],
   } }));
   await page.route('**/api/parent/explore/timeline', route => route.fulfill({ json: [] }));
   await page.route('**/api/parent/explore/search**', route => route.fulfill({

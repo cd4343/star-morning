@@ -1,7 +1,18 @@
 import { Express } from 'express';
 import axios from 'axios';
 import { randomUUID, createHash } from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 import { getDb } from './database';
+import {
+  getChildExploreIntent,
+  getEnrichmentRetryAt,
+  isExploreFeedItemComplete,
+  registerExploreExperienceRoutes,
+  selectExploreRecommendations,
+} from './exploreExperience';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const logger = {
@@ -22,7 +33,9 @@ interface AuthRequest {
 const HTTP_TIMEOUT_MS = 8000;
 const HTTP_USER_AGENT = 'StarCoinFamilyBot/1.0';
 const MAX_FETCH_BYTES = 2 * 1024 * 1024;
+const MAX_FEED_IMAGE_BYTES = 1024 * 1024;
 const MAX_ACTIVE_SOURCES = 10;
+const EXPLORE_FEED_UPLOAD_ROOT = path.resolve(__dirname, '../../uploads/explore');
 
 // --- 北京时间工具（与 server.ts 的 getLocalDateString 同口径，模块内独立实现避免交叉依赖） ---
 const BEIJING_OFFSET_MINUTES = 8 * 60;
@@ -42,6 +55,11 @@ const getBeijingDateString = (date: Date = new Date()): string => {
 
 // --- 通用小工具 ---
 const trimText = (value: unknown, max = 300) => String(value ?? '').trim().slice(0, max);
+const finiteNumberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
 
 const clampDailyLimit = (value: unknown): number => {
   const num = Math.trunc(Number(value));
@@ -65,6 +83,35 @@ const isSafePublicUrl = (value: string): boolean => {
   }
 };
 
+const isPrivateIpAddress = (address: string): boolean => {
+  const normalized = address.toLowerCase();
+  if (isIP(normalized) === 4) {
+    const [a, b] = normalized.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || a >= 224
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168);
+  }
+  if (isIP(normalized) === 6) {
+    return normalized === '::' || normalized === '::1'
+      || normalized.startsWith('fc') || normalized.startsWith('fd')
+      || normalized.startsWith('fe8') || normalized.startsWith('fe9')
+      || normalized.startsWith('fea') || normalized.startsWith('feb')
+      || (normalized.startsWith('::ffff:') && isPrivateIpAddress(normalized.slice(7)));
+  }
+  return true;
+};
+
+const assertPublicNetworkUrl = async (value: string) => {
+  if (!isSafePublicUrl(value)) throw new Error('网址不是公开地址');
+  const host = new URL(value).hostname;
+  const addresses = await lookup(host, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(item => isPrivateIpAddress(item.address))) {
+    throw new Error('网址解析到了非公开网络');
+  }
+};
+
 const hashText = (text: string) => createHash('sha256').update(text).digest('hex');
 
 const decodeHtmlEntities = (text: string) => text
@@ -76,15 +123,122 @@ const decodeHtmlEntities = (text: string) => text
   .replace(/&nbsp;/g, ' ');
 
 const fetchHtml = async (url: string): Promise<string> => {
-  const response = await axios.get(url, {
-    timeout: HTTP_TIMEOUT_MS,
-    headers: { 'User-Agent': HTTP_USER_AGENT },
-    responseType: 'text',
-    transformResponse: [(data: any) => data],
-    maxContentLength: MAX_FETCH_BYTES,
-    maxRedirects: 3,
-  });
-  return String(response.data || '');
+  let currentUrl = url;
+  for (let redirect = 0; redirect <= 3; redirect++) {
+    await assertPublicNetworkUrl(currentUrl);
+    const response = await axios.get(currentUrl, {
+      timeout: HTTP_TIMEOUT_MS,
+      headers: { 'User-Agent': HTTP_USER_AGENT },
+      responseType: 'text',
+      transformResponse: [(data: any) => data],
+      maxContentLength: MAX_FETCH_BYTES,
+      maxRedirects: 0,
+      validateStatus: status => status >= 200 && status < 400,
+    });
+    if (response.status >= 300) {
+      const location = trimText(response.headers.location, 500);
+      if (!location || redirect === 3) throw new Error('网址重定向次数过多');
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+    return String(response.data || '');
+  }
+  throw new Error('网址读取失败');
+};
+
+const getImageType = (buffer: Buffer, declaredType = ''): { mimeType: string; extension: string } | null => {
+  const startsWith = (bytes: number[], offset = 0) =>
+    buffer.length >= offset + bytes.length && bytes.every((byte, index) => buffer[offset + index] === byte);
+  const ascii = (value: string, offset = 0) => buffer.toString('latin1', offset, offset + value.length) === value;
+  if (startsWith([0xFF, 0xD8, 0xFF])) return { mimeType: 'image/jpeg', extension: 'jpg' };
+  if (startsWith([0x89, 0x50, 0x4E, 0x47])) return { mimeType: 'image/png', extension: 'png' };
+  if (ascii('RIFF') && ascii('WEBP', 8)) return { mimeType: 'image/webp', extension: 'webp' };
+  if (declaredType && !['image/jpeg', 'image/png', 'image/webp'].includes(declaredType)) return null;
+  return null;
+};
+
+const saveFeedImageBuffer = async (buffer: Buffer, declaredType: string, familyId: string) => {
+  if (buffer.length === 0 || buffer.length > MAX_FEED_IMAGE_BYTES) throw new Error('推荐图片必须小于 1MB');
+  const imageType = getImageType(buffer, declaredType.split(';')[0].trim().toLowerCase());
+  if (!imageType) throw new Error('推荐图片只支持 JPG、PNG 或 WebP');
+  const folder = path.join(EXPLORE_FEED_UPLOAD_ROOT, familyId, 'feed');
+  await fs.mkdir(folder, { recursive: true });
+  const filename = `${randomUUID()}.${imageType.extension}`;
+  await fs.writeFile(path.join(folder, filename), buffer);
+  return `/uploads/explore/${familyId}/feed/${filename}`;
+};
+
+const saveFeedImageDataUrl = async (dataUrl: string, familyId: string) => {
+  const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw new Error('上传图片格式不正确');
+  return saveFeedImageBuffer(Buffer.from(match[2], 'base64'), match[1], familyId);
+};
+
+const downloadFeedImage = async (sourceUrl: string, familyId: string) => {
+  let currentUrl = sourceUrl;
+  for (let redirect = 0; redirect <= 3; redirect++) {
+    await assertPublicNetworkUrl(currentUrl);
+    const response = await axios.get(currentUrl, {
+      timeout: HTTP_TIMEOUT_MS,
+      headers: { 'User-Agent': HTTP_USER_AGENT },
+      responseType: 'arraybuffer',
+      maxContentLength: MAX_FEED_IMAGE_BYTES,
+      maxBodyLength: MAX_FEED_IMAGE_BYTES,
+      maxRedirects: 0,
+      validateStatus: status => status >= 200 && status < 400,
+    });
+    if (response.status >= 300) {
+      const location = trimText(response.headers.location, 500);
+      if (!location || redirect === 3) throw new Error('图片重定向次数过多');
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+    return saveFeedImageBuffer(Buffer.from(response.data), String(response.headers['content-type'] || ''), familyId);
+  }
+  throw new Error('图片下载失败');
+};
+
+const extractLinkPreview = (html: string, url: string) => {
+  const pick = (re: RegExp) => {
+    const matched = html.match(re);
+    return matched ? matched[1].trim() : '';
+  };
+  const og = (prop: string) =>
+    pick(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, 'i'))
+    || pick(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:${prop}["']`, 'i'));
+  const rawImageUrl = trimText(og('image'), 500);
+  let structured: any = null;
+  const jsonLdPattern = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let jsonLdMatch: RegExpExecArray | null;
+  while ((jsonLdMatch = jsonLdPattern.exec(html)) !== null && !structured) {
+    try {
+      const parsed = JSON.parse(decodeHtmlEntities(jsonLdMatch[1]).trim());
+      const nodes = (Array.isArray(parsed) ? parsed : [parsed]).flatMap((node: any) => Array.isArray(node?.['@graph']) ? node['@graph'] : [node]);
+      structured = nodes.find((node: any) => {
+        const types = Array.isArray(node?.['@type']) ? node['@type'] : [node?.['@type']];
+        return types.some((type: unknown) => ['Event', 'Place', 'TouristAttraction'].includes(String(type || '')));
+      }) || null;
+    } catch { /* 单条 JSON-LD 解析失败时继续查找下一条 */ }
+  }
+  const location = structured?.location || structured?.contentLocation || null;
+  const address = location?.address || structured?.address || null;
+  const structuredImage = Array.isArray(structured?.image)
+    ? structured.image[0]
+    : (typeof structured?.image === 'object' ? structured.image?.url : structured?.image);
+  const rawStructuredImage = trimText(structuredImage, 500);
+  let imageUrl = '';
+  try { imageUrl = rawImageUrl || rawStructuredImage ? new URL(rawImageUrl || rawStructuredImage, url).toString() : ''; } catch { imageUrl = ''; }
+  return {
+    title: trimText(decodeHtmlEntities(og('title') || structured?.name || pick(/<title[^>]*>([^<]+)<\/title>/i)), 80),
+    summary: trimText(decodeHtmlEntities(og('description') || structured?.description || pick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)), 200),
+    imageUrl: isHttpUrl(imageUrl) ? imageUrl : '',
+    sourceUrl: url,
+    venue: trimText(location?.name || (typeof location === 'string' ? location : ''), 80),
+    city: trimText(address?.addressLocality || address?.addressRegion, 40),
+    district: trimText(address?.addressRegion, 40),
+    activityStart: trimText(structured?.startDate, 20),
+    activityEnd: trimText(structured?.endDate, 20),
+  };
 };
 
 // --- 分类轮换表：按北京时间星期几取当天 POI 搜索分类（0=周日） ---
@@ -194,21 +348,45 @@ const generatePoiCards = async (db: any, family: any, today: string, dayOfWeek: 
     const longitude = Number(lngRaw);
     const latitude = Number(latRaw);
     const photos: any[] = Array.isArray(poi?.photos) ? poi.photos : [];
-    const imageUrl = trimText(photos[0]?.url, 500);
+    const imageSourceUrl = trimText(photos[0]?.url, 500);
     const address = Array.isArray(poi?.address) ? poi.address.join('') : trimText(poi?.address, 160);
+    const summary = trimText(address, 160) || trimText(poi?.type, 160);
+    const city = trimText(Array.isArray(poi?.cityname) ? poi.cityname.join('') : poi?.cityname, 40);
+    const district = trimText(Array.isArray(poi?.adname) ? poi.adname.join('') : poi?.adname, 40);
+    const createdAt = new Date().toISOString();
+    let imageUrl = '';
+    let imageError = '';
+    if (imageSourceUrl && isHttpUrl(imageSourceUrl)) {
+      try { imageUrl = await downloadFeedImage(imageSourceUrl, family.id); }
+      catch (error: any) { imageError = trimText(error?.message || '高德图片下载失败', 200); }
+    }
+    const candidate = { title, summary, imageUrl, latitude, longitude, city, district };
+    const complete = isExploreFeedItemComplete(candidate);
     await db.run(
-      `INSERT INTO explore_feed_items (id, familyId, type, title, summary, imageUrl, category, latitude, longitude, amapPoiId, status, recommendDate)
-       VALUES (?, ?, 'poi', ?, ?, ?, ?, ?, ?, ?, 'new', ?)`,
+      `INSERT INTO explore_feed_items (
+         id, familyId, type, title, summary, imageUrl, category, latitude, longitude, amapPoiId, status,
+         recommendDate, city, district, enrichmentStatus, enrichmentAttempts, nextEnrichmentAt,
+         lastEnrichmentError, imageSourceUrl, contentSourceType, experienceTags, createdAt
+       ) VALUES (?, ?, 'poi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'amap', ?, ?)`,
       randomUUID(),
       family.id,
       title,
-      trimText(address, 160) || null,
-      imageUrl && isHttpUrl(imageUrl) ? imageUrl : null,
+      summary || null,
+      imageUrl || null,
       rotation.label,
       Number.isFinite(latitude) ? latitude : null,
       Number.isFinite(longitude) ? longitude : null,
       amapPoiId || null,
-      today
+      complete ? 'new' : 'pending_review',
+      today,
+      city || null,
+      district || null,
+      complete ? 'ready' : 'waiting',
+      complete ? null : getEnrichmentRetryAt(createdAt, 0),
+      complete ? null : (imageError || '缺少可用图片或地点说明'),
+      imageSourceUrl || null,
+      JSON.stringify([rotation.label, trimText(poi?.type, 40)].filter(Boolean)),
+      createdAt
     );
     inserted++;
   }
@@ -244,10 +422,17 @@ const generateFestivalCard = async (db: any, family: any, today: string, beijing
     family.id, today
   );
   if (dup) return 0;
+  const createdAt = new Date().toISOString();
   await db.run(
-    `INSERT INTO explore_feed_items (id, familyId, type, title, summary, category, status, recommendDate)
-     VALUES (?, ?, 'festival', ?, ?, '节日', 'new', ?)`,
-    randomUUID(), family.id, rule.title, rule.summary, today
+    `INSERT INTO explore_feed_items (
+       id, familyId, type, title, summary, category, status, recommendDate, enrichmentStatus,
+       enrichmentAttempts, nextEnrichmentAt, lastEnrichmentError, contentSourceType, experienceTags, createdAt
+     ) VALUES (?, ?, 'festival', ?, ?, '节日', 'pending_review', ?, 'waiting', 0, ?, ?, 'system', ?, ?)`,
+    randomUUID(), family.id, rule.title, rule.summary, today,
+    getEnrichmentRetryAt(createdAt, 0),
+    '节日灵感还需要真实活动地点和图片，暂不向孩子展示',
+    JSON.stringify(['节庆', '亲子活动']),
+    createdAt
   );
   return 1;
 };
@@ -350,16 +535,26 @@ const fetchSourceItems = async (db: any, family: any, source: any, today: string
         continue;
       }
       if (!isHttpUrl(absoluteUrl)) continue;
+      const feedItemId = randomUUID();
+      const createdAt = new Date().toISOString();
       await db.run(
-        `INSERT INTO explore_feed_items (id, familyId, type, title, summary, sourceUrl, category, status, recommendDate)
-         VALUES (?, ?, 'source', ?, ?, ?, '活动', 'pending_review', ?)`,
-        randomUUID(),
+        `INSERT INTO explore_feed_items (
+           id, familyId, type, title, summary, sourceUrl, category, status, recommendDate,
+           enrichmentStatus, enrichmentAttempts, nextEnrichmentAt, lastEnrichmentError,
+           contentSourceType, experienceTags, createdAt
+         ) VALUES (?, ?, 'source', ?, ?, ?, '活动', 'pending_review', ?, 'waiting', 0, ?, ?, 'official', ?, ?)`,
+        feedItemId,
         family.id,
         item.text,
         source.label ? `来自「${trimText(source.label, 40)}」` : '来自家长关注的网站',
         trimText(absoluteUrl, 500),
-        today
+        today,
+        getEnrichmentRetryAt(createdAt, 0),
+        '正在从官方页面补全图片和活动信息',
+        JSON.stringify(['亲子活动']),
+        createdAt
       );
+      await enrichExploreFeedItem(db, feedItemId, family.id, false);
       inserted++;
     }
     await db.run(
@@ -373,6 +568,127 @@ const fetchSourceItems = async (db: any, family: any, source: any, today: string
     logger.warn('[ExploreFeed] 关注源抓取失败（跳过）:', source.url, err?.message || err);
     return 0;
   }
+};
+
+const loadAmapPoiDetails = async (amapPoiId: string) => {
+  const key = process.env.AMAP_WEB_SERVICE_KEY;
+  if (!key || !amapPoiId) return null;
+  const result = await axios.get('https://restapi.amap.com/v3/place/detail', {
+    params: { key, id: amapPoiId, extensions: 'all' },
+    timeout: HTTP_TIMEOUT_MS,
+    headers: { 'User-Agent': HTTP_USER_AGENT },
+  });
+  if (String(result.data?.status) !== '1') return null;
+  return Array.isArray(result.data?.pois) ? result.data.pois[0] || null : null;
+};
+
+const markEnrichmentFailure = async (db: any, item: any, reason: string, advanceAttempt = true) => {
+  const attempts = Math.max(0, Number(item.enrichmentAttempts) || 0) + (advanceAttempt ? 1 : 0);
+  const nextEnrichmentAt = getEnrichmentRetryAt(String(item.createdAt || new Date().toISOString()), attempts);
+  await db.run(
+    `UPDATE explore_feed_items
+        SET enrichmentStatus = ?, enrichmentAttempts = ?, nextEnrichmentAt = ?, lastEnrichmentError = ?
+      WHERE id = ?`,
+    nextEnrichmentAt ? 'waiting' : 'failed',
+    attempts,
+    nextEnrichmentAt,
+    trimText(reason, 300),
+    item.id
+  );
+  return { ready: false, attempts, nextEnrichmentAt, error: trimText(reason, 300) };
+};
+
+export const enrichExploreFeedItem = async (db: any, itemId: string, familyId?: string, advanceAttempt = true) => {
+  const item = await db.get(
+    `SELECT * FROM explore_feed_items WHERE id = ?${familyId ? ' AND familyId = ?' : ''}`,
+    ...(familyId ? [itemId, familyId] : [itemId])
+  );
+  if (!item) throw Object.assign(new Error('推荐内容不存在'), { statusCode: 404 });
+
+  const candidate: any = { ...item };
+  try {
+    if (item.contentSourceType === 'amap' || item.type === 'poi') {
+      const poi = await loadAmapPoiDetails(trimText(item.amapPoiId, 80));
+      if (poi) {
+        const [lngRaw, latRaw] = String(poi.location || '').split(',');
+        const photos = Array.isArray(poi.photos) ? poi.photos : [];
+        candidate.title = candidate.title || trimText(poi.name, 80);
+        candidate.summary = candidate.summary || trimText(Array.isArray(poi.address) ? poi.address.join('') : poi.address, 200) || trimText(poi.type, 200);
+        candidate.latitude = finiteNumberOrNull(latRaw) ?? candidate.latitude;
+        candidate.longitude = finiteNumberOrNull(lngRaw) ?? candidate.longitude;
+        candidate.city = candidate.city || trimText(Array.isArray(poi.cityname) ? poi.cityname.join('') : poi.cityname, 40);
+        candidate.district = candidate.district || trimText(Array.isArray(poi.adname) ? poi.adname.join('') : poi.adname, 40);
+        candidate.imageSourceUrl = candidate.imageSourceUrl || trimText(photos[0]?.url, 500);
+      }
+    } else if ((item.contentSourceType === 'official' || item.type === 'source' || item.type === 'parent') && (item.officialUrl || item.sourceUrl)) {
+      const sourceUrl = trimText(item.officialUrl || item.sourceUrl, 500);
+      if (isSafePublicUrl(sourceUrl)) {
+        const preview = extractLinkPreview(await fetchHtml(sourceUrl), sourceUrl);
+        candidate.title = candidate.title || preview.title;
+        candidate.summary = !candidate.summary || /^来自[「家]/.test(String(candidate.summary)) ? preview.summary : candidate.summary;
+        candidate.imageSourceUrl = candidate.imageSourceUrl || preview.imageUrl;
+        candidate.venue = candidate.venue || preview.venue;
+        candidate.city = candidate.city || preview.city;
+        candidate.district = candidate.district || preview.district;
+        candidate.activityStart = candidate.activityStart || preview.activityStart;
+        candidate.activityEnd = candidate.activityEnd || preview.activityEnd;
+      }
+    }
+
+    const currentImage = trimText(candidate.imageUrl, 500);
+    const remoteImage = trimText(candidate.imageSourceUrl || currentImage, 500);
+    if (!currentImage.startsWith('/uploads/explore/') && remoteImage) {
+      candidate.imageUrl = await downloadFeedImage(remoteImage, item.familyId);
+      candidate.imageSourceUrl = remoteImage;
+    }
+
+    if (!isExploreFeedItemComplete(candidate)) {
+      return markEnrichmentFailure(db, item, '仍缺少真实图片、内容说明或地点/活动信息，请家长补充', advanceAttempt);
+    }
+
+    const nextStatus = item.status === 'wanted' || item.status === 'dismissed'
+      ? item.status
+      : item.type === 'source' ? 'pending_review' : 'new';
+    await db.run(
+      `UPDATE explore_feed_items SET
+         title = ?, summary = ?, imageUrl = ?, imageSourceUrl = ?, latitude = ?, longitude = ?,
+         city = ?, district = ?, venue = ?, activityStart = ?, activityEnd = ?, status = ?, enrichmentStatus = 'ready', nextEnrichmentAt = NULL,
+         lastEnrichmentError = NULL
+       WHERE id = ?`,
+      trimText(candidate.title, 80),
+      trimText(candidate.summary, 200) || null,
+      trimText(candidate.imageUrl, 500) || null,
+      trimText(candidate.imageSourceUrl, 500) || null,
+      finiteNumberOrNull(candidate.latitude),
+      finiteNumberOrNull(candidate.longitude),
+      trimText(candidate.city, 40) || null,
+      trimText(candidate.district, 40) || null,
+      trimText(candidate.venue, 80) || null,
+      trimText(candidate.activityStart, 20) || null,
+      trimText(candidate.activityEnd, 20) || null,
+      nextStatus,
+      item.id
+    );
+    return { ready: true, status: nextStatus };
+  } catch (error: any) {
+    return markEnrichmentFailure(db, item, error?.message || '自动补全暂时失败', advanceAttempt);
+  }
+};
+
+export const processExploreEnrichmentQueue = async () => {
+  const db = getDb();
+  const items = await db.all(
+    `SELECT id FROM explore_feed_items
+      WHERE enrichmentStatus = 'waiting'
+        AND nextEnrichmentAt IS NOT NULL
+        AND datetime(nextEnrichmentAt) <= datetime('now')
+      ORDER BY nextEnrichmentAt ASC
+      LIMIT 20`
+  );
+  for (const item of items) {
+    await enrichExploreFeedItem(db, item.id);
+  }
+  return items.length;
 };
 
 // 单家庭生成流程：POI 卡 + 节日卡 + 关注源抓取，返回新增条数（每日定时与“立即生成”共用）
@@ -444,6 +760,12 @@ const msUntilNextBeijing630 = (): number => {
 export const startExploreFeedScheduler = () => {
   // 启动后延迟几秒补当天，避开启动高峰
   setTimeout(() => { void generateDailyFeed(); }, 5000);
+  const runEnrichmentQueue = () => {
+    void processExploreEnrichmentQueue().catch(error => logger.error('[ExploreFeed] 自动补全队列失败:', error));
+  };
+  setTimeout(runEnrichmentQueue, 12000);
+  const enrichmentTimer = setInterval(runEnrichmentQueue, 15 * 60 * 1000);
+  enrichmentTimer.unref?.();
   const scheduleNext = () => {
     const delay = msUntilNextBeijing630();
     console.log(`[ExploreFeed] 下次资讯生成：北京时间 6:30（约 ${Math.round(delay / 60000)} 分钟后）`);
@@ -471,9 +793,10 @@ export const getParentExploreFeedSettings = async (
     `SELECT id, type, title, summary, imageUrl, sourceUrl, category, venue, district,
             feedCategory, ageMin, ageMax, activityStart, activityEnd, signupDeadline,
             price, bookingMethod, officialUrl, recommendReason, notes, verifyStatus,
-            recommendScore, city, recommendDate, createdAt
+            recommendScore, city, recommendDate, createdAt, enrichmentStatus,
+            enrichmentAttempts, nextEnrichmentAt, lastEnrichmentError, contentSourceType
        FROM explore_feed_items
-      WHERE familyId = ? AND status = 'pending_review'
+      WHERE familyId = ? AND (status = 'pending_review' OR enrichmentStatus IN ('waiting', 'failed'))
       ORDER BY createdAt DESC
       LIMIT 50`,
     familyId
@@ -501,6 +824,7 @@ export const getParentExploreFeedSettings = async (
 export const registerExploreFeedRoutes = (app: Express, protect: any, requireParent?: any, requireChild?: any) => {
   const childGuards = requireChild ? [protect, requireChild] : [protect];
   const parentGuards = requireParent ? [protect, requireParent] : [protect];
+  registerExploreExperienceRoutes(app, getDb, protect, requireParent, requireChild);
 
   // 孩子端：今日资讯流（家长推荐置顶，最新优先）
   app.get('/api/child/explore/feed', ...childGuards, async (req: any, res: any) => {
@@ -537,14 +861,20 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const rows = await db.all(
       `SELECT id, type, title, summary, imageUrl, category, feedCategory, venue, district, latitude, longitude,
               sourceUrl, officialUrl, ageMin, ageMax, activityStart, activityEnd, signupDeadline, price, bookingMethod,
-              recommendReason, notes, verifyStatus, recommendScore, status, recommendDate, createdAt
+              recommendReason, notes, verifyStatus, recommendScore, status, recommendDate, createdAt,
+              enrichmentStatus, contentSourceType, experienceTags, city
        FROM explore_feed_items
        WHERE ${conds.join(' AND ')}
        ORDER BY CASE type WHEN 'parent' THEN 0 ELSE 1 END, COALESCE(recommendScore, 0) DESC, recommendDate DESC, createdAt DESC
-       LIMIT 20`,
+       LIMIT 50`,
       ...params
     );
-    res.json(rows);
+    const intent = await getChildExploreIntent(db, request.user!.familyId, request.user!.id);
+    const recommendations = selectExploreRecommendations(
+      rows.filter((item: any) => item.enrichmentStatus !== 'waiting' && item.enrichmentStatus !== 'failed'),
+      intent.selections
+    );
+    res.json(recommendations);
   });
 
   // 孩子端：想去 → 一律创建 wishlist 地点（有坐标直接上图，无坐标等家长在探索管理里补定位）
@@ -556,6 +886,9 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
       req.params.id, request.user!.familyId
     );
     if (!item) return res.status(404).json({ message: '这条推荐不存在或已过期' });
+    if (item.enrichmentStatus === 'waiting' || item.enrichmentStatus === 'failed' || !isExploreFeedItemComplete(item)) {
+      return res.status(404).json({ message: '这条推荐还在补全中' });
+    }
     if (item.status !== 'new' && item.status !== 'wanted') {
       return res.status(400).json({ message: '这条推荐已经处理过啦' });
     }
@@ -595,10 +928,13 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const request = req as AuthRequest;
     const db = getDb();
     const item = await db.get(
-      'SELECT id, status FROM explore_feed_items WHERE id = ? AND familyId = ?',
+      'SELECT * FROM explore_feed_items WHERE id = ? AND familyId = ?',
       req.params.id, request.user!.familyId
     );
     if (!item) return res.status(404).json({ message: '这条推荐不存在或已过期' });
+    if (item.enrichmentStatus === 'waiting' || item.enrichmentStatus === 'failed' || !isExploreFeedItemComplete(item)) {
+      return res.status(404).json({ message: '这条推荐还在补全中' });
+    }
     if (item.status !== 'new') return res.status(400).json({ message: '这条推荐已经处理过啦' });
     await db.run("UPDATE explore_feed_items SET status = 'dismissed' WHERE id = ?", item.id);
     res.json({ message: '好的，下次再说' });
@@ -680,11 +1016,17 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const request = req as AuthRequest;
     const db = getDb();
     const item = await db.get(
-      "SELECT id FROM explore_feed_items WHERE id = ? AND familyId = ? AND status = 'pending_review'",
+      "SELECT * FROM explore_feed_items WHERE id = ? AND familyId = ? AND status = 'pending_review'",
       req.params.id, request.user!.familyId
     );
     if (!item) return res.status(404).json({ message: '待审核条目不存在' });
-    await db.run("UPDATE explore_feed_items SET status = 'new', recommendDate = ? WHERE id = ?", getBeijingDateString(), item.id);
+    if (!isExploreFeedItemComplete(item)) {
+      return res.status(400).json({ message: '名称、图片、说明和地点/活动信息补全后才能给孩子展示' });
+    }
+    await db.run(
+      "UPDATE explore_feed_items SET status = 'new', enrichmentStatus = 'ready', nextEnrichmentAt = NULL, lastEnrichmentError = NULL, recommendDate = ? WHERE id = ?",
+      getBeijingDateString(), item.id
+    );
     res.json({ message: '已通过，孩子可以看到了' });
   });
 
@@ -692,7 +1034,7 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const request = req as AuthRequest;
     const db = getDb();
     const item = await db.get(
-      "SELECT id FROM explore_feed_items WHERE id = ? AND familyId = ? AND status = 'pending_review'",
+      "SELECT id FROM explore_feed_items WHERE id = ? AND familyId = ? AND (status = 'pending_review' OR enrichmentStatus IN ('waiting', 'failed'))",
       req.params.id, request.user!.familyId
     );
     if (!item) return res.status(404).json({ message: '待审核条目不存在' });
@@ -706,23 +1048,7 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     if (!isHttpUrl(url)) return res.status(400).json({ message: '请输入 http 或 https 开头的链接' });
     if (!isSafePublicUrl(url)) return res.status(400).json({ message: '这个链接不能解析，请使用公开网站地址' });
     try {
-      const html = await fetchHtml(url);
-      const pick = (re: RegExp) => {
-        const matched = html.match(re);
-        return matched ? matched[1].trim() : '';
-      };
-      const og = (prop: string) =>
-        pick(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, 'i')) ||
-        pick(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:${prop}["']`, 'i'));
-      const title = decodeHtmlEntities(og('title') || pick(/<title[^>]*>([^<]+)<\/title>/i));
-      const imageUrl = trimText(og('image'), 500);
-      const summary = decodeHtmlEntities(og('description') || pick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i));
-      res.json({
-        title: trimText(title, 80),
-        imageUrl: isHttpUrl(imageUrl) ? imageUrl : '',
-        summary: trimText(summary, 200),
-        sourceUrl: url,
-      });
+      res.json(extractLinkPreview(await fetchHtml(url), url));
     } catch (err: any) {
       logger.warn('[ExploreFeed] 链接预览抓取失败:', url, err?.message || err);
       res.status(502).json({ message: '没能读取这个链接，可以手动填写标题和介绍' });
@@ -735,9 +1061,10 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const title = trimText(req.body?.title, 80);
     if (!title) return res.status(400).json({ message: '请填写推荐标题' });
     const summary = trimText(req.body?.summary, 200);
-    const imageUrl = trimText(req.body?.imageUrl, 500);
+    const remoteImageUrl = trimText(req.body?.imageUrl, 500);
+    const imageDataUrl = trimText(req.body?.imageDataUrl, 1_500_000);
     const sourceUrl = trimText(req.body?.sourceUrl, 500);
-    if (imageUrl && !isHttpUrl(imageUrl)) return res.status(400).json({ message: '图片地址需要 http 或 https 开头' });
+    if (remoteImageUrl && !isHttpUrl(remoteImageUrl)) return res.status(400).json({ message: '图片地址需要 http 或 https 开头' });
     if (sourceUrl && !isHttpUrl(sourceUrl)) return res.status(400).json({ message: '链接需要 http 或 https 开头' });
     // 探索发现 v2：结构化字段（全部可选）
     const officialUrl = trimText(req.body?.officialUrl, 500);
@@ -748,27 +1075,61 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     const scoreRaw = toIntOrNull(req.body?.recommendScore);
     const recommendScore = scoreRaw == null ? null : Math.max(1, Math.min(5, scoreRaw));
     const id = randomUUID();
+    const createdAt = new Date().toISOString();
+    let imageUrl = '';
+    let imageError = '';
+    try {
+      if (imageDataUrl) {
+        imageUrl = await saveFeedImageDataUrl(imageDataUrl, request.user!.familyId);
+      } else if (remoteImageUrl && (sourceUrl || officialUrl)) {
+        imageUrl = await downloadFeedImage(remoteImageUrl, request.user!.familyId);
+      }
+    } catch (error: any) {
+      if (imageDataUrl) return res.status(400).json({ message: error?.message || '图片上传失败' });
+      imageError = trimText(error?.message || '图片下载失败', 200);
+    }
+    const candidate = {
+      title,
+      summary,
+      imageUrl,
+      venue: trimText(req.body?.venue, 80),
+      district: trimText(req.body?.district, 40),
+      city: trimText(req.body?.city, 40),
+      activityStart: trimText(req.body?.activityStart, 20),
+      activityEnd: trimText(req.body?.activityEnd, 20),
+      signupDeadline: trimText(req.body?.signupDeadline, 20),
+    };
+    const complete = isExploreFeedItemComplete(candidate);
+    const status = complete ? 'new' : 'pending_review';
+    const enrichmentStatus = complete ? 'ready' : 'waiting';
+    const nextEnrichmentAt = complete ? null : getEnrichmentRetryAt(createdAt, 0);
+    const experienceTags = Array.isArray(req.body?.experienceTags)
+      ? JSON.stringify(req.body.experienceTags.map((item: unknown) => trimText(item, 40)).filter(Boolean).slice(0, 8))
+      : null;
     await getDb().run(
       `INSERT INTO explore_feed_items (
         id, familyId, type, title, summary, imageUrl, sourceUrl, status, recommendDate,
         venue, district, feedCategory, ageMin, ageMax, activityStart, activityEnd, signupDeadline,
-        price, bookingMethod, officialUrl, recommendReason, notes, verifyStatus, recommendScore, city, validFrom, validUntil
-      ) VALUES (?, ?, 'parent', ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        price, bookingMethod, officialUrl, recommendReason, notes, verifyStatus, recommendScore, city, validFrom, validUntil,
+        enrichmentStatus, enrichmentAttempts, nextEnrichmentAt, lastEnrichmentError, imageSourceUrl, contentSourceType,
+        experienceTags, createdAt
+      ) VALUES (?, ?, 'parent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
       id,
       request.user!.familyId,
       title,
       summary || null,
       imageUrl || null,
       sourceUrl || null,
+      status,
       getBeijingDateString(),
-      trimText(req.body?.venue, 80) || null,
-      trimText(req.body?.district, 40) || null,
+      candidate.venue || null,
+      candidate.district || null,
       trimText(req.body?.feedCategory, 20) || null,
       ageMin,
       ageMax,
-      trimText(req.body?.activityStart, 20) || null,
-      trimText(req.body?.activityEnd, 20) || null,
-      trimText(req.body?.signupDeadline, 20) || null,
+      candidate.activityStart || null,
+      candidate.activityEnd || null,
+      candidate.signupDeadline || null,
       trimText(req.body?.price, 40) || null,
       trimText(req.body?.bookingMethod, 120) || null,
       officialUrl || null,
@@ -776,11 +1137,113 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
       trimText(req.body?.notes, 300) || null,
       trimText(req.body?.verifyStatus, 20) || '未核验',
       recommendScore,
-      trimText(req.body?.city, 40) || null,
+      candidate.city || null,
       trimText(req.body?.validFrom, 20) || null,
-      trimText(req.body?.validUntil, 20) || null
+      trimText(req.body?.validUntil, 20) || null,
+      enrichmentStatus,
+      nextEnrichmentAt,
+      complete ? null : (imageError || '还需要补全图片、说明或地点/活动信息'),
+      remoteImageUrl || null,
+      imageDataUrl ? 'parent_upload' : (sourceUrl || officialUrl ? 'official' : 'parent'),
+      experienceTags,
+      createdAt
     );
-    res.json({ message: '已经推荐给孩子啦', id });
+    res.json({
+      message: complete ? '已经推荐给孩子啦' : '已保存为待补全，资料完整后再给孩子展示',
+      id,
+      visibleToChild: complete,
+      enrichmentStatus,
+    });
+  });
+
+  app.post('/api/parent/explore/feed/:id/enrich-now', ...parentGuards, async (req: any, res: any) => {
+    const request = req as AuthRequest;
+    try {
+      const result = await enrichExploreFeedItem(getDb(), req.params.id, request.user!.familyId);
+      res.json({
+        ...result,
+        message: result.ready ? '内容已补全，可以进入推荐流程' : '暂时未补全，请稍后重试或上传图片并补充信息',
+      });
+    } catch (error: any) {
+      res.status(error?.statusCode || 500).json({ message: error?.message || '自动补全失败' });
+    }
+  });
+
+  app.put('/api/parent/explore/feed/:id', ...parentGuards, async (req: any, res: any) => {
+    const request = req as AuthRequest;
+    const db = getDb();
+    const item = await db.get('SELECT * FROM explore_feed_items WHERE id = ? AND familyId = ?', req.params.id, request.user!.familyId);
+    if (!item) return res.status(404).json({ message: '推荐内容不存在' });
+    let imageUrl = trimText(item.imageUrl, 500);
+    const imageDataUrl = trimText(req.body?.imageDataUrl, 1_500_000);
+    if (imageDataUrl) {
+      try { imageUrl = await saveFeedImageDataUrl(imageDataUrl, request.user!.familyId); }
+      catch (error: any) { return res.status(400).json({ message: error?.message || '图片上传失败' }); }
+    }
+    const candidate: any = {
+      ...item,
+      title: trimText(req.body?.title ?? item.title, 80),
+      summary: trimText(req.body?.summary ?? item.summary, 200),
+      imageUrl,
+      city: trimText(req.body?.city ?? item.city, 40),
+      district: trimText(req.body?.district ?? item.district, 40),
+      venue: trimText(req.body?.venue ?? item.venue, 80),
+      feedCategory: trimText(req.body?.feedCategory ?? item.feedCategory, 20),
+      activityStart: trimText(req.body?.activityStart ?? item.activityStart, 20),
+      activityEnd: trimText(req.body?.activityEnd ?? item.activityEnd, 20),
+      signupDeadline: trimText(req.body?.signupDeadline ?? item.signupDeadline, 20),
+      price: trimText(req.body?.price ?? item.price, 40),
+      bookingMethod: trimText(req.body?.bookingMethod ?? item.bookingMethod, 120),
+      officialUrl: trimText(req.body?.officialUrl ?? item.officialUrl, 500),
+      recommendReason: trimText(req.body?.recommendReason ?? item.recommendReason, 300),
+      notes: trimText(req.body?.notes ?? item.notes, 300),
+    };
+    if (!candidate.title) return res.status(400).json({ message: '请填写推荐标题' });
+    if (candidate.officialUrl && !isHttpUrl(candidate.officialUrl)) return res.status(400).json({ message: '官方链接需要 http 或 https 开头' });
+    const complete = isExploreFeedItemComplete(candidate);
+    const publish = req.body?.publish === true;
+    const nextStatus = complete && publish ? 'new' : 'pending_review';
+    const nextEnrichmentAt = complete ? null : getEnrichmentRetryAt(new Date().toISOString(), 0);
+    const experienceTags = Array.isArray(req.body?.experienceTags)
+      ? JSON.stringify(req.body.experienceTags.map((value: unknown) => trimText(value, 40)).filter(Boolean).slice(0, 8))
+      : item.experienceTags;
+    await db.run(
+      `UPDATE explore_feed_items SET
+         title = ?, summary = ?, imageUrl = ?, city = ?, district = ?, venue = ?, feedCategory = ?,
+         activityStart = ?, activityEnd = ?, signupDeadline = ?, price = ?, bookingMethod = ?, officialUrl = ?,
+         recommendReason = ?, notes = ?, status = ?, enrichmentStatus = ?, enrichmentAttempts = 0, nextEnrichmentAt = ?,
+         lastEnrichmentError = ?, contentSourceType = ?, experienceTags = ?, recommendDate = ?
+       WHERE id = ? AND familyId = ?`,
+      candidate.title,
+      candidate.summary || null,
+      candidate.imageUrl || null,
+      candidate.city || null,
+      candidate.district || null,
+      candidate.venue || null,
+      candidate.feedCategory || null,
+      candidate.activityStart || null,
+      candidate.activityEnd || null,
+      candidate.signupDeadline || null,
+      candidate.price || null,
+      candidate.bookingMethod || null,
+      candidate.officialUrl || null,
+      candidate.recommendReason || null,
+      candidate.notes || null,
+      nextStatus,
+      complete ? 'ready' : 'waiting',
+      nextEnrichmentAt,
+      complete ? null : '还需要补全图片、说明或地点/活动信息',
+      imageDataUrl ? 'parent_upload' : (item.contentSourceType || 'parent'),
+      experienceTags,
+      getBeijingDateString(),
+      item.id,
+      request.user!.familyId
+    );
+    res.json({
+      message: complete ? (publish ? '资料已补全并推荐给孩子' : '资料已补全，可以审核发布') : '已保存，资料仍不完整，不会向孩子展示',
+      ready: complete,
+      visibleToChild: complete && publish,
+    });
   });
 
   // 家长端：立即生成今日推荐——跳过“当天已生成”短路，去重与每日上限内只补足缺口，幂等可重复点

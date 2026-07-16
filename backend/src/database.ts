@@ -89,6 +89,7 @@ export const initializeDatabase = async () => {
     { version: '011', description: '家庭快速配置与推荐内容去重记录' },
     { version: '012', description: '家庭抽奖开关与每日付费抽取安全上限' },
     { version: '013', description: '奖励经济目标、商品参考价与可回滚变更记录' },
+    { version: '014', description: '探索体验选择、完整度门槛与自动补全队列' },
   ];
   for (const m of existingMigrations) {
     await db.run('INSERT OR IGNORE INTO schema_versions (version, description) VALUES (?, ?)', [m.version, m.description]);
@@ -260,6 +261,83 @@ export const initializeDatabase = async () => {
   try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN validFrom TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE explore_feed_items ADD COLUMN validUntil TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE families ADD COLUMN exploreCities TEXT'); } catch (e) {}
+
+  // Phase 10：孩子探索意向 + 推荐内容补全状态（只追加，不改已有字段和状态枚举）
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS explore_child_intents (
+      childId TEXT PRIMARY KEY,
+      familyId TEXT NOT NULL,
+      selectionsJson TEXT NOT NULL DEFAULT '["any"]',
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (childId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_explore_child_intents_familyId ON explore_child_intents(familyId);
+
+    CREATE TABLE IF NOT EXISTS explore_experience_settings (
+      familyId TEXT PRIMARY KEY,
+      disabledOptionsJson TEXT NOT NULL DEFAULT '[]',
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (familyId) REFERENCES families(id) ON DELETE CASCADE
+    );
+  `);
+  const exploreFeedColumns = new Set<string>(
+    (await db.all('PRAGMA table_info(explore_feed_items)')).map((column: { name: string }) => column.name)
+  );
+  const phase10ExploreColumns = [
+    ['enrichmentStatus', 'TEXT'],
+    ['enrichmentAttempts', 'INTEGER DEFAULT 0'],
+    ['nextEnrichmentAt', 'TEXT'],
+    ['lastEnrichmentError', 'TEXT'],
+    ['imageSourceUrl', 'TEXT'],
+    ['contentSourceType', 'TEXT'],
+    ['experienceTags', 'TEXT'],
+  ] as const;
+  for (const [name, definition] of phase10ExploreColumns) {
+    if (!exploreFeedColumns.has(name)) {
+      await db.run(`ALTER TABLE explore_feed_items ADD COLUMN ${name} ${definition}`);
+    }
+  }
+  await db.run('CREATE INDEX IF NOT EXISTS idx_explore_feed_enrichment_queue ON explore_feed_items(enrichmentStatus, nextEnrichmentAt)');
+
+  // 旧卡不删除：完整卡标记 ready；不完整卡进入家长可见的补全队列，孩子端不再误看空白卡。
+  await db.run(`
+    UPDATE explore_feed_items
+       SET contentSourceType = COALESCE(contentSourceType, CASE type
+             WHEN 'poi' THEN 'amap' WHEN 'source' THEN 'official'
+             WHEN 'parent' THEN 'parent' ELSE 'system' END),
+           imageSourceUrl = COALESCE(imageSourceUrl, imageUrl),
+           enrichmentStatus = CASE
+             WHEN status IN ('wanted', 'dismissed') THEN 'ready'
+             WHEN length(trim(COALESCE(title, ''))) >= 2
+              AND length(trim(COALESCE(summary, ''))) >= 4
+              AND length(trim(COALESCE(imageUrl, ''))) > 0
+              AND ((latitude IS NOT NULL AND longitude IS NOT NULL)
+                   OR length(trim(COALESCE(venue, ''))) >= 2
+                   OR length(trim(COALESCE(district, ''))) >= 2
+                   OR length(trim(COALESCE(city, ''))) >= 2
+                   OR length(trim(COALESCE(activityStart, ''))) > 0
+                   OR length(trim(COALESCE(activityEnd, ''))) > 0
+                   OR length(trim(COALESCE(signupDeadline, ''))) > 0)
+             THEN 'ready' ELSE 'waiting' END,
+           nextEnrichmentAt = CASE
+             WHEN status NOT IN ('wanted', 'dismissed')
+              AND NOT (
+                length(trim(COALESCE(title, ''))) >= 2
+                AND length(trim(COALESCE(summary, ''))) >= 4
+                AND length(trim(COALESCE(imageUrl, ''))) > 0
+                AND ((latitude IS NOT NULL AND longitude IS NOT NULL)
+                     OR length(trim(COALESCE(venue, ''))) >= 2
+                     OR length(trim(COALESCE(district, ''))) >= 2
+                     OR length(trim(COALESCE(city, ''))) >= 2
+                     OR length(trim(COALESCE(activityStart, ''))) > 0
+                     OR length(trim(COALESCE(activityEnd, ''))) > 0
+                     OR length(trim(COALESCE(signupDeadline, ''))) > 0)
+              )
+             THEN datetime(COALESCE(createdAt, CURRENT_TIMESTAMP), '+1 hour')
+             ELSE NULL END
+     WHERE enrichmentStatus IS NULL
+  `);
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}

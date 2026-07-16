@@ -2,13 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useOutletContext } from 'react-router-dom';
 import { Camera, CheckCircle2, Compass, FileText, List, MapPin, Mic, PauseCircle, Search, Send, Sparkles, Upload, X } from 'lucide-react';
-import api from '../../services/api';
+import api, { getErrorMessage } from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import BottomSheet from '../../components/BottomSheet';
 import Mascot from '../../components/Mascot';
 import ExploreMap, { hasAmapKey } from '../../components/ExploreMap';
-import { ExplorePlace, ExploreCheckin, ExploreMapPlace, ExploreMedium, ExploreFeedItem, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import ExploreIntentPicker from '../../components/explore/ExploreIntentPicker';
+import ExploreRecommendationCard from '../../components/explore/ExploreRecommendationCard';
+import { ExplorePlace, ExploreCheckin, ExploreMapPlace, ExploreMedium, ExploreFeedItem, ChildExploreIntent, EXPLORE_CATEGORIES, EXPLORE_MOODS, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
 
 
@@ -86,6 +88,9 @@ export default function ChildExplore() {
   const [feedItems, setFeedItems] = useState<ExploreFeedItem[]>([]);
   const [feedLeaving, setFeedLeaving] = useState<Set<string>>(new Set());
   const [feedBusy, setFeedBusy] = useState<string | null>(null);
+  const [intent, setIntent] = useState<ChildExploreIntent | null>(null);
+  const [intentSelections, setIntentSelections] = useState<string[]>(['any']);
+  const [savingIntent, setSavingIntent] = useState(false);
   const [mapPlaces, setMapPlaces] = useState<ExploreMapPlace[]>([]);
   const [mapSheetPlace, setMapSheetPlace] = useState<ExploreMapPlace | null>(null);
   const [showObserveTips, setShowObserveTips] = useState(false);
@@ -147,9 +152,32 @@ export default function ChildExplore() {
     .then(res => setFeedItems(res.data || []))
     .catch(() => {});
 
+  const loadIntent = () => api.get('/child/explore/intents')
+    .then(res => {
+      const data = res.data as ChildExploreIntent;
+      setIntent(data);
+      setIntentSelections(data.selections || ['any']);
+    })
+    .catch(() => {});
+
+  const saveIntent = async () => {
+    setSavingIntent(true);
+    try {
+      const res = await api.put('/child/explore/intents', { selections: intentSelections });
+      setIntent(prev => prev ? { ...prev, selections: res.data?.selections || intentSelections } : prev);
+      toast.success(t('explore.intentSaved'));
+      await loadFeed();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t('toast.operateFailed')));
+    } finally {
+      setSavingIntent(false);
+    }
+  };
+
   useEffect(() => {
     loadData().catch(() => toast.error('探索数据加载失败'));
     loadFeed();
+    loadIntent();
     api.get('/child/explore/settings')
       .then(res => {
         setRequirePhoto(!!res.data?.exploreRequirePhoto);
@@ -448,6 +476,15 @@ export default function ChildExplore() {
       </>
       ) : viewMode === 'feed' ? (
       <section className="space-y-3">
+        {intent && (
+          <ExploreIntentPicker
+            groups={intent.groups}
+            selections={intentSelections}
+            saving={savingIntent}
+            onChange={setIntentSelections}
+            onSave={saveIntent}
+          />
+        )}
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-black text-slate-900">{t('explore.feedTitle')}</h3>
           {feedItems.length > 0 && (
@@ -460,72 +497,14 @@ export default function ChildExplore() {
             {t('explore.feedEmpty')}
           </div>
         ) : feedItems.map(item => (
-          <div
+          <ExploreRecommendationCard
             key={item.id}
-            className={`rounded-3xl border p-4 shadow-sm transition-all duration-300 ${
-              feedLeaving.has(item.id) ? 'opacity-0 scale-95' : 'opacity-100'
-            } ${item.type === 'parent' ? 'bg-rose-50 border-rose-200' : item.type === 'festival' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}
-          >
-            {item.type === 'parent' && (
-              <div className="mb-2 inline-flex rounded-full bg-rose-500 text-white px-3 py-1 text-xs font-black">
-                {t('explore.feedParentBadge')}
-              </div>
-            )}
-            {item.type === 'festival' && (
-              <div className="mb-2 inline-flex rounded-full bg-amber-400 text-white px-3 py-1 text-xs font-black">
-                {t('explore.feedFestivalBadge')}
-              </div>
-            )}
-            {item.imageUrl && (
-              <img
-                src={item.imageUrl}
-                alt={item.title}
-                loading="lazy"
-                onError={event => event.currentTarget.classList.add('hidden')}
-                className="w-full h-36 rounded-2xl object-cover border border-slate-100"
-              />
-            )}
-            <div className="mt-2 flex items-start justify-between gap-2">
-              <div className="font-black text-slate-900 text-lg leading-snug">{item.title}</div>
-              {item.category && (
-                <span className="shrink-0 rounded-full bg-sky-50 text-sky-700 px-2 py-1 text-[11px] font-black">
-                  {EXPLORE_CATEGORY_ICONS[item.category] || '📍'} {item.category}
-                </span>
-              )}
-            </div>
-            {item.summary && <p className="mt-1 text-sm text-slate-600 leading-relaxed line-clamp-3">{item.summary}</p>}
-            {/* 探索发现 v2：结构化信息 */}
-            {(item.ageMin != null || item.ageMax != null || item.price || item.signupDeadline || item.venue) && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {(item.ageMin != null || item.ageMax != null) && (
-                  <span className="rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-[11px] font-black">👦 {item.ageMin ?? ''}{item.ageMin != null && item.ageMax != null ? '–' : ''}{item.ageMax ?? ''} 岁</span>
-                )}
-                {item.price && <span className="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-black">💰 {item.price}</span>}
-                {item.signupDeadline && <span className="rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-[11px] font-black">⏰ {item.signupDeadline} 截止</span>}
-                {item.venue && <span className="rounded-full bg-slate-50 text-slate-600 px-2 py-0.5 text-[11px] font-black">📍 {item.venue}</span>}
-              </div>
-            )}
-            {item.recommendReason && <p className="mt-1.5 text-xs font-bold text-rose-500 leading-relaxed">💡 {item.recommendReason}</p>}
-            {item.notes && <p className="mt-1 text-[11px] font-bold text-slate-400 leading-relaxed">注意：{item.notes}</p>}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => dismissFeedItem(item)}
-                disabled={feedBusy === item.id}
-                className="min-h-[44px] rounded-2xl bg-white border border-slate-200 text-slate-500 text-sm font-black disabled:opacity-50"
-              >
-                {t('explore.feedDismiss')}
-              </button>
-              <button
-                type="button"
-                onClick={() => wantFeedItem(item)}
-                disabled={feedBusy === item.id}
-                className="min-h-[44px] rounded-2xl bg-emerald-500 text-white text-sm font-black shadow-md shadow-emerald-100 active:scale-[0.98] transition-all disabled:opacity-50"
-              >
-                {t('explore.feedWant')}
-              </button>
-            </div>
-          </div>
+            item={item}
+            busy={feedBusy === item.id}
+            leaving={feedLeaving.has(item.id)}
+            onDismiss={() => dismissFeedItem(item)}
+            onWant={() => wantFeedItem(item)}
+          />
         ))}
       </section>
       ) : (

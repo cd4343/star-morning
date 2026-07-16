@@ -110,6 +110,7 @@ export type ExploreFeedItem = {
   summary?: string | null;
   imageUrl?: string | null;
   category?: string | null;
+  city?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   sourceUrl?: string | null;
@@ -129,9 +130,43 @@ export type ExploreFeedItem = {
   notes?: string | null;
   verifyStatus?: string | null;
   recommendScore?: number | null;
+  enrichmentStatus?: 'ready' | 'waiting' | 'failed' | null;
+  enrichmentAttempts?: number | null;
+  nextEnrichmentAt?: string | null;
+  lastEnrichmentError?: string | null;
+  contentSourceType?: string | null;
+  experienceTags?: string | null;
+  recommendationRole?: 'primary' | 'alternative';
+  recommendationKind?: 'place' | 'activity';
+  matchedExperienceKeys?: string[];
   status: string;
   recommendDate?: string;
   createdAt?: string;
+};
+
+export type ExploreExperienceOption = {
+  key: string;
+  label: string;
+  adultCategory: string;
+  keywords: string[];
+};
+
+export type ExploreExperienceGroup = {
+  key: string;
+  label: string;
+  icon: string;
+  options: ExploreExperienceOption[];
+};
+
+export type ChildExploreIntent = {
+  selections: string[];
+  groups: ExploreExperienceGroup[];
+};
+
+export type ParentExploreIntentSettings = {
+  groups: ExploreExperienceGroup[];
+  disabledKeys: string[];
+  children: { id: string; name: string; selections: string[] }[];
 };
 
 export type ExploreFeedSource = {
