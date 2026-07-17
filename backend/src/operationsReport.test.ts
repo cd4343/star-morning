@@ -23,6 +23,14 @@ describe('operations report privacy and invariant checks', () => {
         venue TEXT, district TEXT, city TEXT, activityStart TEXT, activityEnd TEXT, signupDeadline TEXT,
         type TEXT, status TEXT, enrichmentStatus TEXT, createdAt TEXT
       );
+      CREATE TABLE explore_source_registry (
+        source_key TEXT PRIMARY KEY, is_enabled INTEGER, health_status TEXT
+      );
+      CREATE TABLE explore_feed_item_evidence (id TEXT PRIMARY KEY);
+      CREATE TABLE explore_discovery_runs (
+        id TEXT PRIMARY KEY, city TEXT, experience_keys_json TEXT, objective TEXT,
+        result_count INTEGER, partial INTEGER, failure_code TEXT, created_at TEXT
+      );
       INSERT INTO schema_versions VALUES ('phase10');
       INSERT INTO task_sessions VALUES ('session-1', 'completed', '2026-07-16T03:00:00.000Z');
       INSERT INTO task_entries VALUES ('entry-1', 'approved', '2026-07-16T03:05:00.000Z', '2026-07-16T04:00:00.000Z', 'submit-1');
@@ -36,6 +44,11 @@ describe('operations report privacy and invariant checks', () => {
         'feed-1', 'PRIVATE PLACE', 'PRIVATE DESCRIPTION', 'https://example.com/image.jpg', NULL, NULL,
         NULL, NULL, NULL, NULL, NULL, NULL, 'poi', 'new', 'ready', '2026-07-16T04:00:00.000Z'
       );
+      INSERT INTO explore_source_registry VALUES
+        ('amap-poi', 1, 'healthy'), ('paused-source', 0, 'degraded');
+      INSERT INTO explore_discovery_runs VALUES
+        ('run-1', '上海市', '["museum"]', 'knowledge', 2, 0, NULL, '2026-07-16T04:00:00.000Z'),
+        ('run-2', '上海', '["museum","science_museum"]', 'knowledge', 0, 1, 'provider_failed', '2026-07-16T05:00:00.000Z');
     `);
   });
 
@@ -50,6 +63,15 @@ describe('operations report privacy and invariant checks', () => {
     expect(report.activity.rewards.chests).toMatchObject({ granted: 1, coinRewards: 1 });
     expect(report.checks.incompleteExploreItemsExposed).toBe(1);
     expect(report.database.missingColumns).toEqual([]);
+    expect(report.activity.explore.discovery).toMatchObject({
+      totalRuns: 2, zeroResultRuns: 1, partialRuns: 1, averageResultCount: 1,
+      sources: { enabled: 1, healthy: 1, degraded: 0 },
+    });
+    expect(report.activity.explore.discovery.zeroResultBuckets).toEqual([
+      { city: '上海', experienceKey: 'museum', count: 1 },
+      { city: '上海', experienceKey: 'science_museum', count: 1 },
+    ]);
+    expect(report.reportVersion).toBe('phase12-operations-v2');
     expect(serialized).not.toContain('private-child-id');
     expect(serialized).not.toContain('PRIVATE');
   });

@@ -34,6 +34,7 @@ import {
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
 import { addVerifiedExploreResultToPlan, registerExploreDiscoveryRoutes } from './exploreDiscoveryRoutes';
+import { startExploreDiscoveryMaintenanceScheduler } from './exploreSourceCatalog';
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
 import { normalizeShopReferenceRmb, toChildWish, toParentWish } from './wishEconomy';
 import { settleTaskEntry, syncTaskSettlementCoinAdjustment, TaskSettlementError } from './taskSettlement';
@@ -7724,6 +7725,7 @@ initializeDatabase()
       startBackupScheduler();
     }
     startExploreFeedScheduler();
+    startExploreDiscoveryMaintenanceScheduler(getDb);
     startWeeklyReportScheduler();
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);

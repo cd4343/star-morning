@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import sqlite3 from 'sqlite3';
 import { open, type Database } from 'sqlite';
-import { isExploreFeedItemComplete } from './exploreExperience';
+import { EXPLORE_EXPERIENCE_GROUPS, isExploreFeedItemComplete } from './exploreExperience';
 
 const REQUIRED_TABLES = [
   'schema_versions',
@@ -15,6 +15,9 @@ const REQUIRED_TABLES = [
   'child_wish_requests',
   'explore_child_intents',
   'explore_feed_items',
+  'explore_source_registry',
+  'explore_feed_item_evidence',
+  'explore_discovery_runs',
 ] as const;
 
 const toInt = (value: unknown) => {
@@ -242,6 +245,38 @@ export const collectOperationsReport = async (db: Database, days = 7, now = new 
     );
     incompleteExploreItemsExposed = candidates.filter(item => !isExploreFeedItemComplete(item)).length;
   }
+  const sourceHealth = has('explore_source_registry') ? await db.get(`
+    SELECT COALESCE(SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END), 0) AS enabled,
+           COALESCE(SUM(CASE WHEN is_enabled = 1 AND health_status = 'healthy' THEN 1 ELSE 0 END), 0) AS healthy,
+           COALESCE(SUM(CASE WHEN is_enabled = 1 AND health_status = 'degraded' THEN 1 ELSE 0 END), 0) AS degraded
+      FROM explore_source_registry`) : null;
+  const discoverySummary = has('explore_discovery_runs') ? await db.get(`
+    SELECT COUNT(*) AS totalRuns,
+           COALESCE(SUM(CASE WHEN result_count = 0 THEN 1 ELSE 0 END), 0) AS zeroResultRuns,
+           COALESCE(SUM(CASE WHEN partial = 1 THEN 1 ELSE 0 END), 0) AS partialRuns,
+           COALESCE(ROUND(AVG(result_count)), 0) AS averageResultCount
+      FROM explore_discovery_runs WHERE ${inWindow('created_at')}`, startAt, endAt) : null;
+  const allowedExperienceKeys = new Set(
+    EXPLORE_EXPERIENCE_GROUPS.flatMap(group => group.options.map(option => option.key))
+  );
+  const zeroRows = has('explore_discovery_runs') ? await db.all(`
+    SELECT city, experience_keys_json FROM explore_discovery_runs
+     WHERE result_count = 0 AND ${inWindow('created_at')}`, startAt, endAt) : [];
+  const bucketCounts = new Map<string, number>();
+  for (const row of zeroRows) {
+    const city = String(row.city || '未设置').trim().replace(/市$/, '').slice(0, 20) || '未设置';
+    let keys: string[] = [];
+    try { keys = JSON.parse(String(row.experience_keys_json || '[]')); } catch { keys = []; }
+    for (const rawKey of keys.length > 0 ? keys : ['any']) {
+      const experienceKey = allowedExperienceKeys.has(String(rawKey)) ? String(rawKey) : 'other';
+      const key = `${city}\u0000${experienceKey}`;
+      bucketCounts.set(key, (bucketCounts.get(key) || 0) + 1);
+    }
+  }
+  const zeroResultBuckets = [...bucketCounts.entries()].map(([key, count]) => {
+    const [city, experienceKey] = key.split('\u0000');
+    return { city, experienceKey, count };
+  }).sort((a, b) => a.city.localeCompare(b.city) || a.experienceKey.localeCompare(b.experienceKey));
 
   const checks = {
     duplicateSubmissionKeys,
@@ -262,13 +297,13 @@ export const collectOperationsReport = async (db: Database, days = 7, now = new 
     ? 'ok' : 'attention';
 
   return {
-    reportVersion: 'phase11-operations-v1',
+    reportVersion: 'phase12-operations-v2',
     status,
     generatedAt: endAt,
     window: { kind: 'rolling', days, startAt, endAt, timezone: 'Asia/Shanghai' },
     privacy: {
       mode: 'aggregate-only',
-      excluded: ['names', 'phones', 'emails', 'task text', 'wish text', 'notes', 'locations', 'coordinates', 'tokens', 'secrets'],
+      excluded: ['names', 'phones', 'emails', 'task text', 'wish text', 'notes', 'raw queries', 'exact addresses', 'coordinates', 'source URLs', 'source errors', 'tokens', 'secrets'],
     },
     database: { integrityOk: integrityIssueCount === 0, integrityIssueCount, foreignKeyViolationCount, schemaVersionCount, missingTables, missingColumns },
     activity: {
@@ -276,7 +311,11 @@ export const collectOperationsReport = async (db: Database, days = 7, now = new 
       rewards: { chests, puzzleSnapshot },
       screenTime,
       wishes,
-      explore: { intentsUpdated: exploreIntentsUpdated, feed: exploreFeed },
+      explore: {
+        intentsUpdated: exploreIntentsUpdated,
+        feed: exploreFeed,
+        discovery: discoverySummary ? { ...discoverySummary, sources: sourceHealth, zeroResultBuckets } : null,
+      },
     },
     checks,
     limitations: {

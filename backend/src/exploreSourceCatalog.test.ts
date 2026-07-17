@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import sqlite3 from 'sqlite3';
 import { open, type Database } from 'sqlite';
-import { ensureExploreSourceSchema, syncExploreSourceCatalog } from './exploreSourceCatalog';
+import { ensureExploreSourceSchema, runExploreDiscoveryMaintenance, syncExploreSourceCatalog } from './exploreSourceCatalog';
 
 const databases: Database[] = [];
 
@@ -48,5 +48,27 @@ describe('trusted Explore source catalog', () => {
     const columns = (await database.all('PRAGMA table_info(explore_feed_items)'))
       .map((column: { name: string }) => column.name);
     expect(columns).toEqual(expect.arrayContaining(['verified_at', 'fresh_until', 'verification_level']));
+  });
+
+  it('degrades after three due failures, recovers on one success, and removes runs older than 90 Beijing days', async () => {
+    const database = await createDatabase();
+    await ensureExploreSourceSchema(database);
+    await syncExploreSourceCatalog(database, new Date('2026-04-01T04:00:00.000Z'));
+    await database.run(
+      `INSERT INTO explore_discovery_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      'old-run', '上海', '[]', null, 0, 0, null, '2026-04-01T00:00:00.000Z'
+    );
+    for (const timestamp of ['2026-07-14T04:00:00.000Z', '2026-07-15T04:01:00.000Z', '2026-07-16T04:02:00.000Z']) {
+      await runExploreDiscoveryMaintenance(database, new Date(timestamp), async () => false);
+    }
+    expect(await database.get(
+      `SELECT health_status, consecutive_failures FROM explore_source_registry WHERE source_key = 'amap-poi'`
+    )).toEqual({ health_status: 'degraded', consecutive_failures: 3 });
+    expect(await database.get(`SELECT id FROM explore_discovery_runs WHERE id = 'old-run'`)).toBeUndefined();
+
+    await runExploreDiscoveryMaintenance(database, new Date('2026-07-17T04:03:00.000Z'), async () => true);
+    expect(await database.get(
+      `SELECT health_status, consecutive_failures, last_success_at FROM explore_source_registry WHERE source_key = 'amap-poi'`
+    )).toEqual({ health_status: 'healthy', consecutive_failures: 0, last_success_at: '2026-07-17T04:03:00.000Z' });
   });
 });
