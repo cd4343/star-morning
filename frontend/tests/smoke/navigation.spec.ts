@@ -116,6 +116,7 @@ test('parent explore workbench keeps discover, plan and records in one mobile fl
   await expect(page.getByTestId('explore-summary')).toContainText('2');
   await page.getByTestId('explore-primary-action').click();
   await expect(page.getByTestId('explore-discover')).toBeVisible();
+  await page.getByText('高级设置与手动工具').click();
   await page.getByLabel('孩子年龄').fill('8');
   await page.getByLabel('兴趣方向').selectOption('户外');
   await expect(page.getByText('周末森林观察活动')).toBeVisible();
@@ -145,5 +146,6 @@ test('parent explore shows a retryable error instead of a false empty state', as
   shouldFail = false;
   await page.getByRole('button', { name: '重新加载' }).click();
   await expect(page.getByTestId('explore-load-error')).toBeHidden();
+  await page.getByTestId('explore-stage-plan').click();
   await expect(page.getByText('上海自然博物馆')).toBeVisible();
 });
