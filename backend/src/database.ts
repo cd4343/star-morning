@@ -9,6 +9,7 @@ import { ensureTaskSettlementSchema } from './taskSettlement';
 import { ensureGrowthIdentitySchema } from './growthIdentitySchema';
 import { ensureGrowthCosmeticSchema } from './growthCosmeticSchema';
 import { ensureParentDailyWelcomeSchema } from './parentDailyWelcome';
+import { ensureExploreSourceSchema, syncExploreSourceCatalog } from './exploreSourceCatalog';
 
 let db: Database;
 
@@ -338,6 +339,9 @@ export const initializeDatabase = async () => {
              ELSE NULL END
      WHERE enrichmentStatus IS NULL
   `);
+
+  await ensureExploreSourceSchema(db);
+  await syncExploreSourceCatalog(db);
 
   try { await db.run('ALTER TABLE users ADD COLUMN lastLoginDate TEXT'); } catch (e) {}
   try { await db.run('ALTER TABLE users ADD COLUMN loginStreak INTEGER DEFAULT 0'); } catch (e) {}
