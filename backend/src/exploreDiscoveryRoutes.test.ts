@@ -139,5 +139,6 @@ describe('trusted parent Explore discovery', () => {
     expect(first.created).toBe(true);
     expect(second).toEqual({ id: first.id, created: false });
     expect((await database.get('SELECT COUNT(*) AS count FROM explore_places')).count).toBe(1);
+    expect((await database.get('SELECT status FROM explore_feed_items WHERE id = ?', found.results[0].id)).status).toBe('pending_review');
   });
 });

@@ -59,6 +59,24 @@ const inferCandidateTags = (...facts: unknown[]) => {
   return { experienceKeys: [...new Set(experienceKeys)], objectiveKeys: [...new Set(objectiveKeys)] };
 };
 
+const getMatchedReasonCodes = (item: ExploreDiscoveryCandidate, intent: ParsedExploreIntent) => {
+  const reasons: string[] = [];
+  if (intent.preferences.experienceKeys.includes('any')
+    || intent.preferences.experienceKeys.some(key => item.experienceKeys.includes(key))) reasons.push('experience');
+  if (intent.preferences.objective && item.objectiveKeys.includes(intent.preferences.objective)) reasons.push('objective');
+  if (intent.hardConditions.districtScope.some(value => text(item.district).includes(value))) reasons.push('district');
+  if (intent.hardConditions.budgetMax !== undefined && item.priceAmount !== undefined) reasons.push('budget');
+  if (item.type === 'activity' && (intent.hardConditions.dateFrom || intent.hardConditions.dateTo)) reasons.push('date');
+  return reasons;
+};
+
+const getAdjustmentCodes = (intent: ParsedExploreIntent) => {
+  if (intent.hardConditions.budgetMax !== undefined) return ['remove_budget'];
+  if (intent.hardConditions.districtScope.length > 0) return ['expand_district'];
+  if (intent.hardConditions.indoorPreference !== 'any') return ['remove_indoor'];
+  return ['change_experience'];
+};
+
 export const getChildAgeForFamily = async (
   database: Database, familyId: string, childId: string, now: Date = new Date()
 ) => {
@@ -251,7 +269,14 @@ export const searchExploreDiscovery = async (
   JSON.stringify(intent.preferences.experienceKeys), intent.preferences.objective || null, results.length,
   partial ? 1 : 0, providerFailed ? 'provider_failed' : null, now.toISOString());
   return {
-    intent, results, partial,
+    intent,
+    results: results.map(item => ({
+      ...item,
+      trustLabel: item.trustTier,
+      matchedReasons: getMatchedReasonCodes(item, intent),
+    })),
+    adjustments: results.length === 0 ? getAdjustmentCodes(intent) : [],
+    partial,
     messageCode: results.length > 0 ? 'reliable_results_found' : 'no_reliable_results',
   };
 };
@@ -280,7 +305,6 @@ export const addVerifiedExploreResultToPlan = async (
     id, familyId, text(item.title, 80), mapFeedCategoryToPlaceCategory(item.category), text(item.city, 40),
     text(item.venue, 160), item.latitude ?? null, item.longitude ?? null, text(item.amapPoiId, 80) || null,
     text(item.summary, 300), text(item.experienceTags, 200), userId, sourceFeedId, now.toISOString());
-    await database.run(`UPDATE explore_feed_items SET status = 'wanted' WHERE id = ? AND familyId = ?`, sourceFeedId, familyId);
     await database.exec('COMMIT');
     return { id, created: true };
   } catch (error) {
