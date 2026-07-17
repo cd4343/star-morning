@@ -7,7 +7,8 @@ import api, { getErrorMessage } from '../../services/api';
 import { getDateLocale, t } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import ParentExploreIntentSettings from '../../components/explore/ParentExploreIntentSettings';
-import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, ExploreVisitedPlace, ParentExploreIntentSettings as ParentIntentSettings, EXPLORE_CATEGORIES, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
+import ParentExploreDiscovery from '../../components/explore/ParentExploreDiscovery';
+import { ExplorePlace, ExploreCheckin, ExploreMedium, ExploreTimelineMonth, ExploreFeedSettings, ExploreStats, ExploreVisitedPlace, ExploreDiscoveryResult, ParentExploreIntentSettings as ParentIntentSettings, EXPLORE_CATEGORIES, EXPLORE_CATEGORY_ICONS } from '../../types/explore';
 import { compressImage } from '../../utils/imageCompress';
 
 const categories = EXPLORE_CATEGORIES;
@@ -82,7 +83,7 @@ const getSupportedMimeType = (): string | null => {
 export default function ParentExplore() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [tab, setTab] = useState<'discover' | 'plan' | 'records' | 'settings'>('plan');
+  const [tab, setTab] = useState<'discover' | 'plan' | 'records' | 'settings'>('discover');
   const [recordView, setRecordView] = useState<'checkins' | 'memories'>('checkins');
   const [places, setPlaces] = useState<ExplorePlace[]>([]);
   const [checkins, setCheckins] = useState<ExploreCheckin[]>([]);
@@ -131,6 +132,7 @@ export default function ParentExplore() {
   const [pushForm, setPushForm] = useState(EMPTY_PUSH_FORM);
   const [pushing, setPushing] = useState(false);
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const pushEditorRef = useRef<HTMLDivElement | null>(null);
   const [intentSettings, setIntentSettings] = useState<ParentIntentSettings | null>(null);
   const [disabledIntentKeys, setDisabledIntentKeys] = useState<string[]>([]);
@@ -588,6 +590,29 @@ export default function ParentExplore() {
     }
   };
 
+  const addDiscoveryResult = async (item: ExploreDiscoveryResult) => {
+    try {
+      const response = await api.post('/parent/explore/places', { sourceFeedId: item.id });
+      toast.success(response.data?.message || t('explore.planner.added'));
+      await loadData();
+      setTab('plan');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t('toast.operateFailed')));
+      throw error;
+    }
+  };
+
+  const recommendDiscoveryResult = async (item: ExploreDiscoveryResult) => {
+    try {
+      await api.post(`/parent/explore/feed/${item.id}/approve`);
+      toast.success(t('explore.feedApproved'));
+      await loadFeedSettings();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t('toast.operateFailed')));
+      throw error;
+    }
+  };
+
   // 探索二期：粘贴链接生成推荐预览（og 标签）
   const previewPushLink = async () => {
     if (!pushUrl.trim()) return;
@@ -632,6 +657,7 @@ export default function ParentExplore() {
   };
 
   const editFeedItem = (item: ExploreFeedSettings['pendingReview'][number]) => {
+    setShowAdvancedSettings(true);
     setEditingFeedId(item.id);
     setPushForm({
       ...EMPTY_PUSH_FORM,
@@ -735,6 +761,17 @@ export default function ParentExplore() {
 
         {!loadingData && !dataError && tab === 'discover' && (
           <section data-testid="explore-discover" className="space-y-4">
+            <ParentExploreDiscovery
+              settings={intentSettings}
+              initialCity={feedCity}
+              onAdd={addDiscoveryResult}
+              onRecommend={recommendDiscoveryResult}
+            />
+            <details className="rounded-2xl border border-slate-200 bg-white p-3">
+              <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between text-sm font-black text-slate-600">
+                {t('explore.planner.advanced')}<ChevronDown size={18} />
+              </summary>
+              <div className="mt-3 space-y-4">
             <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
               <div className="flex items-center gap-2 text-lg font-black text-slate-900"><Sparkles size={20} className="text-violet-500" />{t('explore.discoverTitle')}</div>
               <div className="grid grid-cols-2 gap-2">
@@ -803,6 +840,8 @@ export default function ParentExplore() {
               ))}
             </div>
             </section>}
+              </div>
+            </details>
           </section>
         )}
 
@@ -1071,6 +1110,19 @@ export default function ParentExplore() {
               />
             )}
 
+            <details
+              open={showAdvancedSettings}
+              onToggle={event => setShowAdvancedSettings(event.currentTarget.open)}
+              className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"
+            >
+              <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-3 px-1 text-left">
+                <div>
+                  <div className="text-sm font-black text-slate-700">{t('explore.advancedToolsTitle')}</div>
+                  <p className="mt-1 text-xs font-bold leading-relaxed text-slate-400">{t('explore.advancedToolsDesc')}</p>
+                </div>
+                <ChevronDown size={18} className={`shrink-0 text-slate-400 transition-transform ${showAdvancedSettings ? 'rotate-180' : ''}`} />
+              </summary>
+              <div className="mt-3 space-y-3">
             {/* 探索二期：发现推送设置 */}
             <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
               <div className="font-black text-slate-900 flex items-center gap-2">
@@ -1264,6 +1316,8 @@ export default function ParentExplore() {
                 {editingFeedId ? t('explore.feedEditPublish') : t('explore.feedPushConfirm')}
               </Button>
             </div>
+              </div>
+            </details>
 
             {/* 探索二期：观察统计 */}
             <div className="rounded-3xl bg-white border border-slate-100 p-4 shadow-sm space-y-3">
