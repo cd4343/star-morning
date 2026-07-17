@@ -14,20 +14,29 @@ const requiredFiles = [
   'backend/src/lotteryRules.ts',
   'backend/src/rewardSystem.ts',
   'backend/src/taskSettlement.ts',
+  'backend/src/chestRewardGrant.ts',
+  'backend/src/wishRequestRoutes.ts',
+  'backend/src/privilegeRedemption.ts',
+  'backend/src/exploreExperience.ts',
   'frontend/src/pages/child/ChildLayout.tsx',
   'frontend/src/pages/child/ChildToday.tsx',
   'frontend/src/pages/child/ChildChallenge.tsx',
   'frontend/src/pages/child/ChildWishes.tsx',
   'frontend/src/pages/child/ChildMe.tsx',
+  'frontend/src/pages/child/ChildExplore.tsx',
   'frontend/src/pages/parent/ParentQuickSetup.tsx',
   'frontend/src/pages/parent/ParentWishes.tsx',
   'frontend/src/pages/parent/ParentTasks.tsx',
+  'frontend/src/pages/parent/ParentExplore.tsx',
+  'frontend/src/pages/parent/ParentPrivileges.tsx',
   'frontend/src/components/EconomySettingsPanel.tsx',
 ];
 const requiredBackendBuildFiles = [
   'server.js', 'productConfig.js', 'parentInbox.js', 'economyRoutes.js',
   'economySchema.js', 'wishEconomy.js', 'taskSettlement.js', 'lotteryRules.js',
   'rewardSystem.js',
+  'chestRewardGrant.js', 'wishRequestRoutes.js', 'privilegeRedemption.js',
+  'exploreExperience.js', 'exploreFeed.js',
 ];
 
 const fail = (message) => {
@@ -70,7 +79,7 @@ for (const relative of referenced) {
 }
 
 const assetNames = fs.existsSync(assetsRoot) ? fs.readdirSync(assetsRoot) : [];
-for (const prefix of ['ChildLayout-', 'ChildToday-', 'ChildChallenge-', 'ChildWishes-', 'ChildMe-', 'ParentDashboard-', 'ParentQuickSetup-', 'ParentTasks-', 'ParentWishes-', 'EconomySettingsPanel-']) {
+for (const prefix of ['ChildLayout-', 'ChildToday-', 'ChildChallenge-', 'ChildWishes-', 'ChildMe-', 'ChildExplore-', 'ParentDashboard-', 'ParentQuickSetup-', 'ParentTasks-', 'ParentWishes-', 'ParentExplore-', 'ParentPrivileges-', 'EconomySettingsPanel-']) {
   if (!assetNames.some(name => name.startsWith(prefix) && name.endsWith('.js'))) {
     fail(`Missing required page chunk: frontend/dist/assets/${prefix}*.js`);
   }
@@ -122,6 +131,11 @@ const verifyLive = async () => {
   if (asset.status !== 200 || asset.body.length < 1000) throw new Error(`Entry asset is unavailable: ${entryAsset}`);
   const health = await requestText(new URL('/api/health', page.url).toString());
   if (health.status !== 200) throw new Error(`Backend health check returned HTTP ${health.status}`);
+  let healthBody;
+  try { healthBody = JSON.parse(health.body); } catch { throw new Error('Backend health check returned invalid JSON'); }
+  if (healthBody.status !== 'ok' || healthBody.database !== 'ok') {
+    throw new Error('Backend health check did not confirm database readiness');
+  }
   console.log(`[OK] Live origin: ${new URL(page.url).origin}`);
   console.log(`[OK] Nginx serves current entry asset: ${entryAsset}`);
   console.log('[OK] Backend health endpoint is reachable through Nginx');

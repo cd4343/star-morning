@@ -615,12 +615,19 @@ const withTransaction = async <T>(fn: () => Promise<T>): Promise<T> => {
 
 
 // 健康检查端点 - 用于测试服务器是否正常运行
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+app.get('/api/health', async (_req, res) => {
+  try {
+    await getDb().get('SELECT 1 AS ok');
+    res.json({
+      status: 'ok',
+      database: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(503).json({ status: 'error', database: 'unavailable' });
+  }
 });
 
 // --- 北京时间工具函数 ---

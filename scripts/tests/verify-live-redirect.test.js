@@ -14,6 +14,7 @@ test('live verification follows the production HTTP redirect before checking ass
   const entryAsset = indexHtml.match(/<script[^>]+src="\/assets\/([^"?]+)"/i)[1];
   const entrySource = fs.readFileSync(path.join(root, 'frontend', 'dist', 'assets', entryAsset), 'utf8');
 
+  let databaseReady = true;
   const server = http.createServer((request, response) => {
     if (request.url === '/') {
       response.writeHead(301, { Location: '/app' });
@@ -32,7 +33,7 @@ test('live verification follows the production HTTP redirect before checking ass
     }
     if (request.url === '/api/health') {
       response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end('{"status":"ok"}');
+      response.end(JSON.stringify({ status: databaseReady ? 'ok' : 'error', database: databaseReady ? 'ok' : 'unavailable' }));
       return;
     }
     response.writeHead(404);
@@ -53,4 +54,13 @@ test('live verification follows the production HTTP redirect before checking ass
 
   assert.match(stdout, /Live origin:/);
   assert.match(stdout, /Backend health endpoint is reachable through Nginx/);
+
+  databaseReady = false;
+  await assert.rejects(
+    execFileAsync(process.execPath, ['scripts/verify_phase1_deployment.js', '--live'], {
+      cwd: root,
+      env: { ...process.env, STARCOIN_LIVE_URL: `http://127.0.0.1:${address.port}` },
+    }),
+    error => String(error.stderr || '').includes('did not confirm database readiness'),
+  );
 });
