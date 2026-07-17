@@ -17,7 +17,7 @@ const createDatabase = async () => {
 };
 
 describe('trusted Explore source catalog', () => {
-  it('creates the append-only schema and syncs only the vetted Amap source idempotently', async () => {
+  it('creates the append-only schema and syncs active and queued vetted sources idempotently', async () => {
     const database = await createDatabase();
 
     await ensureExploreSourceSchema(database);
@@ -31,19 +31,27 @@ describe('trusted Explore source catalog', () => {
     );
     await syncExploreSourceCatalog(database, new Date('2026-07-17T05:00:00.000Z'));
 
-    const rows = await database.all(
-      `SELECT source_key, trust_tier, authority_fields_json, health_status,
-              consecutive_failures, last_checked_at
-         FROM explore_source_registry`
+    const active = await database.all(
+      `SELECT source_key, trust_tier FROM explore_source_registry WHERE is_enabled = 1 ORDER BY source_key`
     );
-    expect(rows).toEqual([{
+    expect(active).toEqual([
+      { source_key: 'amap-poi', trust_tier: 'A' },
+      { source_key: 'national-public-culture-cloud', trust_tier: 'B' },
+      { source_key: 'shanghai-library-activities', trust_tier: 'S' },
+      { source_key: 'shanghai-museum-events', trust_tier: 'S' },
+    ]);
+    expect((await database.get('SELECT COUNT(*) AS count FROM explore_source_registry')).count).toBeGreaterThan(10);
+    expect(await database.get(
+      `SELECT source_key, trust_tier, authority_fields_json, health_status,
+              consecutive_failures, last_checked_at FROM explore_source_registry WHERE source_key = 'amap-poi'`
+    )).toEqual({
       source_key: 'amap-poi',
       trust_tier: 'A',
       authority_fields_json: '["title","address","latitude","longitude","category","imageUrl"]',
       health_status: 'degraded',
       consecutive_failures: 3,
       last_checked_at: '2026-07-17T04:30:00.000Z',
-    }]);
+    });
 
     const columns = (await database.all('PRAGMA table_info(explore_feed_items)'))
       .map((column: { name: string }) => column.name);
@@ -54,6 +62,9 @@ describe('trusted Explore source catalog', () => {
     const database = await createDatabase();
     await ensureExploreSourceSchema(database);
     await syncExploreSourceCatalog(database, new Date('2026-04-01T04:00:00.000Z'));
+    await database.run(`UPDATE explore_source_registry
+      SET is_enabled = CASE WHEN source_key = 'amap-poi' THEN 1 ELSE 0 END,
+          refresh_minutes = CASE WHEN source_key = 'amap-poi' THEN 1 ELSE refresh_minutes END`);
     await database.run(
       `INSERT INTO explore_discovery_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       'old-run', '上海', '[]', null, 0, 0, null, '2026-04-01T00:00:00.000Z'
@@ -70,5 +81,23 @@ describe('trusted Explore source catalog', () => {
     expect(await database.get(
       `SELECT health_status, consecutive_failures, last_success_at FROM explore_source_registry WHERE source_key = 'amap-poi'`
     )).toEqual({ health_status: 'healthy', consecutive_failures: 0, last_success_at: '2026-07-17T04:03:00.000Z' });
+  });
+
+  it('uses each enabled source refresh interval instead of probing every source daily', async () => {
+    const database = await createDatabase();
+    await ensureExploreSourceSchema(database);
+    await syncExploreSourceCatalog(database, new Date('2026-07-17T00:00:00.000Z'));
+    await database.run(`UPDATE explore_source_registry
+      SET is_enabled = CASE WHEN source_key = 'shanghai-museum-events' THEN 1 ELSE 0 END,
+          last_checked_at = '2026-07-17T01:00:00.000Z'`);
+    const checked: string[] = [];
+
+    expect((await runExploreDiscoveryMaintenance(
+      database, new Date('2026-07-17T06:59:00.000Z'), async source => { checked.push(source.source_key); return true; }
+    )).checked).toBe(0);
+    expect((await runExploreDiscoveryMaintenance(
+      database, new Date('2026-07-17T07:00:00.000Z'), async source => { checked.push(source.source_key); return true; }
+    )).checked).toBe(1);
+    expect(checked).toEqual(['shanghai-museum-events']);
   });
 });

@@ -19,11 +19,13 @@ import {
   mapFeedCategoryToPlaceCategory,
   previewTrustedExploreLink,
 } from './exploreFeed';
-import { EXPLORE_EXPERIENCE_GROUPS, isExploreFeedItemComplete } from './exploreExperience';
+import { isExploreFeedItemComplete } from './exploreExperience';
+import { inferExploreCandidateTags, searchTrustedOfficialActivities } from './exploreOfficialSources';
 
 type DiscoveryDependencies = {
   now?: () => Date;
   searchProvider?: (query: string, intent: ParsedExploreIntent, signal: AbortSignal) => Promise<ExploreDiscoveryCandidate[]>;
+  officialSearch?: typeof searchTrustedOfficialActivities;
   cacheImage?: (url: string, familyId: string) => Promise<string>;
   previewLink?: typeof previewTrustedExploreLink;
 };
@@ -43,20 +45,6 @@ const numeric = (value: unknown) => {
   if (/免费|free/i.test(raw)) return 0;
   const match = raw.match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : undefined;
-};
-
-const inferCandidateTags = (...facts: unknown[]) => {
-  const haystack = facts.map(value => text(value, 200)).join(' ');
-  const experienceKeys = EXPLORE_EXPERIENCE_GROUPS.flatMap(group => group.options)
-    .filter(option => option.key !== 'any' && option.keywords.some(keyword => haystack.includes(keyword)))
-    .map(option => option.key);
-  const objectiveKeys = [
-    ...(/科学|实验|手工|手作|陶艺|烘焙|料理|模型|机器人|绘画|设计/.test(haystack) ? ['hands-on' as const] : []),
-    ...(/博物馆|科技馆|科学馆|科普|历史|图书馆|美术馆|展览|遗址/.test(haystack) ? ['knowledge' as const] : []),
-    ...(/公园|步道|湿地|动物|植物|徒步|骑行|攀岩|游泳|滑冰|球馆/.test(haystack) ? ['energy' as const] : []),
-    ...(/亲子|家庭|工作坊/.test(haystack) ? ['family' as const] : []),
-  ];
-  return { experienceKeys: [...new Set(experienceKeys)], objectiveKeys: [...new Set(objectiveKeys)] };
 };
 
 const getMatchedReasonCodes = (item: ExploreDiscoveryCandidate, intent: ParsedExploreIntent) => {
@@ -108,7 +96,7 @@ const searchAmapPoi = async (
     const [longitude, latitude] = String(poi.location || '').split(',').map(Number);
     const imageSourceUrl = text(poi.photos?.[0]?.url, 500);
     const address = text(Array.isArray(poi.address) ? poi.address.join('') : poi.address, 160);
-    const tags = inferCandidateTags(poi.name, poi.type, address);
+    const tags = inferExploreCandidateTags(poi.name, poi.type, address);
     return {
       externalId: text(poi.id, 80), sourceKey: 'amap-poi', sourceUrl: 'https://restapi.amap.com/v3/place/text',
       trustTier: 'A' as const, type: 'poi' as const, title: text(poi.name, 80),
@@ -230,15 +218,31 @@ export const searchExploreDiscovery = async (
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
   const provider = dependencies.searchProvider || searchAmapPoi;
-  const settled = await Promise.allSettled(generateExploreQueries(intent).map(query => provider(query, intent, controller.signal)));
-  clearTimeout(timeout);
-  const providerFailed = settled.some(result => result.status === 'rejected');
-  const live = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+  const officialPromise = dependencies.officialSearch
+    ? dependencies.officialSearch(intent, controller.signal, now)
+    : dependencies.searchProvider
+      ? Promise.resolve({ candidates: [] as ExploreDiscoveryCandidate[], failedSourceKeys: [] as string[] })
+      : searchTrustedOfficialActivities(intent, controller.signal, now);
+  let settled: PromiseSettledResult<ExploreDiscoveryCandidate[]>[];
+  let official: Awaited<ReturnType<typeof searchTrustedOfficialActivities>>;
+  try {
+    [settled, official] = await Promise.all([
+      Promise.allSettled(generateExploreQueries(intent).map(query => provider(query, intent, controller.signal))),
+      officialPromise,
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+  const providerFailed = settled.some(result => result.status === 'rejected') || official.failedSourceKeys.length > 0;
+  const live = [
+    ...settled.flatMap(result => result.status === 'fulfilled' ? result.value : []),
+    ...official.candidates,
+  ];
   const link: ExploreDiscoveryCandidate[] = [];
   if (intent.hardConditions.officialUrl) {
     try {
       const preview = await (dependencies.previewLink || previewTrustedExploreLink)(intent.hardConditions.officialUrl);
-      const tags = inferCandidateTags(preview.title, preview.summary, preview.venue);
+      const tags = inferExploreCandidateTags(preview.title, preview.summary, preview.venue);
       link.push({
         sourceKey: 'family-link', sourceUrl: preview.sourceUrl, trustTier: 'family', type: preview.activityStart ? 'activity' : 'poi',
         title: preview.title, summary: preview.summary, imageUrl: preview.imageUrl, imageSourceUrl: preview.imageUrl,

@@ -5,7 +5,7 @@ import path from 'path';
 import { collectOperationsReport } from './operationsReport';
 import { getBeijingDate, getLocalDateString } from './beijingTime';
 
-export const EXPLORE_SOURCE_CATALOG_VERSION = '2026-07-17.1';
+export const EXPLORE_SOURCE_CATALOG_VERSION = '2026-07-17.2';
 
 export const TRUSTED_SOURCE_CATALOG = [{
   sourceKey: 'amap-poi',
@@ -18,6 +18,95 @@ export const TRUSTED_SOURCE_CATALOG = [{
   authorityFields: ['title', 'address', 'latitude', 'longitude', 'category', 'imageUrl'],
   refreshMinutes: 43_200,
   enabled: true,
+}, {
+  sourceKey: 'national-public-culture-cloud',
+  label: '国家公共文化云活动',
+  sourceType: 'activity_provider',
+  trustTier: 'B',
+  baseUrl: 'https://www.culturedc.cn/web3.0/activityHome.html',
+  cityScope: [],
+  categoryScope: ['公共文化', '青少年美育', '非遗', '群众文化'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'venue', 'activityStart', 'activityEnd'],
+  refreshMinutes: 360,
+  enabled: true,
+}, {
+  sourceKey: 'shanghai-museum-events',
+  label: '上海博物馆活动',
+  sourceType: 'activity_provider',
+  trustTier: 'S',
+  baseUrl: 'https://events.shanghaimuseum.net/sheduplatform/activityOut/out/activityPage',
+  cityScope: ['上海'],
+  categoryScope: ['博物馆', '考古', '历史', '少儿活动'],
+  authorityFields: ['title', 'imageUrl', 'venue', 'activityStart', 'activityEnd', 'ageMin', 'ageMax'],
+  refreshMinutes: 360,
+  enabled: true,
+}, {
+  sourceKey: 'shanghai-library-activities',
+  label: '上海图书馆活动',
+  sourceType: 'activity_provider',
+  trustTier: 'S',
+  baseUrl: 'https://www.library.sh.cn/activity',
+  cityScope: ['上海'],
+  categoryScope: ['阅读', '导览', '展览', '青少年活动'],
+  authorityFields: ['title', 'imageUrl', 'venue', 'activityStart', 'activityEnd'],
+  refreshMinutes: 360,
+  enabled: true,
+}, {
+  sourceKey: 'mct-national-broadcast', label: '文化和旅游部全国联播', sourceType: 'official_reference', trustTier: 'A',
+  baseUrl: 'https://www.mct.gov.cn/wlbphone/wlbydd/xxfb/qglb/qg/', cityScope: [], categoryScope: ['文旅', '非遗', '研学'],
+  authorityFields: ['title', 'summary', 'sourceUrl'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'national-museum-directory', label: '国家文物局全国博物馆名录', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://app.gjzwfw.gov.cn/jmopen/webapp/html5/gjwwjqgbwgmlcxpc/index.html', cityScope: [], categoryScope: ['博物馆'],
+  authorityFields: ['title', 'address', 'category'], refreshMinutes: 43_200, enabled: false,
+}, {
+  sourceKey: 'national-cultural-heritage-administration', label: '国家文物局', sourceType: 'official_reference', trustTier: 'A',
+  baseUrl: 'https://www.ncha.gov.cn/', cityScope: [], categoryScope: ['文物', '博物馆', '考古'],
+  authorityFields: ['title', 'summary', 'sourceUrl'], refreshMinutes: 1_440, enabled: false,
+}, {
+  sourceKey: 'china-national-museum', label: '中国国家博物馆', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://www.chnmuseum.cn/zl/', cityScope: ['北京'], categoryScope: ['博物馆', '历史', '展览'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'venue', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'national-classics-museum', label: '国家典籍博物馆', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://www.nlc.cn/nmcb/index.shtml', cityScope: ['北京'], categoryScope: ['典籍', '展览', '阅读'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'venue', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'shanghai-culture-tourism', label: '上海市文化和旅游局', sourceType: 'official_reference', trustTier: 'A',
+  baseUrl: 'https://cmp.whlyj.sh.gov.cn/CMP/', cityScope: ['上海'], categoryScope: ['文旅', '活动', '夜游'],
+  authorityFields: ['title', 'summary', 'sourceUrl', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'meet-in-shanghai', label: '乐游上海', sourceType: 'official_reference', trustTier: 'A',
+  baseUrl: 'https://www.meet-in-shanghai.net/cn/quality-exhibition/', cityScope: ['上海'], categoryScope: ['展览', '活动'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'shanghai-science-museum', label: '上海科技馆', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://www.sstm.org.cn/', cityScope: ['上海'], categoryScope: ['科普', '自然', '天文'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'venue', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'shanghai-natural-history-museum', label: '上海自然博物馆', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://www.snhm.org.cn/', cityScope: ['上海'], categoryScope: ['自然', '科普', '展览'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'venue', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'china-art-museum-shanghai', label: '中华艺术宫（上海美术馆）', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://new.artmuseumonline.org/art/art/zlgz/zl/dqzl/index.html', cityScope: ['上海'], categoryScope: ['美术', '展览'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'expo-museum-shanghai', label: '世博会博物馆', sourceType: 'official_reference', trustTier: 'S',
+  baseUrl: 'https://www.expo-museum.cn/', cityScope: ['上海'], categoryScope: ['博物馆', '城市', '展览'],
+  authorityFields: ['title', 'summary', 'imageUrl', 'activityStart', 'activityEnd'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'imuseum-discovery', label: 'iMuseum', sourceType: 'discovery_reference', trustTier: 'B',
+  baseUrl: 'https://www.imuseum.com/', cityScope: [], categoryScope: ['博物馆', '展览'],
+  authorityFields: ['title', 'sourceUrl'], refreshMinutes: 720, enabled: false,
+}, {
+  sourceKey: 'huodongxing-discovery', label: '活动行', sourceType: 'discovery_reference', trustTier: 'B',
+  baseUrl: 'https://www.huodongxing.com/', cityScope: [], categoryScope: ['活动', '讲座', '亲子'],
+  authorityFields: ['title', 'sourceUrl'], refreshMinutes: 360, enabled: false,
+}, {
+  sourceKey: 'damai-discovery', label: '大麦', sourceType: 'discovery_reference', trustTier: 'B',
+  baseUrl: 'https://www.damai.cn/', cityScope: [], categoryScope: ['演出', '展览'],
+  authorityFields: ['title', 'sourceUrl'], refreshMinutes: 360, enabled: false,
 }] as const;
 
 export const ensureExploreSourceSchema = async (database: Database) => {
@@ -131,30 +220,35 @@ export const syncExploreSourceCatalog = async (database: Database, now: Date = n
 type ExploreSourceRow = {
   source_key: string;
   base_url: string;
+  refresh_minutes: number;
   last_checked_at?: string | null;
 };
 
 export type ExploreSourceProbe = (source: ExploreSourceRow) => Promise<boolean>;
 
 const defaultExploreSourceProbe: ExploreSourceProbe = async source => {
-  if (source.source_key !== 'amap-poi' || !process.env.AMAP_WEB_SERVICE_KEY) return false;
-  const response = await axios.get(`${source.base_url}/v3/place/text`, {
-    params: { key: process.env.AMAP_WEB_SERVICE_KEY, keywords: '公园', offset: 1, page: 1, extensions: 'base' },
-    timeout: 8_000,
-  });
-  return String(response.data?.status) === '1';
+  if (source.source_key === 'amap-poi') {
+    if (!process.env.AMAP_WEB_SERVICE_KEY) return false;
+    const response = await axios.get(`${source.base_url}/v3/place/text`, {
+      params: { key: process.env.AMAP_WEB_SERVICE_KEY, keywords: '公园', offset: 1, page: 1, extensions: 'base' },
+      timeout: 8_000,
+    });
+    return String(response.data?.status) === '1';
+  }
+  const response = await axios.get(source.base_url, { timeout: 8_000 });
+  return response.status >= 200 && response.status < 400;
 };
 
 export const runExploreDiscoveryMaintenance = async (
   database: Database, now: Date = new Date(), probe: ExploreSourceProbe = defaultExploreSourceProbe
 ) => {
   const timestamp = now.toISOString();
-  const dueBefore = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const sources = await database.all<ExploreSourceRow[]>(`
-    SELECT source_key, base_url, last_checked_at
-      FROM explore_source_registry
-     WHERE is_enabled = 1 AND (last_checked_at IS NULL OR last_checked_at <= ?)
-  `, dueBefore);
+  const enabledSources = await database.all<ExploreSourceRow[]>(`
+    SELECT source_key, base_url, refresh_minutes, last_checked_at
+      FROM explore_source_registry WHERE is_enabled = 1
+  `);
+  const sources = enabledSources.filter(source => !source.last_checked_at
+    || new Date(source.last_checked_at).getTime() + source.refresh_minutes * 60_000 <= now.getTime());
   let succeeded = 0;
   let failed = 0;
   for (const source of sources) {

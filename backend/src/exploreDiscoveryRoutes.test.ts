@@ -127,6 +127,36 @@ describe('trusted parent Explore discovery', () => {
     expect(second.results).toHaveLength(1);
   });
 
+  it('merges an official activity with a place and reports a failed secondary source as partial', async () => {
+    const database = await createDatabase();
+    const activity = candidate({
+      externalId: 'museum-event-1',
+      sourceKey: 'shanghai-museum-events',
+      sourceUrl: 'https://events.shanghaimuseum.net/activity',
+      trustTier: 'S',
+      type: 'activity',
+      title: '古代文明亲子工坊',
+      summary: '地点：上海博物馆人民广场馆观众活动中心',
+      address: undefined,
+      venue: '上海博物馆人民广场馆观众活动中心',
+      latitude: undefined,
+      longitude: undefined,
+      activityStart: '2026-07-19',
+      activityEnd: '2026-07-19',
+      priceAmount: undefined,
+      authorityFields: ['title', 'imageUrl', 'venue', 'activityStart', 'activityEnd'],
+    });
+    const result = await searchExploreDiscovery(database, 'family-a', { city: '上海' }, {
+      now: () => now,
+      searchProvider: async () => [candidate()],
+      officialSearch: async () => ({ candidates: [activity], failedSourceKeys: ['national-public-culture-cloud'] }),
+      cacheImage: async url => `/uploads/explore/family-a/feed/${url.includes('museum') ? 'activity' : 'place'}.jpg`,
+    });
+
+    expect(result.partial).toBe(true);
+    expect(result.results.map(item => item.type).sort()).toEqual(['activity', 'poi']);
+  });
+
   it('adds a verified result to the family plan exactly once', async () => {
     const database = await createDatabase();
     const found = await searchExploreDiscovery(database, 'family-a', { city: '上海' }, {
