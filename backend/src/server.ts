@@ -33,6 +33,7 @@ import {
 } from './lotteryRules';
 import { getTaskRewardSuggestion, normalizeRewardCategory } from './taskRewards';
 import { registerExploreFeedRoutes, startExploreFeedScheduler } from './exploreFeed';
+import { addVerifiedExploreResultToPlan, registerExploreDiscoveryRoutes } from './exploreDiscoveryRoutes';
 import { registerWeeklyReportRoutes, startWeeklyReportScheduler } from './weeklyReport';
 import { normalizeShopReferenceRmb, toChildWish, toParentWish } from './wishEconomy';
 import { settleTaskEntry, syncTaskSettlementCoinAdjustment, TaskSettlementError } from './taskSettlement';
@@ -1565,6 +1566,7 @@ registerProductConfigRoutes(app, protect);
 registerParentInboxRoutes(app, protect);
 registerEconomyRoutes(app, protect, requireParent);
 registerExploreFeedRoutes(app, protect, requireParent, requireChild);
+registerExploreDiscoveryRoutes(app, protect, requireParent);
 registerWeeklyReportRoutes(app, protect, requireParent, requireChild);
 registerGrowthIdentityRoutes(app, protect, requireChild);
 registerWishRequestRoutes(app, protect, requireParent, requireChild);
@@ -4618,6 +4620,24 @@ app.get('/api/parent/explore/places', protect, requireParent, async (req: any, r
 app.post('/api/parent/explore/places', protect, requireParent, async (req: any, res) => {
   const request = req as AuthRequest;
   const db = getDb();
+  const sourceFeedId = trimText(req.body.sourceFeedId, 80);
+  if (sourceFeedId) {
+    try {
+      const result = await addVerifiedExploreResultToPlan(
+        db, request.user!.familyId, request.user!.id, sourceFeedId
+      );
+      return res.json({
+        message: result.created ? '探索地点已加入' : '这个地点已经在计划中',
+        id: result.id,
+        created: result.created,
+      });
+    } catch (error: any) {
+      if (error?.message === 'verified_result_not_found') {
+        return res.status(404).json({ message: '这条可靠推荐不存在或已过期' });
+      }
+      throw error;
+    }
+  }
   const title = trimText(req.body.title, 80);
   if (!title) return res.status(400).json({ message: '地点名称不能为空' });
   const city = trimText(req.body.city, 40);

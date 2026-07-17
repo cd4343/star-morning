@@ -49,6 +49,7 @@ export type ExploreDiscoveryCandidate = {
   title: string;
   summary: string;
   imageUrl: string;
+  imageSourceUrl?: string;
   category: string;
   city: string;
   district?: string;

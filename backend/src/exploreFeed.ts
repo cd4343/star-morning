@@ -279,11 +279,19 @@ const FEED_TO_PLACE_CATEGORY: Record<string, string> = {
   '节日': '活动',
 };
 
-const mapFeedCategoryToPlaceCategory = (category: unknown): string => {
+export const mapFeedCategoryToPlaceCategory = (category: unknown): string => {
   const text = trimText(category, 20);
   if (FEED_TO_PLACE_CATEGORY[text]) return FEED_TO_PLACE_CATEGORY[text];
   return PLACE_CATEGORIES.includes(text) ? text : '其他';
 };
+
+export const previewTrustedExploreLink = async (url: string) => {
+  if (!isHttpUrl(url) || !isSafePublicUrl(url)) throw new Error('请输入公开可访问的 HTTP(S) 地址');
+  return extractLinkPreview(await fetchHtml(url), url);
+};
+
+export const cacheTrustedExploreImage = (url: string, familyId: string) =>
+  downloadFeedImage(url, familyId);
 
 // ==================== A. 每日生成器 ====================
 
@@ -1048,7 +1056,7 @@ export const registerExploreFeedRoutes = (app: Express, protect: any, requirePar
     if (!isHttpUrl(url)) return res.status(400).json({ message: '请输入 http 或 https 开头的链接' });
     if (!isSafePublicUrl(url)) return res.status(400).json({ message: '这个链接不能解析，请使用公开网站地址' });
     try {
-      res.json(extractLinkPreview(await fetchHtml(url), url));
+      res.json(await previewTrustedExploreLink(url));
     } catch (err: any) {
       logger.warn('[ExploreFeed] 链接预览抓取失败:', url, err?.message || err);
       res.status(502).json({ message: '没能读取这个链接，可以手动填写标题和介绍' });
