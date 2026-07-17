@@ -187,6 +187,70 @@ export type ExploreFeedSettings = {
   pendingReview: ExploreFeedItem[];
 };
 
+export type ExploreObjective = 'energy' | 'knowledge' | 'hands-on' | 'family';
+export type ExploreDatePreset = 'today' | 'weekend' | 'next-week' | 'custom';
+export type ExploreIndoorPreference = 'indoor' | 'outdoor' | 'any';
+export type ExploreUnsupportedConstraint = 'crowd' | 'route_time' | 'transit_convenience';
+
+export type ExplorePlannerRequest = {
+  childId?: string;
+  customText?: string;
+  city: string;
+  districtScope?: string[];
+  datePreset?: ExploreDatePreset;
+  dateFrom?: string;
+  dateTo?: string;
+  objective?: ExploreObjective;
+  budgetMax?: number;
+  indoorPreference?: ExploreIndoorPreference;
+  experienceKeys?: string[];
+};
+
+export type ParsedExploreIntent = {
+  hardConditions: {
+    city: string;
+    districtScope: string[];
+    dateFrom?: string;
+    dateTo?: string;
+    budgetMax?: number;
+    indoorPreference: ExploreIndoorPreference;
+    explicitPlace?: string;
+    officialUrl?: string;
+  };
+  preferences: { queryText: string; objective?: ExploreObjective; experienceKeys: string[] };
+  unsupported: ExploreUnsupportedConstraint[];
+};
+
+export type ExploreDiscoveryResult = {
+  id: string;
+  externalId?: string;
+  type: 'poi' | 'activity';
+  title: string;
+  summary: string;
+  imageUrl: string;
+  category: string;
+  city: string;
+  district?: string;
+  address?: string;
+  venue?: string;
+  activityStart?: string;
+  activityEnd?: string;
+  priceAmount?: number;
+  verifiedAt: string;
+  freshUntil: string;
+  trustLabel: 'S' | 'A' | 'B' | 'family';
+  matchedReasons: string[];
+  recommendationRole: 'primary' | 'alternative';
+};
+
+export type ExploreDiscoveryResponse = {
+  intent: ParsedExploreIntent;
+  results: ExploreDiscoveryResult[];
+  adjustments: string[];
+  partial: boolean;
+  messageCode: 'reliable_results_found' | 'no_reliable_results';
+};
+
 // P1b：家长端"去过的地方"清单单项（名称 / 类型 / 打卡次数 / 最近打卡日期）
 export type ExploreVisitedPlace = {
   placeId: string;
