@@ -11,6 +11,40 @@ Star Coin 当前采用 Windows Nginx（80 端口）提供前端与 API 代理，
 
 `scripts/production_env.local.bat` 包含服务器密钥与路径，只保留在服务器，不上传 GitHub 或更新包。
 
+### 阿里云短信注册
+
+个人认证内测使用号码认证服务（PNVS）的短信验证码能力。首次运行
+`scripts\setup_server_production.bat` 时：
+
+1. `SMS provider` 选择 `aliyun-pnvs`（直接回车也是此默认值）。
+2. 输入具有号码认证服务权限的 AccessKey ID 和 AccessKey Secret。
+3. 签名使用已审核通过的 `恒创联众`，模板使用 `100001`。
+
+脚本会把以下配置写入被 Git 忽略的 `scripts\production_env.local.bat`：
+
+```bat
+set "SMS_PROVIDER=aliyun-pnvs"
+set "ALIBABA_CLOUD_ACCESS_KEY_ID=服务器上的AccessKey ID"
+set "ALIBABA_CLOUD_ACCESS_KEY_SECRET=服务器上的AccessKey Secret"
+set "ALIYUN_PNVS_SIGN_NAME=恒创联众"
+set "ALIYUN_PNVS_TEMPLATE_CODE=100001"
+```
+
+不要把该文件截图、打包或提交到 GitHub。部署完成后使用 1—2 个真实手机号分别验证
+“获取验证码 → 注册”和“获取验证码 → 登录”；只有阿里云返回 `PASS` 才会通过校验。
+
+### 100 人内测容量自检
+
+发布前可在项目根目录运行：
+
+```bat
+node scripts\verify_phase14_capacity.mjs
+```
+
+脚本固定使用模拟短信和 `.tmp\phase14-capacity\stellar-capacity.db`，创建 100 个隔离测试账号，
+持续执行 5 分钟混合读写，并检查错误率、P95 延迟、`SQLITE_BUSY`、数据库完整性与外键。
+它不会读取或覆盖生产 `stellar.db`，也不会发送真实短信。
+
 ## 后续安全更新
 
 上传并覆盖最新的累积增量包后，以管理员身份运行：

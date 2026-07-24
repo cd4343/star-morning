@@ -5,7 +5,7 @@ REM Run this once after deploying code to a Windows server.
 REM It writes scripts\production_env.local.bat, backs up the database,
 REM installs dependencies, builds backend/frontend, and verifies DB migration.
 REM ========================================
-setlocal enabledelayedexpansion
+setlocal DisableDelayedExpansion
 cd /d "%~dp0.."
 chcp 65001 >nul 2>&1
 title Star Coin - Production Setup
@@ -104,6 +104,13 @@ if exist "scripts\production_env.local.bat" (
 )
 set "OLD_JWT_SECRET=%JWT_SECRET%"
 set "OLD_AMAP_KEY=%AMAP_WEB_SERVICE_KEY%"
+set "OLD_SMS_PROVIDER=%SMS_PROVIDER%"
+set "OLD_SMS_HTTP_URL=%SMS_HTTP_URL%"
+set "OLD_SMS_HTTP_TOKEN=%SMS_HTTP_TOKEN%"
+set "OLD_ALIBABA_CLOUD_ACCESS_KEY_ID=%ALIBABA_CLOUD_ACCESS_KEY_ID%"
+set "OLD_ALIBABA_CLOUD_ACCESS_KEY_SECRET=%ALIBABA_CLOUD_ACCESS_KEY_SECRET%"
+set "OLD_ALIYUN_PNVS_SIGN_NAME=%ALIYUN_PNVS_SIGN_NAME%"
+set "OLD_ALIYUN_PNVS_TEMPLATE_CODE=%ALIYUN_PNVS_TEMPLATE_CODE%"
 
 set "STARCOIN_DB_PATH="
 set /p "STARCOIN_DB_PATH=Database path [%DEFAULT_DB_PATH%]: "
@@ -133,16 +140,28 @@ if not defined AMAP_WEB_SERVICE_KEY if defined OLD_AMAP_KEY set "AMAP_WEB_SERVIC
 
 echo.
 echo SMS setup:
-echo   Leave SMS provider empty if you do not have a real SMS gateway yet.
+echo   Recommended for this deployment: aliyun-pnvs
+echo   Alibaba Cloud PNVS performs both code generation and verification.
 echo   Use provider "http" when you have an HTTP endpoint that accepts JSON:
 echo   { "phone": "...", "code": "...", "purpose": "login" }
 echo.
 set "SMS_PROVIDER="
-set /p "SMS_PROVIDER=SMS provider [none/http/mock]: "
+set /p "SMS_PROVIDER=SMS provider [keep existing / aliyun-pnvs/http/mock/none]: "
+if not defined SMS_PROVIDER if defined OLD_SMS_PROVIDER set "SMS_PROVIDER=%OLD_SMS_PROVIDER%"
+if not defined SMS_PROVIDER set "SMS_PROVIDER=aliyun-pnvs"
+if /I "%SMS_PROVIDER%"=="none" set "SMS_PROVIDER="
+if defined SMS_PROVIDER if /I not "%SMS_PROVIDER%"=="aliyun-pnvs" if /I not "%SMS_PROVIDER%"=="http" if /I not "%SMS_PROVIDER%"=="mock" (
+    color 0C
+    echo [ERROR] Unsupported SMS_PROVIDER: %SMS_PROVIDER%
+    echo [HINT] Use aliyun-pnvs, http, mock or none.
+    pause
+    exit /b 1
+)
 
 set "SMS_HTTP_URL="
 if /I "%SMS_PROVIDER%"=="http" (
-    set /p "SMS_HTTP_URL=SMS HTTP URL: "
+    set /p "SMS_HTTP_URL=SMS HTTP URL [keep existing]: "
+    if not defined SMS_HTTP_URL if defined OLD_SMS_HTTP_URL set "SMS_HTTP_URL=%OLD_SMS_HTTP_URL%"
     if not defined SMS_HTTP_URL (
         color 0C
         echo [ERROR] SMS_HTTP_URL is required when SMS_PROVIDER=http.
@@ -153,13 +172,47 @@ if /I "%SMS_PROVIDER%"=="http" (
 
 set "SMS_HTTP_TOKEN="
 if /I "%SMS_PROVIDER%"=="http" (
-    set /p "SMS_HTTP_TOKEN=SMS HTTP token [optional]: "
+    set /p "SMS_HTTP_TOKEN=SMS HTTP token [keep existing / optional]: "
+    if not defined SMS_HTTP_TOKEN if defined OLD_SMS_HTTP_TOKEN set "SMS_HTTP_TOKEN=%OLD_SMS_HTTP_TOKEN%"
 )
 
 set "SMS_EXPOSE_DEV_CODE="
 if /I "%SMS_PROVIDER%"=="mock" (
     set /p "SMS_EXPOSE_DEV_CODE=Show mock code in production UI? [false]: "
     if not defined SMS_EXPOSE_DEV_CODE set "SMS_EXPOSE_DEV_CODE=false"
+)
+
+set "ALIBABA_CLOUD_ACCESS_KEY_ID="
+set "ALIBABA_CLOUD_ACCESS_KEY_SECRET="
+set "ALIYUN_PNVS_SIGN_NAME="
+set "ALIYUN_PNVS_TEMPLATE_CODE="
+if /I "%SMS_PROVIDER%"=="aliyun-pnvs" (
+    set /p "ALIBABA_CLOUD_ACCESS_KEY_ID=Alibaba Cloud AccessKey ID [keep existing]: "
+    if not defined ALIBABA_CLOUD_ACCESS_KEY_ID if defined OLD_ALIBABA_CLOUD_ACCESS_KEY_ID set "ALIBABA_CLOUD_ACCESS_KEY_ID=%OLD_ALIBABA_CLOUD_ACCESS_KEY_ID%"
+
+    for /f "usebackq delims=" %%s in (`powershell -NoProfile -Command "$v=Read-Host 'Alibaba Cloud AccessKey Secret [press Enter to keep existing]' -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($v); try {[Runtime.InteropServices.Marshal]::PtrToStringBSTR($b)} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}"`) do set "ALIBABA_CLOUD_ACCESS_KEY_SECRET=%%s"
+    if not defined ALIBABA_CLOUD_ACCESS_KEY_SECRET if defined OLD_ALIBABA_CLOUD_ACCESS_KEY_SECRET set "ALIBABA_CLOUD_ACCESS_KEY_SECRET=%OLD_ALIBABA_CLOUD_ACCESS_KEY_SECRET%"
+
+    set /p "ALIYUN_PNVS_SIGN_NAME=PNVS signature [恒创联众]: "
+    if not defined ALIYUN_PNVS_SIGN_NAME if defined OLD_ALIYUN_PNVS_SIGN_NAME set "ALIYUN_PNVS_SIGN_NAME=%OLD_ALIYUN_PNVS_SIGN_NAME%"
+    if not defined ALIYUN_PNVS_SIGN_NAME set "ALIYUN_PNVS_SIGN_NAME=恒创联众"
+
+    set /p "ALIYUN_PNVS_TEMPLATE_CODE=PNVS template code [100001]: "
+    if not defined ALIYUN_PNVS_TEMPLATE_CODE if defined OLD_ALIYUN_PNVS_TEMPLATE_CODE set "ALIYUN_PNVS_TEMPLATE_CODE=%OLD_ALIYUN_PNVS_TEMPLATE_CODE%"
+    if not defined ALIYUN_PNVS_TEMPLATE_CODE set "ALIYUN_PNVS_TEMPLATE_CODE=100001"
+
+    if not defined ALIBABA_CLOUD_ACCESS_KEY_ID (
+        color 0C
+        echo [ERROR] ALIBABA_CLOUD_ACCESS_KEY_ID is required for aliyun-pnvs.
+        pause
+        exit /b 1
+    )
+    if not defined ALIBABA_CLOUD_ACCESS_KEY_SECRET (
+        color 0C
+        echo [ERROR] ALIBABA_CLOUD_ACCESS_KEY_SECRET is required for aliyun-pnvs.
+        pause
+        exit /b 1
+    )
 )
 
 if not exist "%STARCOIN_BACKUP_DIR%" (
@@ -207,6 +260,10 @@ set "ENV_FILE=%CD%\scripts\production_env.local.bat"
     if defined SMS_HTTP_URL echo set "SMS_HTTP_URL=%SMS_HTTP_URL%"
     if defined SMS_HTTP_TOKEN echo set "SMS_HTTP_TOKEN=%SMS_HTTP_TOKEN%"
     if defined SMS_EXPOSE_DEV_CODE echo set "SMS_EXPOSE_DEV_CODE=%SMS_EXPOSE_DEV_CODE%"
+    if defined ALIBABA_CLOUD_ACCESS_KEY_ID echo set "ALIBABA_CLOUD_ACCESS_KEY_ID=%ALIBABA_CLOUD_ACCESS_KEY_ID%"
+    if defined ALIBABA_CLOUD_ACCESS_KEY_SECRET echo set "ALIBABA_CLOUD_ACCESS_KEY_SECRET=%ALIBABA_CLOUD_ACCESS_KEY_SECRET%"
+    if defined ALIYUN_PNVS_SIGN_NAME echo set "ALIYUN_PNVS_SIGN_NAME=%ALIYUN_PNVS_SIGN_NAME%"
+    if defined ALIYUN_PNVS_TEMPLATE_CODE echo set "ALIYUN_PNVS_TEMPLATE_CODE=%ALIYUN_PNVS_TEMPLATE_CODE%"
 ) > "%ENV_FILE%"
 
 if not exist "%ENV_FILE%" (
@@ -315,5 +372,5 @@ echo   scripts\setup_server_production.bat
 echo.
 echo This script should be run from the deployed project on the server.
 echo It does not delete old code or overwrite your database.
-echo It writes scripts\production_env.local.bat for start_server_simple.bat.
+echo It writes scripts\production_env.local.bat for start_backend_only.bat.
 exit /b 0

@@ -1164,8 +1164,7 @@ app.post('/api/auth/sms/send', async (req, res) => {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + SMS_CODE_TTL_MINUTES * 60 * 1000).toISOString();
 
-      await db.exec('BEGIN IMMEDIATE');
-      try {
+      await withTransaction(async () => {
         await db.run(
           `UPDATE auth_sms_codes SET consumedAt = ?
            WHERE phone = ? AND purpose = ? AND consumedAt IS NULL`,
@@ -1185,11 +1184,7 @@ app.post('/api/auth/sms/send', async (req, res) => {
           sendResult.provider,
           sendResult.bizId || null
         );
-        await db.exec('COMMIT');
-      } catch (error) {
-        await db.exec('ROLLBACK');
-        throw error;
-      }
+      });
 
       res.json({
         message: '验证码已发送',
@@ -1423,26 +1418,25 @@ app.post('/api/auth/create-family', protect, async (req: any, res) => {
     const actualFamilyName = familyName || name || '我的家庭'; // 兼容不同参数名
 
     try {
-        await getDb().run('BEGIN');
-        await getDb().run('INSERT INTO families (id, name) VALUES (?, ?)', fid, actualFamilyName);
+        await withTransaction(async () => {
+            await getDb().run('INSERT INTO families (id, name) VALUES (?, ?)', fid, actualFamilyName);
 
-        // Update Parent with role/gender
-        await getDb().run('UPDATE users SET familyId = ?, name = ?, gender = ? WHERE id = ?', fid, parentName || '家长', parentRole || 'dad', request.user!.id);
+            // Update Parent with role/gender
+            await getDb().run('UPDATE users SET familyId = ?, name = ?, gender = ? WHERE id = ?', fid, parentName || '家长', parentRole || 'dad', request.user!.id);
 
-        // Create Child only if childName is provided
-        if (childName && childName.trim()) {
-            await getDb().run(
-                `INSERT INTO users (id, familyId, name, role, gender, birthdate, coins, xp, level, maxXp) VALUES (?, ?, ?, 'child', ?, ?, 0, 0, 1, 100)`,
-                randomUUID(), fid, childName, childGender || 'boy', childBirthdate || null
-            );
-        }
+            // Create Child only if childName is provided
+            if (childName && childName.trim()) {
+                await getDb().run(
+                    `INSERT INTO users (id, familyId, name, role, gender, birthdate, coins, xp, level, maxXp) VALUES (?, ?, ?, 'child', ?, ?, 0, 0, 1, 100)`,
+                    randomUUID(), fid, childName, childGender || 'boy', childBirthdate || null
+                );
+            }
 
-        await seedFamilyData(fid, getDb());
-        await getDb().run('COMMIT');
+            await seedFamilyData(fid, getDb());
+        });
 
         res.json({message:'ok', token: jwt.sign({id:request.user!.id, role:'parent', familyId:fid}, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })});
     } catch (err) {
-        await getDb().run('ROLLBACK');
         console.error('创建家庭失败:', err);
         return res.status(500).json({ message: '创建家庭失败，请重试' });
     }

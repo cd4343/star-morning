@@ -52,6 +52,21 @@ function Import-ProductionEnvironment {
       throw "Required production setting is missing: $name"
     }
   }
+  if ($env:SMS_PROVIDER -eq 'aliyun-pnvs') {
+    foreach ($name in @(
+      'ALIBABA_CLOUD_ACCESS_KEY_ID',
+      'ALIBABA_CLOUD_ACCESS_KEY_SECRET',
+      'ALIYUN_PNVS_SIGN_NAME',
+      'ALIYUN_PNVS_TEMPLATE_CODE'
+    )) {
+      if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
+        throw "Required Alibaba Cloud SMS setting is missing: $name"
+      }
+    }
+  }
+  if ($env:NODE_ENV -eq 'production' -and $env:SMS_PROVIDER -eq 'mock' -and $env:SMS_EXPOSE_DEV_CODE -eq 'true') {
+    throw 'SMS_EXPOSE_DEV_CODE=true is forbidden with the mock provider in production.'
+  }
 }
 
 function Get-BackendProcessIds {
