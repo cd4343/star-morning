@@ -13,6 +13,19 @@ import { ensureExploreSourceSchema, syncExploreSourceCatalog } from './exploreSo
 
 let db: Database;
 
+export const ensureSmsAuditSchema = async (database: Database) => {
+  const columns = new Set<string>(
+    (await database.all('PRAGMA table_info(auth_sms_codes)'))
+      .map((column: { name: string }) => column.name)
+  );
+  if (!columns.has('provider')) {
+    await database.run("ALTER TABLE auth_sms_codes ADD COLUMN provider TEXT NOT NULL DEFAULT 'local'");
+  }
+  if (!columns.has('providerBizId')) {
+    await database.run('ALTER TABLE auth_sms_codes ADD COLUMN providerBizId TEXT');
+  }
+};
+
 export const migrateRetiredMorningTaskCategories = async (database: Database) => {
   const version = 'phase9a-retire-morning-category';
   const applied = await database.get('SELECT version FROM schema_versions WHERE version = ?', version);
@@ -62,6 +75,7 @@ export const initializeDatabase = async () => {
   await db.run('PRAGMA cache_size = -64000');         // 64MB 缓存
   await db.run('PRAGMA temp_store = MEMORY');         // 临时表存储在内存中
   await createTables();
+  await ensureSmsAuditSchema(db);
   await ensureProductConfigTables(db);
   await ensureLotterySafetyTables(db);
   await ensureEconomySchema(db);

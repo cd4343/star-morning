@@ -44,6 +44,8 @@ import { registerGrowthIdentityRoutes } from './growthIdentityRoutes';
 import { getBeijingDate, getBeijingTimeString, getLocalDateString } from './beijingTime';
 import { registerParentWorkspaceRoutes } from './parentWorkspaceRoutes';
 import { getTasksForDate } from './taskSchedule';
+import { createSmsProvider, type SmsProvider, type SmsPurpose } from './smsProvider';
+import { getSmsSendAllowance, verifyStoredSmsCode } from './smsVerification';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -97,11 +99,19 @@ const authLimiter = rateLimit({
   message: { message: '尝试次数过多，请稍后再试' }
 });
 
+const smsSendLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: '验证码发送次数过多，请稍后再试' }
+});
+
+app.use('/api/auth/sms/send', smsSendLimiter);
 app.use([
   '/api/auth/login',
   '/api/auth/register',
   '/api/auth/reset-password',
-  '/api/auth/sms/send',
   '/api/auth/sms/login',
   '/api/auth/mobile/one-click-login',
   '/api/auth/switch-user',
@@ -1054,15 +1064,14 @@ const ensureExploreAchievementDefs = async (db: any, familyId: string) => {
 };
 
 const SMS_CODE_TTL_MINUTES = 5;
-const SMS_CODE_RESEND_SECONDS = 60;
-const SMS_CODE_MAX_ATTEMPTS = 5;
-const SMS_PURPOSES = ['login', 'register', 'reset-password'] as const;
-type SmsPurpose = typeof SMS_PURPOSES[number];
+const SMS_PURPOSES: readonly SmsPurpose[] = ['login', 'register', 'reset-password'];
+let configuredSmsProvider: SmsProvider | undefined;
+const getSmsProvider = () => configuredSmsProvider ||= createSmsProvider();
+const smsSendInFlight = new Set<string>();
 
 const normalizePhone = (phone: unknown) => String(phone || '').trim();
 const isValidPhone = (phone: string) => /^1[3-9]\d{9}$/.test(phone);
 const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
-const generateSmsCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 const findParentByPhone = async (db: any, phone: string) => {
   return db.get(
@@ -1104,91 +1113,6 @@ const serializeAuthMember = (member: any) => {
   };
 };
 
-const sendSmsCode = async (phone: string, code: string, purpose: SmsPurpose) => {
-  const provider = String(process.env.SMS_PROVIDER || (process.env.NODE_ENV === 'production' ? '' : 'mock')).toLowerCase();
-
-  if (provider === 'mock') {
-    console.log('[sms:mock]', { phone: maskPhone(phone), purpose, code });
-    return {
-      provider: 'mock',
-      devCode: process.env.NODE_ENV !== 'production' || process.env.SMS_EXPOSE_DEV_CODE === 'true' ? code : undefined,
-    };
-  }
-
-  if (provider === 'http') {
-    const url = process.env.SMS_HTTP_URL;
-    if (!url) {
-      const error: any = new Error('SMS_HTTP_URL is not configured');
-      error.code = 'SMS_PROVIDER_NOT_CONFIGURED';
-      throw error;
-    }
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (process.env.SMS_HTTP_TOKEN) {
-      headers.Authorization = `Bearer ${process.env.SMS_HTTP_TOKEN}`;
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ phone, code, purpose }),
-    });
-
-    if (!response.ok) {
-      const error: any = new Error(`SMS HTTP provider failed with ${response.status}`);
-      error.code = 'SMS_PROVIDER_SEND_FAILED';
-      throw error;
-    }
-
-    return { provider: 'http' };
-  }
-
-  const error: any = new Error('SMS provider is not configured');
-  error.code = 'SMS_PROVIDER_NOT_CONFIGURED';
-  throw error;
-};
-
-const verifySmsCode = async (db: any, phone: string, code: string, purpose: SmsPurpose) => {
-  const record = await db.get(
-    `SELECT * FROM auth_sms_codes
-     WHERE phone = ? AND purpose = ? AND consumedAt IS NULL
-     ORDER BY datetime(createdAt) DESC
-     LIMIT 1`,
-    phone,
-    purpose
-  );
-
-  if (!record) {
-    return { ok: false, status: 400, message: '验证码不存在或已失效' };
-  }
-
-  if (new Date(record.expiresAt).getTime() < Date.now()) {
-    await db.run('UPDATE auth_sms_codes SET consumedAt = ? WHERE id = ?', new Date().toISOString(), record.id);
-    return { ok: false, status: 400, message: '验证码已过期，请重新获取' };
-  }
-
-  if ((record.attempts || 0) >= SMS_CODE_MAX_ATTEMPTS) {
-    await db.run('UPDATE auth_sms_codes SET consumedAt = ? WHERE id = ?', new Date().toISOString(), record.id);
-    return { ok: false, status: 429, message: '验证码尝试次数过多，请重新获取' };
-  }
-
-  const matched = await bcrypt.compare(code, record.codeHash);
-  if (!matched) {
-    const nextAttempts = (record.attempts || 0) + 1;
-    const consumedAt = nextAttempts >= SMS_CODE_MAX_ATTEMPTS ? new Date().toISOString() : null;
-    await db.run(
-      'UPDATE auth_sms_codes SET attempts = ?, consumedAt = COALESCE(?, consumedAt) WHERE id = ?',
-      nextAttempts,
-      consumedAt,
-      record.id
-    );
-    return { ok: false, status: 400, message: nextAttempts >= SMS_CODE_MAX_ATTEMPTS ? '验证码尝试次数过多，请重新获取' : '验证码错误' };
-  }
-
-  await db.run('UPDATE auth_sms_codes SET consumedAt = ? WHERE id = ?', new Date().toISOString(), record.id);
-  return { ok: true };
-};
-
 // --- ROUTES ---
 
 // Auth
@@ -1205,6 +1129,12 @@ app.post('/api/auth/sms/send', async (req, res) => {
       return res.status(400).json({ message: '验证码用途不正确' });
     }
 
+    const inFlightKey = `${phone}:${purpose}`;
+    if (smsSendInFlight.has(inFlightKey)) {
+      return res.status(429).json({ message: '验证码正在发送，请勿重复点击' });
+    }
+    smsSendInFlight.add(inFlightKey);
+
     try {
       const user = await findParentByPhone(db, phone);
       if ((purpose === 'login' || purpose === 'reset-password') && !user) {
@@ -1214,38 +1144,52 @@ app.post('/api/auth/sms/send', async (req, res) => {
         return res.status(400).json({ message: '该手机号已注册，请直接登录' });
       }
 
-      const latest = await db.get(
-        `SELECT createdAt FROM auth_sms_codes
-         WHERE phone = ? AND purpose = ? AND consumedAt IS NULL
-         ORDER BY datetime(createdAt) DESC
-         LIMIT 1`,
-        phone,
-        purpose
-      );
-      if (latest?.createdAt) {
-        const ageSeconds = (Date.now() - new Date(latest.createdAt).getTime()) / 1000;
-        if (ageSeconds >= 0 && ageSeconds < SMS_CODE_RESEND_SECONDS) {
-          return res.status(429).json({ message: `请 ${Math.ceil(SMS_CODE_RESEND_SECONDS - ageSeconds)} 秒后再获取验证码` });
+      const allowance = await getSmsSendAllowance(db, phone, purpose);
+      if (!allowance.ok) {
+        if (allowance.reason === 'resend') {
+          return res.status(429).json({
+            message: `请 ${allowance.retryAfterSeconds || 60} 秒后再获取验证码`,
+          });
         }
+        return res.status(429).json({
+          message: allowance.reason === 'hourly-limit'
+            ? '该手机号本小时获取验证码次数已达上限'
+            : '该手机号今日获取验证码次数已达上限',
+        });
       }
 
-      const code = generateSmsCode();
-      const sendResult = await sendSmsCode(phone, code, purpose);
       const id = randomUUID();
-      const codeHash = await bcrypt.hash(code, 10);
+      const sendResult = await getSmsProvider().send(phone, purpose, id);
+      const codeHash = sendResult.localCode ? await bcrypt.hash(sendResult.localCode, 10) : '';
       const now = new Date();
       const expiresAt = new Date(now.getTime() + SMS_CODE_TTL_MINUTES * 60 * 1000).toISOString();
 
-      await db.run('UPDATE auth_sms_codes SET consumedAt = ? WHERE phone = ? AND purpose = ? AND consumedAt IS NULL', now.toISOString(), phone, purpose);
-      await db.run(
-        `INSERT INTO auth_sms_codes (id, phone, purpose, codeHash, attempts, expiresAt)
-         VALUES (?, ?, ?, ?, 0, ?)`,
-        id,
-        phone,
-        purpose,
-        codeHash,
-        expiresAt
-      );
+      await db.exec('BEGIN IMMEDIATE');
+      try {
+        await db.run(
+          `UPDATE auth_sms_codes SET consumedAt = ?
+           WHERE phone = ? AND purpose = ? AND consumedAt IS NULL`,
+          now.toISOString(),
+          phone,
+          purpose
+        );
+        await db.run(
+          `INSERT INTO auth_sms_codes (
+             id, phone, purpose, codeHash, attempts, expiresAt, provider, providerBizId
+           ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+          id,
+          phone,
+          purpose,
+          codeHash,
+          expiresAt,
+          sendResult.provider,
+          sendResult.bizId || null
+        );
+        await db.exec('COMMIT');
+      } catch (error) {
+        await db.exec('ROLLBACK');
+        throw error;
+      }
 
       res.json({
         message: '验证码已发送',
@@ -1256,8 +1200,18 @@ app.post('/api/auth/sms/send', async (req, res) => {
       if (error.code === 'SMS_PROVIDER_NOT_CONFIGURED') {
         return res.status(503).json({ message: '短信服务尚未配置，服务器需要先接入短信服务商密钥' });
       }
-      console.error('send sms code failed:', error);
-      return res.status(500).json({ message: '验证码发送失败，请稍后重试' });
+      if (error.code === 'SMS_PROVIDER_SEND_FAILED') {
+        console.error('send sms code failed:', {
+          code: error.code,
+          phone: maskPhone(phone),
+          purpose,
+        });
+        return res.status(503).json({ message: '短信服务暂时不可用，请稍后重试' });
+      }
+      console.error('store sms audit failed:', { phone: maskPhone(phone), purpose, code: error.code });
+      return res.status(500).json({ message: '验证码发送记录保存失败，请稍后重试' });
+    } finally {
+      smsSendInFlight.delete(inFlightKey);
     }
 });
 
@@ -1274,7 +1228,7 @@ app.post('/api/auth/sms/login', async (req, res) => {
     }
 
     try {
-      const verification = await verifySmsCode(db, phone, code, 'login');
+      const verification = await verifyStoredSmsCode(db, phone, code, 'login', getSmsProvider);
       if (!verification.ok) {
         return res.status(verification.status || 400).json({ message: verification.message || '验证码校验失败' });
       }
@@ -1299,8 +1253,11 @@ app.post('/api/auth/sms/login', async (req, res) => {
         token: jwt.sign({ id: user.id, role: user.role, familyId: user.familyId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN }),
         user: { id: user.id, name: user.name, role: user.role, familyId: user.familyId }
       });
-    } catch (error) {
-      console.error('sms login failed:', error);
+    } catch (error: any) {
+      if (error.code === 'SMS_PROVIDER_NOT_CONFIGURED' || error.code === 'SMS_PROVIDER_VERIFY_FAILED') {
+        return res.status(503).json({ message: '短信校验服务暂时不可用，请稍后重试' });
+      }
+      console.error('sms login failed:', { code: error.code });
       return res.status(500).json({ message: '验证码登录失败，请稍后重试' });
     }
 });
@@ -1407,7 +1364,7 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ message: '请输入 6 位短信验证码' });
         }
 
-        const verification = await verifySmsCode(db, email, smsCode, 'register');
+        const verification = await verifyStoredSmsCode(db, email, smsCode, 'register', getSmsProvider);
         if (!verification.ok) {
             return res.status(verification.status || 400).json({ message: verification.message || '短信验证码校验失败' });
         }
@@ -1432,6 +1389,10 @@ app.post('/api/auth/register', async (req, res) => {
         });
     } catch (error: any) {
         console.error('注册错误:', error);
+
+        if (error.code === 'SMS_PROVIDER_NOT_CONFIGURED' || error.code === 'SMS_PROVIDER_VERIFY_FAILED') {
+            return res.status(503).json({ message: '短信校验服务暂时不可用，请稍后重试' });
+        }
 
         // SQLite UNIQUE 约束违反
         if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE')) {

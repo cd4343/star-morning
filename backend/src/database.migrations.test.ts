@@ -1,7 +1,7 @@
 import sqlite3 from 'sqlite3';
 import { open, type Database } from 'sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateRetiredMorningTaskCategories } from './database';
+import { ensureSmsAuditSchema, migrateRetiredMorningTaskCategories } from './database';
 
 describe('Phase 9A morning category migration', () => {
   let db: Database;
@@ -32,5 +32,40 @@ describe('Phase 9A morning category migration', () => {
       { id: 'study-2', category: '学习' },
     ]);
     expect((await db.get('SELECT COUNT(*) AS count FROM schema_versions')).count).toBe(1);
+  });
+});
+
+describe('Phase 14 SMS audit migration', () => {
+  it('adds provider audit fields once without replacing existing verification rows', async () => {
+    const db = await open({ filename: ':memory:', driver: sqlite3.Database });
+    try {
+      await db.exec(`
+        CREATE TABLE auth_sms_codes (
+          id TEXT PRIMARY KEY,
+          phone TEXT NOT NULL,
+          purpose TEXT NOT NULL,
+          codeHash TEXT NOT NULL,
+          attempts INTEGER DEFAULT 0,
+          expiresAt DATETIME NOT NULL,
+          consumedAt DATETIME,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO auth_sms_codes (id, phone, purpose, codeHash, expiresAt)
+        VALUES ('existing', '13800138000', 'register', 'hash', '2099-01-01T00:00:00.000Z');
+      `);
+
+      await ensureSmsAuditSchema(db);
+      await ensureSmsAuditSchema(db);
+
+      const columns = await db.all<{ name: string }[]>('PRAGMA table_info(auth_sms_codes)');
+      expect(columns.map(column => column.name)).toEqual(expect.arrayContaining([
+        'provider',
+        'providerBizId',
+      ]));
+      expect(await db.get('SELECT id, provider FROM auth_sms_codes WHERE id = ?', 'existing'))
+        .toEqual({ id: 'existing', provider: 'local' });
+    } finally {
+      await db.close();
+    }
   });
 });
