@@ -5,6 +5,7 @@ import { useAuth } from './contexts/AuthContext';
 // 懒加载组件 - 减少首屏 JS 体积
 const Register = lazy(() => import('./pages/auth/Register'));
 const Login = lazy(() => import('./pages/auth/Login'));
+const Welcome = lazy(() => import('./pages/auth/Welcome'));
 const CreateFamily = lazy(() => import('./pages/auth/CreateFamily'));
 const SelectUser = lazy(() => import('./pages/auth/SelectUser'));
 const ParentDashboard = lazy(() => import('./pages/parent/ParentDashboard'));
@@ -82,9 +83,11 @@ const PublicOnlyRoute = ({ children }: { children: React.ReactNode }) => {
 const SmartEntry = () => {
   const { isAuthenticated, isLoading } = useAuth();
   const lastPhone = localStorage.getItem('last_phone');
+  const welcomeSeen = localStorage.getItem('starhope_welcome_seen') === '1';
   
   if (isLoading) return <PageLoader />;
   if (isAuthenticated) return <Navigate to="/select-user" replace />;
+  if (!welcomeSeen) return <Navigate to="/welcome" replace />;
   // 如果有保存的手机号，跳转到登录页；否则跳转到注册页
   return <Navigate to={lastPhone ? "/login" : "/register"} replace />;
 };
@@ -101,6 +104,7 @@ function App() {
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path="/" element={<SmartEntry />} />
+        <Route path="/welcome" element={<PublicOnlyRoute><Welcome /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
         <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
         <Route path="/create-family" element={<ProtectedRoute><CreateFamily /></ProtectedRoute>} />

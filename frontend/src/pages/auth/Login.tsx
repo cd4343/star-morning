@@ -219,7 +219,7 @@ export default function Login() {
         {showIntro && <IntroModal onClose={() => setShowIntro(false)} />}
         <div className="p-6 flex flex-col h-full items-center justify-center">
           <div className="text-6xl mb-4">🌟</div>
-          <h1 className="text-2xl font-black text-gray-800 mb-2">星辰早晨</h1>
+          <h1 className="text-2xl font-black text-gray-800 mb-2">星希望</h1>
           <p className="text-gray-400 text-sm mb-8">家庭成长激励系统</p>
 
           <form

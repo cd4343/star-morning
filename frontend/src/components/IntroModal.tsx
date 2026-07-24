@@ -32,7 +32,7 @@ export const IntroModal: React.FC<IntroModalProps> = ({ onClose }) => (
       <div className="flex-1 overflow-y-auto p-6 pt-2 custom-scrollbar">
         <div className="text-center mb-8">
           <div className="text-6xl mb-4 animate-bounce duration-1000">🌟</div>
-          <h2 className="text-2xl font-black text-gray-800">星辰早晨</h2>
+          <h2 className="text-2xl font-black text-gray-800">星希望</h2>
           <div className="h-1 w-12 bg-blue-500 mx-auto mt-2 rounded-full"></div>
           <p className="text-xs text-gray-400 mt-2 uppercase tracking-widest font-bold">家庭成长激励系统</p>
         </div>
