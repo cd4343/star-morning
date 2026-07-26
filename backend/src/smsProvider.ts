@@ -23,11 +23,38 @@ export type SmsProvider = {
 
 type AliyunClient = Pick<DypnsapiClient, 'sendSmsVerifyCode' | 'checkSmsVerifyCode'>;
 type AliyunClientFactory = (config: $OpenApiUtil.Config) => AliyunClient;
+type ProviderError = Error & {
+  code: string;
+  providerCode?: string;
+  providerRequestId?: string;
+};
 
-const providerError = (code: string, message: string) => {
-  const error = new Error(message) as Error & { code: string };
+const providerError = (
+  code: string,
+  message: string,
+  details: Pick<ProviderError, 'providerCode' | 'providerRequestId'> = {}
+) => {
+  const error = new Error(message) as ProviderError;
   error.code = code;
+  if (details.providerCode) error.providerCode = details.providerCode;
+  if (details.providerRequestId) error.providerRequestId = details.providerRequestId;
   return error;
+};
+
+const readProviderErrorDetails = (value: unknown): Pick<ProviderError, 'providerCode' | 'providerRequestId'> => {
+  if (!value || typeof value !== 'object') return {};
+  const record = value as Record<string, unknown>;
+  const data = record.data && typeof record.data === 'object'
+    ? record.data as Record<string, unknown>
+    : {};
+  const providerCode = record.code ?? data.Code ?? data.code;
+  const providerRequestId = record.requestId ?? data.RequestId ?? data.requestId;
+  return {
+    ...(typeof providerCode === 'string' && providerCode !== 'SMS_PROVIDER_SEND_FAILED'
+      ? { providerCode }
+      : {}),
+    ...(typeof providerRequestId === 'string' ? { providerRequestId } : {}),
+  };
 };
 
 const generateLocalCode = () => String(randomInt(100000, 1000000));
@@ -130,7 +157,11 @@ export const createSmsProvider = (
           if (response.body?.code !== 'OK' || response.body.success === false) {
             throw providerError(
               'SMS_PROVIDER_SEND_FAILED',
-              response.body?.message || 'Alibaba Cloud PNVS rejected the SMS request'
+              response.body?.message || 'Alibaba Cloud PNVS rejected the SMS request',
+              {
+                providerCode: response.body?.code,
+                providerRequestId: response.body?.requestId,
+              }
             );
           }
           return {
@@ -139,7 +170,11 @@ export const createSmsProvider = (
           };
         } catch (error) {
           if ((error as { code?: string }).code === 'SMS_PROVIDER_SEND_FAILED') throw error;
-          throw providerError('SMS_PROVIDER_SEND_FAILED', 'Alibaba Cloud PNVS SMS request failed');
+          throw providerError(
+            'SMS_PROVIDER_SEND_FAILED',
+            'Alibaba Cloud PNVS SMS request failed',
+            readProviderErrorDetails(error)
+          );
         }
       },
       async verify(phone, code) {

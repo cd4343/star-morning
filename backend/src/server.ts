@@ -1198,6 +1198,8 @@ app.post('/api/auth/sms/send', async (req, res) => {
       if (error.code === 'SMS_PROVIDER_SEND_FAILED') {
         console.error('send sms code failed:', {
           code: error.code,
+          providerCode: error.providerCode,
+          providerRequestId: error.providerRequestId,
           phone: maskPhone(phone),
           purpose,
         });

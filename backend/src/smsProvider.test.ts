@@ -66,6 +66,22 @@ describe('SMS providers', () => {
     expect(result).toEqual({ provider: 'aliyun-pnvs', bizId: 'biz-123' });
   });
 
+  it('keeps Alibaba diagnostics for operators without exposing them to clients', async () => {
+    const provider = createSmsProvider(aliyunEnv, () => ({
+      sendSmsVerifyCode: vi.fn().mockRejectedValue({
+        code: 'InvalidAccessKeyId.NotFound',
+        requestId: 'request-123',
+      }),
+      checkSmsVerifyCode: vi.fn(),
+    }));
+
+    await expect(provider.send('13800138000', 'register', 'request-2')).rejects.toMatchObject({
+      code: 'SMS_PROVIDER_SEND_FAILED',
+      providerCode: 'InvalidAccessKeyId.NotFound',
+      providerRequestId: 'request-123',
+    });
+  });
+
   it('accepts only PASS from Alibaba PNVS and rejects provider errors loudly', async () => {
     const checkSmsVerifyCode = vi.fn()
       .mockResolvedValueOnce({ body: { code: 'OK', success: true, model: { verifyResult: 'PASS' } } })
