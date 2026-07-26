@@ -1,6 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
+chcp 65001 >nul 2>&1
 title Star Coin - Backend Only (Nginx mode)
 
 if exist "scripts\production_env.local.bat" (
